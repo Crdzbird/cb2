@@ -1,0 +1,217 @@
+# paseto5
+
+A header-only C++20 token library: v5.local (XChaCha20 with a keyed
+BLAKE3 key split and a key-committing tag) and v5.public (Ed25519 plus
+ML-DSA-65, both required), a typed claims layer that validates before it
+trusts, key types that cannot be confused, PASERK-shaped key strings and
+ids, and local key wrapping. It is CipherBird's proposal for a successor
+to PASETO version 4; it is not a paseto-standard version (docs/SPEC.md,
+section 1).
+
+Status: 0.1.0, built and verified on this branch as described at the end
+of this file. Not yet reviewed by anyone but its author.
+
+## Install
+
+Dependencies: libsodium 1.0.18 or later, BLAKE3 (libblake3), and, for
+v5.public, liboqs with libcrypto. On this Mac they come from Homebrew
+and are found through pkg-config.
+
+```
+cmake -S paseto5 -B paseto5/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build paseto5/build
+./paseto5/build/paseto5_tests
+```
+
+Options: `PASETO5_PQ` (default ON; OFF builds without liboqs and without
+v5.public), `PASETO5_BUILD_TESTS`, `PASETO5_BUILD_BENCH` (needs the
+cryptolib headers at `../include`), `PASETO5_FUZZ` (LLVM clang),
+`PASETO5_SANITIZE` (ASan + UBSan, the same flags as the root project).
+
+To use the library, add the `include` directory, define `PASETO5_HAS_PQ`
+when liboqs is linked, and link libsodium, libblake3 and (for PQ) liboqs
+and libcrypto; or `add_subdirectory(paseto5)` and link `paseto5::paseto5`.
+
+## Thirty seconds
+
+```cpp
+#include <paseto5/paseto5.hpp>
+
+auto key = paseto5::LocalKey::generate().value();
+
+paseto5::Claims claims;
+claims.iss = "https://issuer.example";
+claims.aud = "api";
+claims.sub = "user-1";
+claims.exp = now + 3600;
+claims.iat = now;
+(void)claims.set("role", "admin");
+
+auto token = paseto5::Token::seal(key, claims, "request-context");
+
+auto rules = paseto5::ValidationRules()
+    .expect_issuer("https://issuer.example")
+    .expect_audience("api");
+auto opened = paseto5::Token::open(token.value(), key, rules, "request-context");
+if (opened.is_ok()) use(opened.value().sub);
+else log(paseto5::error_name(opened.error()));
+```
+
+The token carries the key's id in its footer; `Token::open` rebuilds that
+footer from the key and refuses any other. `exp` is required unless the
+rules say `allow_missing_exp()`. A token longer than 16 KiB is refused
+before it is read.
+
+For v5.public, `SecretKey::generate()`, `Token::sign(sk, claims)` and
+`Token::verify(token, sk.public_key(), rules)`.
+
+## API
+
+Everything is in namespace `paseto5` and reached through
+`<paseto5/paseto5.hpp>`. Every function returns `Result<T>` (value or
+`Error`) or, at the buffer level, `Status`.
+
+Keys (`keys.hpp`)
+
+- `LocalKey`: 32 bytes. `generate()`, `from_bytes(span)`,
+  `from_paserk("k5.local...")`, `to_paserk()` (wiped string),
+  `paserk_id()` (`k5.lid...`), `key_id()` / `set_key_id()` /
+  `clear_key_id()`, `clone()`. Move-only; no implicit copies.
+- `PublicKey` (1984 bytes) and `SecretKey` (6048 bytes), with liboqs:
+  `SecretKey::generate()`, `public_key()`, the same PASERK functions with
+  `k5.public`, `k5.secret` and `k5.pid`.
+- `KeyWrap::wrap(wrapping, key)` / `unwrap(text, wrapping)`:
+  `k5.local-wrap`.
+
+Tokens
+
+- `Local::seal(key, msg, footer, implicit)` returns the token text in one
+  allocation; `Local::open(token, key, expected_footer, implicit)` returns
+  the message in wiped memory in one allocation. `seal_into` and
+  `open_into` write into caller buffers sized by `token_len` and
+  `open_capacity` and allocate nothing.
+- `Public::sign` / `verify` and `sign_into` / `verify_into` likewise;
+  `verify_into` takes a buffer sized by `verify_capacity`, which includes
+  the scratch for the pre-authentication encoding, so it allocates
+  nothing either.
+
+Claims (`claims.hpp`)
+
+- `Claims`: `iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti` as optionals
+  (times as Unix seconds, written as RFC 3339), `set(name, string)`,
+  `set_json(name, json)`, `get(name)`, `get_json(name)`, `to_json()`,
+  `from_json()`.
+- `ValidationRules`: `expect_issuer`, `expect_audience`,
+  `expect_subject`, `with_clock_skew`, `with_max_token_bytes`,
+  `allow_missing_exp`, `at(now)`; `check(claims)`.
+- `Token::seal` / `open` / `sign` / `verify` / `peek_key_id` /
+  `footer_for`.
+- `Rfc3339::parse` / `format`; `json::Reader` / `json::Writer`.
+
+Errors: `invalid` (anything token-dependent before authentication, one
+verdict), `too_large`, `argument`, `internal`, `unavailable`, and after
+authentication `claims_malformed`, `missing_exp`, `expired`,
+`not_yet_valid`, `issued_in_future`, `issuer_mismatch`,
+`audience_mismatch`, `subject_mismatch`.
+
+## Layout
+
+```
+include/paseto5/paseto5.hpp        single include
+include/paseto5/result.hpp         Result and Error
+include/paseto5/keys.hpp           LocalKey, PublicKey, SecretKey, PASERK forms and ids
+include/paseto5/local.hpp          v5.local
+include/paseto5/public.hpp         v5.public (PASETO5_HAS_PQ)
+include/paseto5/keywrap.hpp        k5.local-wrap
+include/paseto5/json.hpp           strict JSON reader and writer
+include/paseto5/claims.hpp         Claims, ValidationRules, Token, Rfc3339
+include/paseto5/detail/            base64url, PAE, BLAKE3 and liboqs wrappers, the local core, secure memory
+tests/                             runner, cases, gen_vectors.cpp, vectors/*.json
+fuzz/                              fuzz_local, fuzz_public, fuzz_claims
+bench/                             bench_main.cpp, bench_ref.cpp (cryptolib v4.local and cb1.local)
+docs/SPEC.md                       wire format, rationale, threat model
+docs/SECURITY.md                   claims and limits
+```
+
+## Benchmark
+
+`paseto5_bench`, Release build, Apple clang 21, this Mac (Apple silicon),
+idle machine, 2026-11-03. Each cell is the median of seven repeats of at
+least 200 ms of back-to-back calls, in time per operation; a 44-byte
+footer, an empty implicit assertion, the same libsodium 1.0.22 and
+libblake3 1.8.7 under every implementation. Two runs agreed within a few
+percent; this is the first.
+
+| implementation | seal 64 B | seal 1 KiB | seal 64 KiB | open 64 B | open 1 KiB | open 64 KiB |
+|---|---:|---:|---:|---:|---:|---:|
+| paseto5 v5.local (caller buffers) | 2631 ns | 6567 ns | 204.2 us | 1225 ns | 5168 ns | 209.0 us |
+| paseto5 v5.local (allocating) | 2699 ns | 6638 ns | 209.8 us | 1303 ns | 5381 ns | 226.6 us |
+| cryptolib v4.local | 1938 ns | 5641 ns | 250.1 us | 1921 ns | 5739 ns | 257.5 us |
+| cryptolib cb1.local | 1271 ns | 5096 ns | 211.9 us | 1206 ns | 5176 ns | 217.4 us |
+
+64 KiB throughput (seal / open): paseto5 306 / 299 MB/s, v4.local
+250 / 243 MB/s, cb1.local 295 / 287 MB/s.
+
+Reading: open is at parity with cb1 at every size and 36 percent faster
+than v4.local at 64 B; at 64 KiB paseto5 is the fastest of the three on
+both sides (one keyed XOF call for the key split, the PAE streamed
+through a buffered sink). Seal is 1.4 us slower than cb1 at every size,
+and that 1.4 us is exactly the per-token `randombytes_buf` call that the
+design requires in place of cb1's per-thread nonce batch (docs/SPEC.md,
+section 12, question 5). The allocating convenience functions cost a few
+percent over the caller-buffer functions for one allocation. The absolute
+numbers depend on how the Homebrew libblake3 was built; the comparison
+does not, since all three share it.
+
+## What is covered and what is not
+
+Covered on this branch: v5.local, v5.public, the claims layer, key types
+and ids, k5.local-wrap, the vector files, the official-v4 cross-check of
+PAE and base64url, tests under ASan and UBSan, the three fuzz targets, a
+build without liboqs, and the benchmark above.
+
+Not covered: a C ABI and language bindings (the repository's bridge is
+not touched), interoperability with any other implementation (there is
+none), a constant-time probe run under Valgrind (the root project has a
+ct probe; paseto5 does not yet), review by a second person, and the
+open questions in docs/SPEC.md section 12.
+
+## Verification performed
+
+All on this Mac on 2026-11-03, from the branch as committed.
+
+- Release build (`cmake -S paseto5 -B paseto5/build -G Ninja`, Apple
+  clang 21, `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+  -Wshadow`): zero warnings. `paseto5_tests`: 44 cases, 44 passed,
+  about 23,900 checks (the exact count varies with the random lengths in
+  the codec agreement test).
+- The same with `-DPASETO5_SANITIZE=ON` (AddressSanitizer + UBSan, no
+  recovery): 44 of 44, no reports. The sanitizer build caught one bug
+  during development, an iterator pair taken from two temporaries in
+  the vector generator, which is fixed; the library itself produced no
+  report at any point.
+- `-DPASETO5_PQ=OFF` (no liboqs): builds, 35 of 35 cases, v5.public
+  absent as specified.
+- Known-answer vectors under `tests/vectors`: 11 v5.local success
+  vectors reproduced byte for byte and 15 failure vectors rejected, 99
+  single-character tamper cases of a 99-character token all rejected;
+  6 v5.public success vectors verified and 14 failure vectors rejected,
+  38 sampled tamper cases rejected and every byte of a 4512-character
+  token swept live; 20 claims-layer vectors with the recorded verdicts;
+  the PASERK vectors reproduced.
+- Official PASETO v4 vectors (`tests/vectors/paseto/v4.json` in the
+  repository): all 9 v4.local tokens reproduced byte for byte and all
+  3 v4.public tokens reproduced and verified through paseto5's own PAE,
+  base64url, token splitting and footer comparison, and the 5 failure
+  vectors rejected. This validates the two building blocks paseto5
+  shares with v4.
+- libFuzzer (`/opt/homebrew/opt/llvm/bin/clang++`, `-fsanitize=fuzzer,
+  address,undefined`): `fuzz_local` 146,067 runs in 131 s, `fuzz_public`
+  143,169 runs in 131 s, `fuzz_claims` 10,489,676 runs in 121 s; no
+  crash, leak or timeout. A one-minute confirmation campaign per target
+  was run again from the saved corpora after the last header edit.
+- Benchmark: the table above, two runs.
+
+Not verified here: behaviour on Linux or Windows, the constant-time
+property under a dynamic probe (Valgrind is not available on this Mac),
+and any review by a second person.
