@@ -305,6 +305,7 @@ inline void help(Session& s) {
         "                                 [replay] [no-exp] [max=] [implicit=]  open or verify\n"
         "  peek <token>                   header, body size, footer and kid, nothing verified;\n"
         "                                 for cb2.public the message and claims, in clear, unverified\n"
+        "  lookup <token>                 the stored keys whose id matches the footer's kid, unverified\n"
         "  tamper <token> [index]         flip one character (default: last of the body)\n"
         "  wrap <wrapping key> <key>      kcb2.local-wrap string\n"
         "  unwrap <wrapping key> <string> [name]\n"
@@ -791,6 +792,43 @@ inline bool cmd_peek(Session& s, const Args& a) {
     return true;
 }
 
+/// The stored keys whose key id equals the kid in a token's footer, read
+/// without verifying: how a verifier with several keys picks one.
+inline bool cmd_lookup(Session& s, const Args& a) {
+    if (a.size() < 2) return fail(s, "lookup <token>");
+    const auto kid = cb2::Token::peek_key_id(a[1]);
+    if (!kid) {
+        say(s, "kid", "none");
+        say(s, "key", "none: no key id in the footer");
+        return true;
+    }
+    say(s, "kid", kid->value);
+    bool found = false;
+    for (const auto& [name, k] : s.local) {
+        if (k.key_id() && *k.key_id() == kid->value) {
+            say(s, "key", name + " (local)");
+            found = true;
+        }
+    }
+#ifdef CB2_HAS_PQ
+    for (const auto& [name, k] : s.secret) {
+        if (k.key_id() && *k.key_id() == kid->value) {
+            say(s, "key", name + " (secret)");
+            found = true;
+        }
+    }
+    for (const auto& [name, k] : s.pub) {
+        if (k.key_id() && *k.key_id() == kid->value) {
+            say(s, "key", name + " (public)");
+            found = true;
+        }
+    }
+#endif
+    if (!found) say(s, "key", "none: no stored key has that id");
+    say(s, "note", "the kid is read without verifying; the key it names must still verify the token");
+    return true;
+}
+
 inline bool cmd_tamper(Session& s, const Args& a) {
     if (a.size() < 2) return fail(s, "tamper <token> [index]");
     std::string t = a[1];
@@ -874,6 +912,7 @@ inline bool run(Session& s, const std::string& line) {
     if (c == "claims") return cmd_claims(s, a);
     if (c == "check") return cmd_check(s, a);
     if (c == "peek") return cmd_peek(s, a);
+    if (c == "lookup") return cmd_lookup(s, a);
     if (c == "tamper") return cmd_tamper(s, a);
     if (c == "wrap") return cmd_wrap(s, a);
     if (c == "unwrap") return cmd_unwrap(s, a);

@@ -32,6 +32,14 @@ check alice $ iss=https://issuer.example aud=api
 assert expired
 check alice $ iss=https://issuer.example aud=api skew=120
 assert ok
+echo -- a verifier with several keys picks one by the footer's kid
+keygen local bob
+claims bob iss=https://issuer.example aud=api exp=+3600
+lookup $
+check bob $ iss=https://issuer.example aud=api
+assert ok
+check alice $ iss=https://issuer.example aud=api
+assert invalid
 echo -- custom claims: strings with =, any JSON value with :=
 claims alice iss=https://issuer.example aud=api exp=+3600 role=admin "scopes:=[\"read\",\"write\"]" level:=3 "exp:=1"
 assert argument

@@ -125,7 +125,8 @@ cb2> check alice $ iss=https://issuer.example aud=api
 ```
 
 Custom claims are `name=value` for a string and `name:=json` for any
-JSON value; `show <key>` prints a stored key's kcb2 strings.
+JSON value; `show <key>` prints a stored key's kcb2 strings and `lookup <token>`
+names the stored keys whose id matches the footer's kid, unverified.
 Inside double quotes `\uXXXX` and `\u{X...}` carry any code point and
 `\xNN` a raw byte, so a script stays ASCII while it exercises
 international text; `text <string>`
@@ -147,7 +148,8 @@ guided builder: keys, a token form (registered claims, custom claims of
 any JSON type, footer and implicit assertion, or a raw message), a token
 inspector that colours the header, body and footer, reads them
 without verifying and, for a public token, decodes the claims in clear
-with a warning that nothing in them is trusted yet, a verifier with every rule, key wrapping and
+with a warning that nothing in them is trusted yet, a verifier with every rule, key lookup by the
+footer's kid (with a forged kid to follow), key wrapping and
 unwrapping, and an international-text checker, plus scenarios that fill the forms and run them. Every button
 runs a playground command, and the transcript beside the forms shows
 the command and the library's answer, so what the page does can be

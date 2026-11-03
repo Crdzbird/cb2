@@ -189,6 +189,7 @@
         fillSelect($("issue-key"), issuers, true);
         fillSelect($("verify-key"), verifiers, true);
         fillSelect($("kid-key"), names, true);
+        fillSelect($("forge-key"), names, true);
         fillSelect($("wrap-key"), locals, true);
         fillSelect($("wrap-target"), locals, true);
         fillSelect($("unwrap-key"), locals, true);
@@ -459,8 +460,8 @@
         resultBox(box, verdict, rows, note);
     }
 
-    function verifyCommand() {
-        var key = $("verify-key").value;
+    function verifyCommand(keyOverride) {
+        var key = keyOverride || $("verify-key").value;
         var t = tokenBox.value.trim();
         if (key === "" || t === "") return null;
         if (verifyMode() === "raw") {
@@ -512,6 +513,87 @@
                 box.appendChild(t);
             }
         }
+    }
+
+    var foundKey = "";
+
+    function lookup() {
+        var t = tokenBox.value.trim();
+        var dl = $("lookup-result");
+        dl.textContent = "";
+        $("lookup-verdict").hidden = true;
+        foundKey = "";
+        if (t === "") {
+            dl.appendChild(el("dt", "", "token"));
+            dl.appendChild(el("dd", "", "there is no token in step 3"));
+            return;
+        }
+        var f = exec("lookup " + tokenArg(t));
+        var all = f.all || [];
+        for (var i = 0; i < all.length; i++) {
+            dl.appendChild(el("dt", "", all[i][0]));
+            var dd = el("dd", "mono", all[i][1]);
+            if (all[i][0] === "key") {
+                var m = /^(\S+) \((local|secret|public)\)$/.exec(all[i][1]);
+                if (m && foundKey === "") foundKey = m[1];
+                dd.className += m ? " good" : " refused";
+            }
+            dl.appendChild(dd);
+        }
+    }
+
+    function lookupVerify() {
+        var box = $("lookup-verdict");
+        if (foundKey === "") {
+            resultBox(box, "no_key", [], "No key was found for this token: look it up first, or there is no stored key with its kid. A verifier stops here, before any cryptography.");
+            return;
+        }
+        $("verify-key").value = foundKey;
+        var command = verifyCommand(foundKey);
+        if (command === null) {
+            resultBox(box, "argument", [], "There is no token in step 3.");
+            return;
+        }
+        var f = exec(command);
+        var rows = [["key", foundKey]];
+        if (f.rules) rows.push(["rules", f.rules]);
+        var note = "";
+        if (f.lines.length && f.lines[0].indexOf("error:") === 0) note = f.lines[0];
+        resultBox(box, f.verdict || "argument", rows, note);
+        if (f.claims) {
+            var t = claimsTable(f.claims);
+            if (t) box.appendChild(t);
+        }
+    }
+
+    function base64url(text) {
+        var bytes = new TextEncoder().encode(text);
+        var bin = "";
+        for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    }
+
+    function kidOf(name) {
+        for (var i = 0; i < keys.length; i++) {
+            if (keys[i].name === name) return keys[i].kid;
+        }
+        return "none";
+    }
+
+    function forge() {
+        var t = tokenBox.value.trim();
+        var name = $("forge-key").value;
+        if (t === "" || name === "") return;
+        var header = t.indexOf("cb2.local.") === 0 ? "cb2.local." : t.indexOf("cb2.public.") === 0 ? "cb2.public." : "";
+        if (header === "") return;
+        var kid = kidOf(name);
+        var rest = t.substring(header.length);
+        var dot = rest.indexOf(".");
+        var body = dot < 0 ? rest : rest.substring(0, dot);
+        var footer = kid === "none" ? "" : "." + base64url(JSON.stringify({kid: kid}));
+        append("# the footer of the token is rewritten by the page to name " + name + (kid === "none" ? " (no kid: the footer is removed)" : ""), "cmd");
+        setToken(header + body + footer);
+        lookup();
     }
 
     function wrapKey() {
@@ -717,6 +799,30 @@
             setRules(RULES);
             verify();
         }},
+        {label: "key rotation by kid", hint: "Two keys with their own ids. A token issued under the newer key names it in the footer; the lookup picks that key and the verification passes. Issue under the older key in step 2 and look up again.", go: function () {
+            scenarioStart();
+            ensureLocal("alice-2026");
+            exec("kid alice " + quote("prod-2025"));
+            exec("kid alice-2026 " + quote("prod-2026"));
+            $("issue-key").value = "alice-2026";
+            setClaims(BASE);
+            issue();
+            setRules(RULES);
+            lookup();
+            lookupVerify();
+            $("lookup-verdict").scrollIntoView({behavior: "smooth", block: "nearest"});
+        }},
+        {label: "a forged kid", hint: "The token was issued under alice, then its footer was rewritten to name vault. The lookup follows the kid, as it must, and picks vault; the verification under vault is invalid, since the footer is authenticated and the body was never sealed under vault.", go: function () {
+            scenarioStart();
+            ensureLocal("vault");
+            setClaims(BASE);
+            issue();
+            setRules(RULES);
+            $("forge-key").value = "vault";
+            forge();
+            lookupVerify();
+            $("lookup-verdict").scrollIntoView({behavior: "smooth", block: "nearest"});
+        }},
         {label: "wrap a key", hint: "The key alice is wrapped under the key vault and unwrapped again as alice-again. The two have the same kcb2.lid in step 1: it is the same key. Flip one character of the wrapped string and unwrap again to see invalid.", go: function () {
             ensureLocal("alice");
             ensureLocal("vault");
@@ -845,6 +951,9 @@
         });
         $("token-clear").addEventListener("click", function () { setToken(""); });
 
+        $("lookup-run").addEventListener("click", lookup);
+        $("lookup-verify").addEventListener("click", lookupVerify);
+        $("forge-run").addEventListener("click", forge);
         $("wrap-run").addEventListener("click", wrapKey);
         $("unwrap-run").addEventListener("click", unwrapKey);
         $("wrap-tamper").addEventListener("click", tamperWrap);
@@ -900,6 +1009,9 @@
             $("issue-result").hidden = true;
             $("verify-result").hidden = true;
             $("text-result").textContent = "";
+            $("lookup-result").textContent = "";
+            $("lookup-verdict").hidden = true;
+            foundKey = "";
             $("wrap-result").hidden = true;
             $("wrap-text").value = "";
             $("scenario-hint").textContent = "";

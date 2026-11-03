@@ -163,8 +163,27 @@
     <div id="verify-result" class="result" hidden></div>
   </section>
 
+  <section class="card" id="card-lookup">
+    <h2><span class="num">5</span> Key lookup by kid</h2>
+    <p class="hint">A verifier that holds several keys reads the kid from the footer without verifying anything, picks the key with that id from step 1, and only then verifies. An unknown kid is refused before any cryptography. A forged kid picks the wrong key, and the token is invalid, because the footer is authenticated too.</p>
+    <p class="row">
+      <button type="button" id="lookup-run" class="primary">look up the key for the token in step 3</button>
+      <button type="button" id="lookup-verify">verify with the key found, under the rules of step 4</button>
+    </p>
+    <dl id="lookup-result" class="peek"></dl>
+    <div id="lookup-verdict" class="result" hidden></div>
+    <details>
+      <summary>Forge the kid</summary>
+      <p class="hint">Rewrites the footer of the token in step 3 to name another key, without touching the body. The kid is unverified, so the lookup follows it; the verification does not.</p>
+      <div class="grid2">
+        <label>name this key in the footer <select id="forge-key"></select></label>
+        <p class="row"><button type="button" id="forge-run">forge</button></p>
+      </div>
+    </details>
+  </section>
+
   <section class="card" id="card-wrap">
-    <h2><span class="num">5</span> Key wrapping</h2>
+    <h2><span class="num">6</span> Key wrapping</h2>
     <p class="hint">A local key wrapped under another local key becomes a <code>kcb2.local-wrap</code> string that can be stored or sent. Only the wrapping key unwraps it, and one changed character makes it invalid. The unwrapped key is the same key: compare the kcb2.lid in step 1.</p>
     <div class="grid3">
       <label>wrapping key <select id="wrap-key"></select></label>
@@ -184,7 +203,7 @@
   </section>
 
   <section class="card" id="card-text">
-    <h2><span class="num">6</span> International text</h2>
+    <h2><span class="num">7</span> International text</h2>
     <p class="hint">Identifiers (iss, sub, aud, jti and claim names) are UTF-8 in any script, compared byte for byte, with no invisible or formatting characters. Type anything, or try one of these.</p>
     <p class="row" id="text-presets"></p>
     <div class="grid2">
