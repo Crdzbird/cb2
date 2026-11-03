@@ -4,3 +4,6 @@ corpus-*/
 crash-*
 leak-*
 timeout-*
+cmake-build-*/
+.idea/
+deps/

@@ -10,7 +10,7 @@ endif()
 
 option(PASETO5_PQ "Build v5.public with the Ed25519 + ML-DSA-65 hybrid (requires liboqs)" ON)
 option(PASETO5_BUILD_TESTS "Build the test runner and the vector generator" ON)
-option(PASETO5_BUILD_BENCH "Build the benchmark against cryptolib's v4.local and cb1.local" ON)
+option(PASETO5_BUILD_BENCH "Build the benchmark against CipherBird's v4.local and cb1.local (needs PASETO5_CRYPTOLIB_INCLUDE)" ON)
 option(PASETO5_BUILD_EXAMPLES "Build the runnable examples under examples/" ON)
 option(PASETO5_FUZZ "Build the libFuzzer targets (LLVM clang only)" OFF)
 option(PASETO5_SANITIZE "Build tests and bench with AddressSanitizer + UBSan" OFF)
@@ -81,7 +81,7 @@ if(PASETO5_BUILD_TESTS)
     target_compile_definitions(paseto5_tests PRIVATE
         PASETO5_TEST_NONCE=1
         PASETO5_VECTOR_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors"
-        PASETO5_V4_VECTORS="${CMAKE_CURRENT_SOURCE_DIR}/../tests/vectors/paseto/v4.json")
+        PASETO5_V4_VECTORS="${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/paseto-v4/v4.json")
     add_test(NAME paseto5_tests COMMAND paseto5_tests)
 
     add_executable(paseto5_gen_vectors tests/gen_vectors.cpp)
@@ -102,16 +102,17 @@ if(PASETO5_BUILD_EXAMPLES)
 endif()
 
 if(PASETO5_BUILD_BENCH)
-    set(_cryptolib_include "${CMAKE_CURRENT_SOURCE_DIR}/../include")
-    if(EXISTS "${_cryptolib_include}/cryptolib/paseto.hpp")
+    set(PASETO5_CRYPTOLIB_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/../cryptolib/include" CACHE PATH
+        "CipherBird's include directory, for the reference benchmark against v4.local and cb1.local")
+    if(EXISTS "${PASETO5_CRYPTOLIB_INCLUDE}/cryptolib/paseto.hpp")
         add_executable(paseto5_bench bench/bench_main.cpp bench/bench_ref.cpp)
         target_link_libraries(paseto5_bench PRIVATE paseto5::paseto5)
-        target_include_directories(paseto5_bench PRIVATE "${_cryptolib_include}")
+        target_include_directories(paseto5_bench PRIVATE "${PASETO5_CRYPTOLIB_INCLUDE}")
         target_compile_definitions(paseto5_bench PRIVATE CRYPTOLIB_HAS_BLAKE3=1)
         target_compile_options(paseto5_bench PRIVATE -O2 ${PASETO5_SANITIZE_FLAGS})
         target_link_options(paseto5_bench PRIVATE ${PASETO5_SANITIZE_FLAGS})
     else()
-        message(STATUS "paseto5: ../include/cryptolib not found; the benchmark is skipped")
+        message(STATUS "paseto5: no cryptolib/paseto.hpp under ${PASETO5_CRYPTOLIB_INCLUDE}; the benchmark is skipped")
     endif()
 endif()
 

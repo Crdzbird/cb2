@@ -6,31 +6,37 @@ ML-DSA-65, both required), a typed claims layer that validates before it
 trusts, key types that cannot be confused, PASERK-shaped key strings and
 ids, and local key wrapping. It is CipherBird's proposal for a successor
 to PASETO version 4; it is not a paseto-standard version (docs/SPEC.md,
-section 1).
+section 1). It lives in its own repository so that the format can be
+versioned, reviewed and audited on its own; CipherBird consumes it for
+its C ABI and language bindings.
 
-Status: 0.1.0, built and verified on this branch as described at the end
-of this file. Not yet reviewed by anyone but its author.
+Status: 0.1.0, built and verified as described at the end of this file. Not yet reviewed by anyone but its author.
 
 ## Install
 
 Dependencies: libsodium 1.0.18 or later, BLAKE3 (libblake3), and, for
-v5.public, liboqs with libcrypto. On this Mac they come from Homebrew
-and are found through pkg-config.
+v5.public, liboqs with libcrypto. On macOS they come from Homebrew
+(`brew install libsodium blake3 liboqs openssl@3`); on Linux the CI job
+takes libsodium and libcrypto from the distribution and builds BLAKE3 and
+liboqs from pinned sources with `scripts/ci/linux_deps.sh`. All of them
+are found through pkg-config.
 
 ```
-cmake -S paseto5 -B paseto5/build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build paseto5/build
-./paseto5/build/paseto5_tests
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./build/paseto5_tests
 ```
 
 Options: `PASETO5_PQ` (default ON; OFF builds without liboqs and without
-v5.public), `PASETO5_BUILD_TESTS`, `PASETO5_BUILD_BENCH` (needs the
-cryptolib headers at `../include`), `PASETO5_FUZZ` (LLVM clang),
-`PASETO5_SANITIZE` (ASan + UBSan, the same flags as the root project).
+v5.public), `PASETO5_BUILD_TESTS`, `PASETO5_BUILD_BENCH` (needs
+CipherBird's headers; `PASETO5_CRYPTOLIB_INCLUDE` names them, default
+`../cryptolib/include`), `PASETO5_FUZZ` (LLVM clang), `PASETO5_SANITIZE`
+(ASan + UBSan).
 
 To use the library, add the `include` directory, define `PASETO5_HAS_PQ`
 when liboqs is linked, and link libsodium, libblake3 and (for PQ) liboqs
-and libcrypto; or `add_subdirectory(paseto5)` and link `paseto5::paseto5`.
+and libcrypto; or add this repository with `add_subdirectory` or
+`FetchContent` and link `paseto5::paseto5`.
 
 ## Thirty seconds
 
@@ -91,7 +97,7 @@ program asserts exactly that, exits non-zero otherwise, and runs in CI
 as a test. Run it and look at how the spoofed strings render:
 
 ```
-./paseto5/build/paseto5_example_text
+./build/paseto5_example_text
 ```
 
 `PASETO5_BUILD_EXAMPLES` (default ON) controls the target.
@@ -169,10 +175,10 @@ include/paseto5/text.hpp           strict UTF-8 decoder and the identifier polic
 include/paseto5/json.hpp           strict JSON reader and writer
 include/paseto5/claims.hpp         Claims, ValidationRules, Token, Rfc3339
 include/paseto5/detail/            base64url, PAE, BLAKE3 and liboqs wrappers, the local core, secure memory
-tests/                             runner, cases, gen_vectors.cpp, vectors/*.json
+tests/                             runner, cases, gen_vectors.cpp, vectors/*.json, vectors/paseto-v4/ (the official v4 vectors, ISC)
 examples/international_text.cpp    the text policy against a legacy check, eight scenarios, self-checking
 fuzz/                              fuzz_local, fuzz_public, fuzz_claims
-bench/                             bench_main.cpp, bench_ref.cpp (cryptolib v4.local and cb1.local)
+bench/                             bench_main.cpp, bench_ref.cpp (CipherBird's v4.local and cb1.local)
 docs/SPEC.md                       wire format, rationale, threat model
 docs/SECURITY.md                   claims and limits
 ```
@@ -209,30 +215,31 @@ does not, since all three share it.
 
 ## What is covered and what is not
 
-Covered on this branch: v5.local, v5.public, the claims layer, key types
+Covered: v5.local, v5.public, the claims layer, key types
 and ids, k5.local-wrap, international text in claims, footers and key ids
 (with the self-checking example above), the hardening from the
 adversarial review (rules that must declare their audience and issuer,
 the raw-layer size limit, the replay check, the weak-key and secret-key
 import checks, the ML-DSA context string), the vector files, the official-v4 cross-check of
 PAE and base64url, tests under ASan and UBSan, the three fuzz targets, a
-build without liboqs, and the benchmark above. The repository's CI runs
-the same matrix on every push and pull request: the `paseto5` job
-(macOS: release with v5.public, ASan and UBSan, a build without liboqs,
-one minute of each fuzz target) and the `paseto5_linux` job (Ubuntu,
-v5.local only against the pinned static dependency set).
+build without liboqs, and the benchmark above. CI runs the same matrix
+on every push and pull request: the `macos` job (release with v5.public,
+ASan and UBSan, a build without liboqs, one minute of each fuzz target)
+and the `linux` job (Ubuntu 24.04 with gcc, BLAKE3 and liboqs built from
+pinned sources, release with v5.public, a build without liboqs, ASan and
+UBSan).
 
-Not covered: a C ABI and language bindings (the repository's bridge is
-not touched), interoperability with any other implementation (there is
-none), a constant-time probe run under Valgrind (the root project has a
-ct probe; paseto5 does not yet), review by a second person, and the
-open questions in docs/SPEC.md section 12.
+Not covered: a C ABI and language bindings (those are CipherBird's,
+which consumes this library), interoperability with any other
+implementation (there is none), a constant-time probe run under Valgrind
+(CipherBird has one; paseto5 does not yet), review by a second person,
+and the open questions in docs/SPEC.md section 12.
 
 ## Verification performed
 
-All on this Mac on 2026-11-03, from the branch as committed.
+All on an Apple silicon Mac on 2026-11-03, from the tree as committed.
 
-- Release build (`cmake -S paseto5 -B paseto5/build -G Ninja`, Apple
+- Release build (`cmake -S . -B build -G Ninja`, Apple
   clang 21, `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
   -Wshadow`): zero warnings. `paseto5_tests`: 59 cases, 59 passed,
   about 24,600 checks (the exact count varies with the random lengths in

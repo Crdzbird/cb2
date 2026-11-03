@@ -14,8 +14,8 @@
  * output contains the international and the invisible characters as they
  * are, which is the point: look at how the spoofed strings render.
  *
- * Build: cmake -S paseto5 -B paseto5/build && cmake --build paseto5/build
- * Run:   ./paseto5/build/paseto5_example_text
+ * Build: cmake -S . -B build && cmake --build build
+ * Run:   ./build/paseto5_example_text
  */
 
 #include <paseto5/paseto5.hpp>
