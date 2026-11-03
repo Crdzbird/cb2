@@ -162,8 +162,28 @@
     <div id="verify-result" class="result" hidden></div>
   </section>
 
+  <section class="card" id="card-wrap">
+    <h2><span class="num">5</span> Key wrapping</h2>
+    <p class="hint">A local key wrapped under another local key becomes a <code>kcb2.local-wrap</code> string that can be stored or sent. Only the wrapping key unwraps it, and one changed character makes it invalid. The unwrapped key is the same key: compare the kcb2.lid in step 1.</p>
+    <div class="grid3">
+      <label>wrapping key <select id="wrap-key"></select></label>
+      <label>key to wrap <select id="wrap-target"></select></label>
+      <p class="row"><button type="button" id="wrap-run" class="primary">wrap</button></p>
+    </div>
+    <label>kcb2.local-wrap <textarea id="wrap-text" rows="3" spellcheck="false" placeholder="wrap a key above, or paste a kcb2.local-wrap string"></textarea></label>
+    <div class="grid3">
+      <label>unwrap with <select id="unwrap-key"></select></label>
+      <label>store as <input id="unwrap-name" type="text" placeholder="alice-again" spellcheck="false"></label>
+      <p class="row">
+        <button type="button" id="unwrap-run">unwrap</button>
+        <button type="button" id="wrap-tamper">flip one character</button>
+      </p>
+    </div>
+    <div id="wrap-result" class="result" hidden></div>
+  </section>
+
   <section class="card" id="card-text">
-    <h2><span class="num">5</span> International text</h2>
+    <h2><span class="num">6</span> International text</h2>
     <p class="hint">Identifiers (iss, sub, aud, jti and claim names) are UTF-8 in any script, compared byte for byte, with no invisible or formatting characters. Type anything, or try one of these.</p>
     <p class="row" id="text-presets"></p>
     <div class="grid2">

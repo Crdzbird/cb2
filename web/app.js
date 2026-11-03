@@ -94,7 +94,7 @@
         return fields;
     }
 
-    function exec(text, silent) {
+    function exec(text, silent, keepToken) {
         var trimmed = text.trim();
         if (trimmed === "") return {lines: []};
         if (!silent) append("> " + trimmed, "cmd");
@@ -111,11 +111,11 @@
                 append(l, cls);
             }
         }
+        var head = trimmed.split(/\s+/)[0];
         if (f.token !== undefined) {
             lastToken = f.token;
-            setToken(f.token);
+            if (!keepToken && head !== "wrap") setToken(f.token);
         }
-        var head = trimmed.split(/\s+/)[0];
         if (head === "keygen" || head === "import" || head === "unwrap" || head === "kid") refreshKeys();
         return f;
     }
@@ -182,9 +182,16 @@
             verifiers.push(keys[j].name);
             if (keys[j].kind !== "public") issuers.push(keys[j].name);
         }
+        var locals = [];
+        for (var l = 0; l < keys.length; l++) {
+            if (keys[l].kind === "local") locals.push(keys[l].name);
+        }
         fillSelect($("issue-key"), issuers, true);
         fillSelect($("verify-key"), verifiers, true);
         fillSelect($("kid-key"), names, true);
+        fillSelect($("wrap-key"), locals, true);
+        fillSelect($("wrap-target"), locals, true);
+        fillSelect($("unwrap-key"), locals, true);
     }
 
     function keyKind(name) {
@@ -461,6 +468,48 @@
         }
     }
 
+    function wrapKey() {
+        var w = $("wrap-key").value;
+        var k = $("wrap-target").value;
+        var box = $("wrap-result");
+        if (w === "" || k === "") {
+            resultBox(box, "argument", [], "Make two local keys first: one to wrap and one to wrap it with.");
+            return;
+        }
+        var f = exec("wrap " + arg(w) + " " + arg(k));
+        if (f.token !== undefined) $("wrap-text").value = f.token;
+        var rows = [];
+        if (f.length) rows.push(["length", f.length + " characters"]);
+        resultBox(box, f.verdict || "argument", rows, f.verdict === "ok" ? "Unwrap it below, under the same wrapping key, or flip a character first." : "");
+    }
+
+    function unwrapKey() {
+        var w = $("unwrap-key").value;
+        var t = $("wrap-text").value.trim();
+        var box = $("wrap-result");
+        if (w === "" || t === "") {
+            resultBox(box, "argument", [], t === "" ? "There is no kcb2.local-wrap string to unwrap." : "Pick a wrapping key.");
+            return;
+        }
+        var name = $("unwrap-name").value.trim();
+        var f = exec("unwrap " + arg(w) + " " + arg(t) + (name === "" ? "" : " " + arg(name)));
+        var rows = [];
+        if (f.key) rows.push(["stored as", f.key]);
+        if (f["kcb2.lid"]) rows.push(["kcb2.lid", f["kcb2.lid"]]);
+        if (f.kid) rows.push(["kid", f.kid]);
+        var note = "";
+        if (f.lines.length && f.lines[0].indexOf("error:") === 0) note = f.lines[0];
+        if (f.verdict === "ok") note = "The key is in step 1 now and can issue and verify like the original.";
+        resultBox(box, f.verdict || "argument", rows, note);
+    }
+
+    function tamperWrap() {
+        var t = $("wrap-text").value.trim();
+        if (t === "") return;
+        var f = exec("tamper " + (t === lastToken ? "$" : arg(t)), false, true);
+        if (f.token !== undefined) $("wrap-text").value = f.token;
+    }
+
     function inspectText(value) {
         var f = exec("text " + quote(value));
         var dl = $("text-result");
@@ -622,6 +671,17 @@
             setRules(RULES);
             verify();
         }},
+        {label: "wrap a key", hint: "The key alice is wrapped under the key vault and unwrapped again as alice-again. The two have the same kcb2.lid in step 1: it is the same key. Flip one character of the wrapped string and unwrap again to see invalid.", go: function () {
+            ensureLocal("alice");
+            ensureLocal("vault");
+            $("wrap-key").value = "vault";
+            $("wrap-target").value = "alice";
+            wrapKey();
+            $("unwrap-key").value = "vault";
+            $("unwrap-name").value = "alice-again";
+            unwrapKey();
+            $("wrap-result").scrollIntoView({behavior: "smooth", block: "nearest"});
+        }},
         {label: "signed token (Ed25519 + ML-DSA-65)", pq: true, hint: "A signing pair signs; its public half verifies. Both signatures must verify: a classical one and a post-quantum one.", go: function () {
             ensureSigner("issuer");
             $("issue-key").value = "issuer";
@@ -673,7 +733,7 @@
             b.addEventListener("click", function () {
                 $("scenario-hint").textContent = s.hint;
                 s.go();
-                $("verify-result").scrollIntoView({behavior: "smooth", block: "nearest"});
+                if (!$("verify-result").hidden) $("verify-result").scrollIntoView({behavior: "smooth", block: "nearest"});
             });
             scen.appendChild(b);
         });
@@ -739,6 +799,9 @@
         });
         $("token-clear").addEventListener("click", function () { setToken(""); });
 
+        $("wrap-run").addEventListener("click", wrapKey);
+        $("unwrap-run").addEventListener("click", unwrapKey);
+        $("wrap-tamper").addEventListener("click", tamperWrap);
         $("text-run").addEventListener("click", function () { inspectText($("text-in").value); });
         $("text-in").addEventListener("keydown", function (e) {
             if (e.key === "Enter") {
@@ -791,6 +854,8 @@
             $("issue-result").hidden = true;
             $("verify-result").hidden = true;
             $("text-result").textContent = "";
+            $("wrap-result").hidden = true;
+            $("wrap-text").value = "";
             $("scenario-hint").textContent = "";
             append("session reset: keys and the last token are gone", "res");
             refreshKeys();
