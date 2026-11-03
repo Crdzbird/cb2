@@ -20,6 +20,10 @@ v5.public, liboqs with libcrypto. On macOS they come from Homebrew
 takes libsodium and libcrypto from the distribution and builds BLAKE3 and
 liboqs from pinned sources with `scripts/ci/linux_deps.sh`. All of them
 are found through pkg-config.
+The test suite compares the base64url decoder against libsodium's;
+that reference misreads bytes above 0x7f before libsodium 1.0.21 on
+platforms where `char` is signed, so the test feeds those bytes only to
+1.0.21 or later. The library itself does not use libsodium's codec.
 
 ```
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release

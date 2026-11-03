@@ -65,13 +65,24 @@ TEST_CASE("codec/base64url encodes exactly as libsodium for lengths 0..200") {
     }
 }
 
+/// libsodium's url-safe decoder took each input byte as a signed int before
+/// 1.0.21 (library version 26.3), so on platforms where char is signed it
+/// misclassifies bytes above 0x7f. The reference is only trusted on those
+/// bytes from the release that casts to unsigned char.
+bool sodium_decodes_high_bytes() {
+    const int major = sodium_library_version_major();
+    const int minor = sodium_library_version_minor();
+    return major > 26 || (major == 26 && minor >= 3);
+}
+
 TEST_CASE("codec/base64url decoder agrees with libsodium on random and malformed text") {
     static constexpr char EXTRA[] = "=+/ .\n\t\x80\xff";
+    const uint32_t extra_count = sodium_decodes_high_bytes() ? sizeof EXTRA - 1 : sizeof EXTRA - 3;
     for (int iter = 0; iter < 5000; ++iter) {
         std::string s;
         const auto len = static_cast<size_t>(randombytes_uniform(24));
         for (size_t k = 0; k < len; ++k) {
-            if (randombytes_uniform(20) == 0) s += EXTRA[randombytes_uniform(sizeof EXTRA - 1)];
+            if (randombytes_uniform(20) == 0) s += EXTRA[randombytes_uniform(extra_count)];
             else s += b64::ALPHABET[randombytes_uniform(64)];
         }
         Bytes a, b;
