@@ -1,9 +1,9 @@
 /**
- * Cross-check of the two building blocks paseto5 shares with PASETO v4,
+ * Cross-check of the two building blocks cb2 shares with PASETO v4,
  * the pre-authentication encoding and the base64url codec, against the
  * official v4 vectors vendored by the repository. A v4.local encrypt and
  * decrypt and a v4.public sign and verify are rebuilt here from
- * paseto5::detail::pae_stream, paseto5::detail::b64, split_token and
+ * cb2::detail::pae_stream, cb2::detail::b64, split_token and
  * footer_matches plus libsodium's BLAKE2b, XChaCha20 and Ed25519. If the
  * PAE or the codec deviated in any byte, no 4-E token would reproduce and
  * no 4-S token would verify.
@@ -12,13 +12,13 @@
 #include "test_runner.hpp"
 #include "test_util.hpp"
 
-#include <paseto5/detail/local_core.hpp>
+#include <cb2/detail/local_core.hpp>
 
 #include <cstring>
 #include <string>
 
-namespace b64 = paseto5::detail::b64;
-using paseto5::json::Value;
+namespace b64 = cb2::detail::b64;
+using cb2::json::Value;
 using tu::Bytes;
 
 namespace {
@@ -29,8 +29,8 @@ struct GenerichashSink {
 };
 
 std::string encode_token(std::string_view header, const Bytes& raw, const Bytes& footer) {
-    std::string out(paseto5::detail::token_len_for(header.size(), raw.size(), footer.size()), '\0');
-    const size_t n = paseto5::detail::finish_token({reinterpret_cast<uint8_t*>(out.data()), out.size()}, header,
+    std::string out(cb2::detail::token_len_for(header.size(), raw.size(), footer.size()), '\0');
+    const size_t n = cb2::detail::finish_token({reinterpret_cast<uint8_t*>(out.data()), out.size()}, header,
                                                    raw.data(), raw.size(), footer);
     out.resize(n);
     return out;
@@ -51,7 +51,7 @@ void v4_keys(const Bytes& key, const Bytes& nonce, uint8_t ek[32], uint8_t n2[24
 Bytes v4_tag(const uint8_t ak[32], const Bytes& nonce, const Bytes& c, const Bytes& f, const Bytes& i) {
     GenerichashSink s;
     crypto_generichash_init(&s.st, ak, 32, 32);
-    paseto5::detail::pae_stream(s, {paseto5::bytes("v4.local."), tu::sp(nonce), tu::sp(c), tu::sp(f), tu::sp(i)});
+    cb2::detail::pae_stream(s, {cb2::bytes("v4.local."), tu::sp(nonce), tu::sp(c), tu::sp(f), tu::sp(i)});
     Bytes t(32);
     crypto_generichash_final(&s.st, t.data(), 32);
     return t;
@@ -70,12 +70,12 @@ std::string v4_local_encrypt(const Bytes& key, const Bytes& nonce, const Bytes& 
 }
 
 bool v4_local_decrypt(std::string_view token, const Bytes& key, const Bytes& f, const Bytes& i, Bytes& out) {
-    paseto5::detail::Split s{};
-    if (!paseto5::detail::split_token(token, "v4.local.", !f.empty(), s)) return false;
+    cb2::detail::Split s{};
+    if (!cb2::detail::split_token(token, "v4.local.", !f.empty(), s)) return false;
     Bytes work(token.size());
     size_t raw_len = 0;
     if (!b64::decode(work.data(), work.size(), s.body, s.body_len, raw_len) || raw_len < 64) return false;
-    if (!paseto5::detail::footer_matches(work.data() + raw_len, work.size() - raw_len, s, f)) return false;
+    if (!cb2::detail::footer_matches(work.data() + raw_len, work.size() - raw_len, s, f)) return false;
     const Bytes nonce(work.begin(), work.begin() + 32);
     const Bytes c(work.begin() + 32, work.begin() + static_cast<long>(raw_len) - 32);
     const Bytes t(work.begin() + static_cast<long>(raw_len) - 32, work.begin() + static_cast<long>(raw_len));
@@ -88,9 +88,9 @@ bool v4_local_decrypt(std::string_view token, const Bytes& key, const Bytes& f, 
 }
 
 Bytes v4_public_pae(const Bytes& m, const Bytes& f, const Bytes& i) {
-    Bytes pae(paseto5::detail::pae_len({10, m.size(), f.size(), i.size()}));
-    paseto5::detail::SpanSink sink{pae.data()};
-    paseto5::detail::pae_stream(sink, {paseto5::bytes("v4.public."), tu::sp(m), tu::sp(f), tu::sp(i)});
+    Bytes pae(cb2::detail::pae_len({10, m.size(), f.size(), i.size()}));
+    cb2::detail::SpanSink sink{pae.data()};
+    cb2::detail::pae_stream(sink, {cb2::bytes("v4.public."), tu::sp(m), tu::sp(f), tu::sp(i)});
     return pae;
 }
 
@@ -103,12 +103,12 @@ std::string v4_public_sign(const Bytes& sk, const Bytes& m, const Bytes& f, cons
 }
 
 bool v4_public_verify(std::string_view token, const Bytes& pk, const Bytes& f, const Bytes& i, Bytes& out) {
-    paseto5::detail::Split s{};
-    if (!paseto5::detail::split_token(token, "v4.public.", !f.empty(), s)) return false;
+    cb2::detail::Split s{};
+    if (!cb2::detail::split_token(token, "v4.public.", !f.empty(), s)) return false;
     Bytes work(token.size());
     size_t raw_len = 0;
     if (!b64::decode(work.data(), work.size(), s.body, s.body_len, raw_len) || raw_len < 64) return false;
-    if (!paseto5::detail::footer_matches(work.data() + raw_len, work.size() - raw_len, s, f)) return false;
+    if (!cb2::detail::footer_matches(work.data() + raw_len, work.size() - raw_len, s, f)) return false;
     const Bytes m(work.begin(), work.begin() + static_cast<long>(raw_len) - 64);
     const Bytes pae = v4_public_pae(m, f, i);
     if (crypto_sign_verify_detached(work.data() + raw_len - 64, pae.data(), pae.size(), pk.data()) != 0) return false;
@@ -117,17 +117,17 @@ bool v4_public_verify(std::string_view token, const Bytes& pk, const Bytes& f, c
 }
 
 bool load_v4(Value& root) {
-    auto text = tu::read_file(PASETO5_V4_VECTORS);
+    auto text = tu::read_file(CB2_V4_VECTORS);
     if (!text) {
-        std::printf("      official v4 vectors not found at %s\n", PASETO5_V4_VECTORS);
+        std::printf("      official v4 vectors not found at %s\n", CB2_V4_VECTORS);
         return false;
     }
-    return paseto5::json::Reader::parse(*text, root, 32) && root.is_object();
+    return cb2::json::Reader::parse(*text, root, 32) && root.is_object();
 }
 
 }
 
-TEST_CASE("v4/official v4.local vectors reproduce through paseto5's PAE and base64url") {
+TEST_CASE("v4/official v4.local vectors reproduce through cb2's PAE and base64url") {
     Value root;
     REQUIRE(load_v4(root));
     const Value* tests = root.get("tests");
@@ -159,7 +159,7 @@ TEST_CASE("v4/official v4.local vectors reproduce through paseto5's PAE and base
     CHECK(fails == 4);
 }
 
-TEST_CASE("v4/official v4.public vectors reproduce through paseto5's PAE and base64url") {
+TEST_CASE("v4/official v4.public vectors reproduce through cb2's PAE and base64url") {
     Value root;
     REQUIRE(load_v4(root));
     const Value* tests = root.get("tests");

@@ -1,6 +1,6 @@
 {
-  "name": "paseto5 cb2.local known-answer vectors",
-  "generator": "paseto5_gen_vectors 0.1.0",
+  "name": "cb2.local known-answer vectors",
+  "generator": "cb2_gen_vectors 0.1.0",
   "tests": [
     {"name":"cb2-E-1","expect-fail":false,"key":"707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f","nonce":"0000000000000000000000000000000000000000000000000000000000000000","payload":"{\"data\":\"this is a secret message\",\"exp\":\"2022-01-01T00:00:00+00:00\"}","footer":"","implicit-assertion":"","token":"cb2.local.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABoTUN2iDqHBVQ9t2NCIhbeGAAJMQfur1OU2mJdswd6di16njoTL60MBoBOtG7uhe88AtvlWrn0wTG3KcnhREDrYPnyypsxhG6E5D4c2mn7ljpE8Zd883nOvyh4J4xojRsxhI22xA"},
     {"name":"cb2-E-2","expect-fail":false,"key":"707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f","nonce":"0000000000000000000000000000000000000000000000000000000000000000","payload":"{\"data\":\"this is a hidden message\",\"exp\":\"2022-01-01T00:00:00+00:00\"}","footer":"","implicit-assertion":"","token":"cb2.local.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABoTUN2iDqHBVQ9t2NCIhbeGAAJKgvpuVOO2mJdswd6di16njoTL60MBoBOtG7uhe88AtvlWrn0wTG3KcnhREDrYPnyypu5llNa-gBS1cmy6ev749AxN6rOTGZvSmUTZTQ2Yf8tDQ"},

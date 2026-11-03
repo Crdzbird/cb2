@@ -5,7 +5,7 @@
  * cb1.local) behind a plain function table, compiled in their own
  * translation unit because cryptolib's hash.hpp includes blake3.h inside
  * namespace crypto::hash and cannot share a translation unit with
- * paseto5's global include of the same header.
+ * cb2's global include of the same header.
  */
 
 #include <cstddef>

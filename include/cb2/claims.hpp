@@ -48,7 +48,7 @@
 #include <utility>
 #include <vector>
 
-namespace paseto5 {
+namespace cb2 {
 
 /// Unix time in seconds.
 using Seconds = int64_t;
@@ -471,7 +471,7 @@ public:
         }
     }
 
-#ifdef PASETO5_HAS_PQ
+#ifdef CB2_HAS_PQ
     /// Signs claims as a cb2.public token; the key id, if any, goes into
     /// the footer.
     [[nodiscard]] static Result<std::string>

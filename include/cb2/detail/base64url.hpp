@@ -12,7 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace paseto5::detail::b64 {
+namespace cb2::detail::b64 {
 
 inline constexpr char ALPHABET[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";

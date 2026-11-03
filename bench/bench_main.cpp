@@ -1,15 +1,15 @@
 /**
- * paseto5_bench: cb2.local seal and open against cryptolib's v4.local and
+ * cb2_bench: cb2.local seal and open against cryptolib's v4.local and
  * cb1.local at 64 B, 1 KiB and 64 KiB payloads, with a 44-byte footer and
  * an empty implicit assertion. Each cell is the median of seven repeats
  * of at least 200 ms of back-to-back calls, in ns per operation; the
- * paseto5 rows measure the caller-buffer functions (no allocation) and
+ * cb2 rows measure the caller-buffer functions (no allocation) and
  * the allocating convenience functions separately.
  */
 
 #include "bench_ref.hpp"
 
-#include <paseto5/paseto5.hpp>
+#include <cb2/cb2.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -77,38 +77,38 @@ void bench_reference(const bench_ref::Impl& impl, const uint8_t* key, const std:
     }
 }
 
-void bench_paseto5(const paseto5::LocalKey& key, const std::vector<uint8_t>& footer, Row& buffers, Row& alloc) {
+void bench_cb2(const cb2::LocalKey& key, const std::vector<uint8_t>& footer, Row& buffers, Row& alloc) {
     for (int s = 0; s < 3; ++s) {
         std::vector<uint8_t> msg(SIZES[s]);
         for (std::size_t i = 0; i < msg.size(); ++i) msg[i] = static_cast<uint8_t>(i * 7 + 1);
-        std::vector<uint8_t> tok(paseto5::Local::token_len(msg.size(), footer.size()));
+        std::vector<uint8_t> tok(cb2::Local::token_len(msg.size(), footer.size()));
         std::size_t n = 0;
-        if (paseto5::Local::seal_into(tok, n, key, msg, footer) != paseto5::Status::ok) {
-            std::fprintf(stderr, "paseto5 seal failed\n");
+        if (cb2::Local::seal_into(tok, n, key, msg, footer) != cb2::Status::ok) {
+            std::fprintf(stderr, "cb2 seal failed\n");
             std::exit(1);
         }
         const std::string_view token(reinterpret_cast<const char*>(tok.data()), tok.size());
-        std::vector<uint8_t> out(paseto5::Local::open_capacity(tok.size()));
+        std::vector<uint8_t> out(cb2::Local::open_capacity(tok.size()));
         std::size_t m = 0;
-        if (paseto5::Local::open_into(out, m, token, key, footer) != paseto5::Status::ok || m != msg.size()) {
-            std::fprintf(stderr, "paseto5 open failed\n");
+        if (cb2::Local::open_into(out, m, token, key, footer) != cb2::Status::ok || m != msg.size()) {
+            std::fprintf(stderr, "cb2 open failed\n");
             std::exit(1);
         }
         buffers.seal_ns[s] = measure([&] {
             std::size_t k = 0;
-            (void)paseto5::Local::seal_into(tok, k, key, msg, footer);
+            (void)cb2::Local::seal_into(tok, k, key, msg, footer);
         });
         buffers.open_ns[s] = measure([&] {
             std::size_t k = 0;
-            (void)paseto5::Local::open_into(out, k, token, key, footer);
+            (void)cb2::Local::open_into(out, k, token, key, footer);
         });
         const std::string fixed(token);
         alloc.seal_ns[s] = measure([&] {
-            auto r = paseto5::Local::seal(key, msg, footer);
+            auto r = cb2::Local::seal(key, msg, footer);
             if (r.is_err()) std::abort();
         });
         alloc.open_ns[s] = measure([&] {
-            auto r = paseto5::Local::open(fixed, key, footer);
+            auto r = cb2::Local::open(fixed, key, footer);
             if (r.is_err()) std::abort();
         });
     }
@@ -134,13 +134,13 @@ int main() {
     if (sodium_init() < 0) return 2;
     uint8_t raw[32];
     for (int i = 0; i < 32; ++i) raw[i] = static_cast<uint8_t>(0x70 + i);
-    const paseto5::LocalKey key = paseto5::LocalKey::from_bytes(raw).value();
+    const cb2::LocalKey key = cb2::LocalKey::from_bytes(raw).value();
     const std::string footer_text = "{\"kid\":\"kcb2.lid.0123456789abcdefghijklmnopqrs\"}";
     const std::vector<uint8_t> footer(footer_text.begin(), footer_text.end());
     std::vector<Row> rows;
-    Row buffers{"paseto5 cb2.local (caller buffers)", {}, {}};
-    Row alloc{"paseto5 cb2.local (allocating)", {}, {}};
-    bench_paseto5(key, footer, buffers, alloc);
+    Row buffers{"cb2.local (caller buffers)", {}, {}};
+    Row alloc{"cb2.local (allocating)", {}, {}};
+    bench_cb2(key, footer, buffers, alloc);
     rows.push_back(buffers);
     rows.push_back(alloc);
     for (const bench_ref::Impl& impl : {bench_ref::v4_local(), bench_ref::cb1_local()}) {

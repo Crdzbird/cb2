@@ -20,35 +20,35 @@ jobs:
         run: brew install cmake ninja libsodium liboqs blake3 openssl@3 llvm lld
       - name: Release build with cb2.public, tests, the example and the v4 cross-check
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPASETO5_BUILD_BENCH=OFF
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCB2_BUILD_BENCH=OFF
           cmake --build build
-          ./build/paseto5_tests
-          ./build/paseto5_example_text
+          ./build/cb2_tests
+          ./build/cb2_example_text
       - name: Tests under ASan/UBSan
         run: |
-          cmake -S . -B build-asan -G Ninja -DPASETO5_SANITIZE=ON -DPASETO5_BUILD_BENCH=OFF
-          cmake --build build-asan --target paseto5_tests paseto5_example_text
-          ASAN_OPTIONS=detect_leaks=0 ./build-asan/paseto5_tests
-          ASAN_OPTIONS=detect_leaks=0 ./build-asan/paseto5_example_text
+          cmake -S . -B build-asan -G Ninja -DCB2_SANITIZE=ON -DCB2_BUILD_BENCH=OFF
+          cmake --build build-asan --target cb2_tests cb2_example_text
+          ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_tests
+          ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_example_text
       - name: Build without liboqs (cb2.local only)
         run: |
           cmake -S . -B build-nopq -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DPASETO5_PQ=OFF -DPASETO5_BUILD_BENCH=OFF
-          cmake --build build-nopq --target paseto5_tests paseto5_example_text
-          ./build-nopq/paseto5_tests
-          ./build-nopq/paseto5_example_text
+            -DCB2_PQ=OFF -DCB2_BUILD_BENCH=OFF
+          cmake --build build-nopq --target cb2_tests cb2_example_text
+          ./build-nopq/cb2_tests
+          ./build-nopq/cb2_example_text
       - name: Fuzz targets (time-boxed)
         env:
           CC: /opt/homebrew/opt/llvm/bin/clang
           CXX: /opt/homebrew/opt/llvm/bin/clang++
         run: |
-          cmake -S . -B build-fuzz -G Ninja -DPASETO5_FUZZ=ON \
-            -DPASETO5_BUILD_TESTS=OFF -DPASETO5_BUILD_BENCH=OFF -DPASETO5_BUILD_EXAMPLES=OFF \
+          cmake -S . -B build-fuzz -G Ninja -DCB2_FUZZ=ON \
+            -DCB2_BUILD_TESTS=OFF -DCB2_BUILD_BENCH=OFF -DCB2_BUILD_EXAMPLES=OFF \
             -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=/opt/homebrew/opt/lld/bin/ld64.lld
           cmake --build build-fuzz
           for fz in fuzz_local fuzz_public fuzz_claims; do
-            test -x "build-fuzz/paseto5_$fz"
-            "build-fuzz/paseto5_$fz" -max_total_time=60 -print_final_stats=1
+            test -x "build-fuzz/cb2_$fz"
+            "build-fuzz/cb2_$fz" -max_total_time=60 -print_final_stats=1
           done
 
   linux:
@@ -71,20 +71,20 @@ jobs:
         run: bash scripts/ci/linux_deps.sh "${{ github.workspace }}/deps"
       - name: Release build with cb2.public, tests, the example and the v4 cross-check
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPASETO5_BUILD_BENCH=OFF
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCB2_BUILD_BENCH=OFF
           cmake --build build
-          ./build/paseto5_tests
-          ./build/paseto5_example_text
+          ./build/cb2_tests
+          ./build/cb2_example_text
       - name: Tests under ASan/UBSan
         run: |
-          cmake -S . -B build-asan -G Ninja -DPASETO5_SANITIZE=ON -DPASETO5_BUILD_BENCH=OFF
-          cmake --build build-asan --target paseto5_tests paseto5_example_text
-          ./build-asan/paseto5_tests
-          ./build-asan/paseto5_example_text
+          cmake -S . -B build-asan -G Ninja -DCB2_SANITIZE=ON -DCB2_BUILD_BENCH=OFF
+          cmake --build build-asan --target cb2_tests cb2_example_text
+          ./build-asan/cb2_tests
+          ./build-asan/cb2_example_text
       - name: Build without liboqs (cb2.local only)
         run: |
           cmake -S . -B build-nopq -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DPASETO5_PQ=OFF -DPASETO5_BUILD_BENCH=OFF
-          cmake --build build-nopq --target paseto5_tests paseto5_example_text
-          ./build-nopq/paseto5_tests
-          ./build-nopq/paseto5_example_text
+            -DCB2_PQ=OFF -DCB2_BUILD_BENCH=OFF
+          cmake --build build-nopq --target cb2_tests cb2_example_text
+          ./build-nopq/cb2_tests
+          ./build-nopq/cb2_example_text

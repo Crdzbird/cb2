@@ -1,14 +1,14 @@
 #include "test_runner.hpp"
 #include "test_util.hpp"
 
-#include <paseto5/detail/base64url.hpp>
-#include <paseto5/detail/local_core.hpp>
-#include <paseto5/detail/pae.hpp>
+#include <cb2/detail/base64url.hpp>
+#include <cb2/detail/local_core.hpp>
+#include <cb2/detail/pae.hpp>
 
 #include <cstring>
 #include <string>
 
-namespace b64 = paseto5::detail::b64;
+namespace b64 = cb2::detail::b64;
 using tu::Bytes;
 
 namespace {
@@ -124,35 +124,35 @@ TEST_CASE("codec/base64url decode fails closed when the capacity is short") {
 
 TEST_CASE("codec/pae matches the definition") {
     CollectSink s;
-    paseto5::detail::pae_stream(s, {});
+    cb2::detail::pae_stream(s, {});
     CHECK(s.out == Bytes(8, 0));
 
     CollectSink e;
-    paseto5::detail::pae_stream(e, {std::span<const uint8_t>{}});
+    cb2::detail::pae_stream(e, {std::span<const uint8_t>{}});
     Bytes want(16, 0);
     want[0] = 1;
     CHECK(e.out == want);
 
     CollectSink p;
     const Bytes para = tu::bytes_of("Paragon");
-    paseto5::detail::pae_stream(p, {tu::sp(para)});
+    cb2::detail::pae_stream(p, {tu::sp(para)});
     Bytes want2(16, 0);
     want2[0] = 1;
     want2[8] = 7;
     want2.insert(want2.end(), para.begin(), para.end());
     CHECK(p.out == want2);
-    CHECK(paseto5::detail::pae_len({7}) == p.out.size());
+    CHECK(cb2::detail::pae_len({7}) == p.out.size());
 
     CollectSink two;
     const Bytes a = tu::bytes_of("ab"), b = tu::bytes_of("cde");
-    paseto5::detail::pae_stream(two, {tu::sp(a), tu::sp(b)});
+    cb2::detail::pae_stream(two, {tu::sp(a), tu::sp(b)});
     CHECK(two.out.size() == 8 + 8 + 2 + 8 + 3);
     CHECK(two.out[0] == 2 && two.out[8] == 2 && two.out[18] == 3);
 }
 
 TEST_CASE("codec/pae top bit of every length is clear") {
     uint8_t le[8];
-    paseto5::detail::put_le64(le, static_cast<size_t>(-1));
+    cb2::detail::put_le64(le, static_cast<size_t>(-1));
     CHECK((le[7] & 0x80) == 0);
     CHECK(le[0] == 0xFF);
 }
@@ -162,10 +162,10 @@ TEST_CASE("codec/buffered sink produces the same stream as direct updates") {
         Bytes pieces[4];
         for (auto& p : pieces) p = tu::pattern(randombytes_uniform(400), static_cast<uint8_t>(iter));
         CollectSink direct;
-        paseto5::detail::pae_stream(direct, {tu::sp(pieces[0]), tu::sp(pieces[1]), tu::sp(pieces[2]), tu::sp(pieces[3])});
+        cb2::detail::pae_stream(direct, {tu::sp(pieces[0]), tu::sp(pieces[1]), tu::sp(pieces[2]), tu::sp(pieces[3])});
         CollectSink inner;
-        paseto5::detail::BufferedSink<CollectSink> buffered(inner);
-        paseto5::detail::pae_stream(buffered, {tu::sp(pieces[0]), tu::sp(pieces[1]), tu::sp(pieces[2]), tu::sp(pieces[3])});
+        cb2::detail::BufferedSink<CollectSink> buffered(inner);
+        cb2::detail::pae_stream(buffered, {tu::sp(pieces[0]), tu::sp(pieces[1]), tu::sp(pieces[2]), tu::sp(pieces[3])});
         buffered.flush();
         CHECK(inner.out == direct.out);
     }

@@ -15,7 +15,7 @@
 #include <initializer_list>
 #include <span>
 
-namespace paseto5::detail {
+namespace cb2::detail {
 
 /// Writes n as PAE's little-endian 64-bit length with the top bit clear.
 inline void put_le64(uint8_t* p, std::size_t n) noexcept {

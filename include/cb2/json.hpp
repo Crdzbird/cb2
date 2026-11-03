@@ -20,7 +20,7 @@
 #include <utility>
 #include <vector>
 
-namespace paseto5::json {
+namespace cb2::json {
 
 struct Value {
     enum class Kind : uint8_t { null, boolean, number, string, array, object };

@@ -18,7 +18,7 @@
 #include <string_view>
 #include <vector>
 
-namespace paseto5 {
+namespace cb2 {
 
 /// Allocator that wipes every block with sodium_memzero before freeing it.
 template <class T>

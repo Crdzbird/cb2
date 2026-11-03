@@ -1,6 +1,6 @@
-# paseto5 security: claims and limits
+# cb2 security: claims and limits
 
-This document states what paseto5 guarantees, under which assumptions, and
+This document states what cb2 guarantees, under which assumptions, and
 what it does not do. The wire format and the rationale for each decision
 are in SPEC.md. The verification that was actually performed on this code
 is listed in README.md.
@@ -128,7 +128,7 @@ implicit assertion.
    rules_incomplete before the token is read. This is the one bypass a
    correctly built token offers, a verifier that never said which
    service it is, and the default now refuses it.
-7. Replay. A valid token is valid until it expires; paseto5 tracks no
+7. Replay. A valid token is valid until it expires; cb2 tracks no
    jti by itself. Three measures limit what a stolen token is worth:
    a short exp; the implicit assertion bound to the request (a session
    or channel id, a request hash), which makes the token worthless
@@ -145,7 +145,7 @@ implicit assertion.
 ## Assumptions
 
 - libsodium, BLAKE3 and liboqs are correct and their constant-time
-  properties hold on the target. paseto5 composes them and adds no
+  properties hold on the target. cb2 composes them and adds no
   primitive of its own.
 - The caller keeps the LocalKey and SecretKey secret and the PublicKey
   authentic. A key id is not a secret and not a proof of key possession.
@@ -171,11 +171,11 @@ implicit assertion.
   but sent in clear.
 - Interoperability with PASETO. cb2.local and cb2.public are CipherBird
   constructions; a PASETO v4 implementation will reject them by header
-  and paseto5 rejects v3 and v4 tokens the same way. The PASERK-shaped
+  and cb2 rejects v3 and v4 tokens the same way. The PASERK-shaped
   key strings are likewise CipherBird's, not the PASERK standard's.
 - FIPS validation. BLAKE3, XChaCha20 and Ed25519 are not FIPS algorithms
   and liboqs is not a validated module.
-- Resistance to a hostile build. A build that defines PASETO5_TEST_NONCE
+- Resistance to a hostile build. A build that defines CB2_TEST_NONCE
   exposes the deterministic-nonce functions; such a build must not ship.
 - Protection of the SecretKey's ML-DSA half against fault attacks or
   against a compromised liboqs. The import check catches a key whose

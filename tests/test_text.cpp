@@ -4,16 +4,16 @@
 #include <string>
 #include <string_view>
 
-using paseto5::Claims;
-using paseto5::Error;
-using paseto5::LocalKey;
-using paseto5::Token;
-using paseto5::ValidationRules;
-namespace text = paseto5::text;
+using cb2::Claims;
+using cb2::Error;
+using cb2::LocalKey;
+using cb2::Token;
+using cb2::ValidationRules;
+namespace text = cb2::text;
 
 namespace {
 
-constexpr paseto5::Seconds NOW = 1700000000;
+constexpr cb2::Seconds NOW = 1700000000;
 
 constexpr std::string_view N_TILDE = "\xc3\xb1";
 constexpr std::string_view N_COMBINING = "n\xcc\x83";
@@ -56,7 +56,7 @@ Claims international() {
 }
 
 std::string raw_token(const LocalKey& k, std::string_view payload) {
-    auto t = paseto5::Local::seal(k, tu::bytes_of(payload), paseto5::bytes(Token::footer_for(k.key_id())));
+    auto t = cb2::Local::seal(k, tu::bytes_of(payload), cb2::bytes(Token::footer_for(k.key_id())));
     CHECK(t.is_ok());
     return t.is_ok() ? t.value() : std::string();
 }
@@ -167,7 +167,7 @@ TEST_CASE("text/the issuer side refuses identifiers that break the policy") {
     CHECK(s.is_err() && s.error() == Error::argument);
     auto o = Token::open(tok.value(), bad_kid, tu::lenient(NOW));
     CHECK(o.is_err() && o.error() == Error::argument);
-    auto raw = paseto5::Local::seal(bad_kid, tu::bytes_of("{}"), paseto5::bytes(Token::footer_for(bad_kid.key_id())));
+    auto raw = cb2::Local::seal(bad_kid, tu::bytes_of("{}"), cb2::bytes(Token::footer_for(bad_kid.key_id())));
     REQUIRE(raw.is_ok());
     CHECK(!Token::peek_key_id(raw.value()).has_value());
 }
@@ -197,11 +197,11 @@ TEST_CASE("text/the raw token layer carries any bytes in message, footer and imp
     const std::string msg = cat(JAPANESE, ZWSP, "\xff\x00\xfe");
     const std::string footer = cat(ARABIC, RLO);
     const std::string implicit = cat(EMOJI, BOM);
-    auto tok = paseto5::Local::seal(k, tu::bytes_of(msg), tu::bytes_of(footer), tu::bytes_of(implicit));
+    auto tok = cb2::Local::seal(k, tu::bytes_of(msg), tu::bytes_of(footer), tu::bytes_of(implicit));
     REQUIRE(tok.is_ok());
     for (const char ch : tok.value()) CHECK(static_cast<unsigned char>(ch) < 0x80);
-    auto back = paseto5::Local::open(tok.value(), k, tu::bytes_of(footer), tu::bytes_of(implicit));
+    auto back = cb2::Local::open(tok.value(), k, tu::bytes_of(footer), tu::bytes_of(implicit));
     REQUIRE(back.is_ok());
     CHECK(tu::str_of(back.value()) == msg);
-    CHECK(paseto5::Local::open(tok.value(), k, tu::bytes_of(cat(ARABIC)), tu::bytes_of(implicit)).is_err());
+    CHECK(cb2::Local::open(tok.value(), k, tu::bytes_of(cat(ARABIC)), tu::bytes_of(implicit)).is_err());
 }

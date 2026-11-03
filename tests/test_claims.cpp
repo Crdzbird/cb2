@@ -4,13 +4,13 @@
 #include <string>
 #include <vector>
 
-using paseto5::Claims;
-using paseto5::Error;
-using paseto5::LocalKey;
-using paseto5::Rfc3339;
-using paseto5::Seconds;
-using paseto5::Token;
-using paseto5::ValidationRules;
+using cb2::Claims;
+using cb2::Error;
+using cb2::LocalKey;
+using cb2::Rfc3339;
+using cb2::Seconds;
+using cb2::Token;
+using cb2::ValidationRules;
 using tu::Bytes;
 
 namespace {
@@ -20,8 +20,8 @@ constexpr Seconds NOW = 1700000000;
 LocalKey key_a() { return LocalKey::from_bytes(tu::pattern(32, 0x70)).value(); }
 
 bool json_ok(std::string_view s) {
-    paseto5::json::Value v;
-    return paseto5::json::Reader::parse(s, v);
+    cb2::json::Value v;
+    return cb2::json::Reader::parse(s, v);
 }
 
 Claims good_claims() {
@@ -106,10 +106,10 @@ TEST_CASE("claims/json reader is strict") {
 
 TEST_CASE("claims/json writer escapes and the reader reads it back") {
     std::string out;
-    paseto5::json::Writer::string(out, "a\"b\\c\n\x01\x1f\x7f\xc3\xa9/");
+    cb2::json::Writer::string(out, "a\"b\\c\n\x01\x1f\x7f\xc3\xa9/");
     CHECK(out == "\"a\\\"b\\\\c\\n\\u0001\\u001f\x7f\xc3\xa9/\"");
-    paseto5::json::Value v;
-    CHECK(paseto5::json::Reader::parse(out, v));
+    cb2::json::Value v;
+    CHECK(cb2::json::Reader::parse(out, v));
     CHECK(v.text == "a\"b\\c\n\x01\x1f\x7f\xc3\xa9/");
 }
 
@@ -227,20 +227,20 @@ TEST_CASE("claims/token layer binds the key id into the footer and validates aft
 
 TEST_CASE("claims/a token whose payload is not a claims object is claims_malformed after authentication") {
     const LocalKey k = key_a();
-    auto tok = paseto5::Local::seal(k, tu::bytes_of("[1,2]"), paseto5::bytes(Token::footer_for(k.key_id())));
+    auto tok = cb2::Local::seal(k, tu::bytes_of("[1,2]"), cb2::bytes(Token::footer_for(k.key_id())));
     REQUIRE(tok.is_ok());
     auto r = Token::open(tok.value(), k, tu::lenient(NOW));
     CHECK(r.is_err() && r.error() == Error::claims_malformed);
-    auto tok2 = paseto5::Local::seal(k, tu::bytes_of("{\"exp\":123}"), paseto5::bytes(Token::footer_for(k.key_id())));
+    auto tok2 = cb2::Local::seal(k, tu::bytes_of("{\"exp\":123}"), cb2::bytes(Token::footer_for(k.key_id())));
     REQUIRE(tok2.is_ok());
     auto r2 = Token::open(tok2.value(), k, tu::lenient(NOW));
     CHECK(r2.is_err() && r2.error() == Error::claims_malformed);
 }
 
-#ifdef PASETO5_HAS_PQ
+#ifdef CB2_HAS_PQ
 TEST_CASE("claims/public token layer binds the key id and validates") {
-    static const paseto5::SecretKey sk = paseto5::SecretKey::generate().value();
-    const paseto5::PublicKey pk = sk.public_key();
+    static const cb2::SecretKey sk = cb2::SecretKey::generate().value();
+    const cb2::PublicKey pk = sk.public_key();
     const Claims c = good_claims();
     auto tok = Token::sign(sk, c, "ctx");
     REQUIRE(tok.is_ok());
@@ -252,7 +252,7 @@ TEST_CASE("claims/public token layer binds the key id and validates") {
     CHECK(v.value().jti == c.jti);
     auto expired = Token::verify(tok.value(), pk, tu::lenient(NOW + 7200), "ctx");
     CHECK(expired.is_err() && expired.error() == Error::expired);
-    paseto5::PublicKey renamed = pk;
+    cb2::PublicKey renamed = pk;
     renamed.set_key_id("other");
     auto r = Token::verify(tok.value(), renamed, tu::lenient(NOW), "ctx");
     CHECK(r.is_err() && r.error() == Error::invalid);

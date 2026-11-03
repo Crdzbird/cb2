@@ -1,4 +1,4 @@
-# paseto5 specification
+# cb2 specification
 
 Version 0.1.0. This document defines the cb2.local and cb2.public token
 formats, the kcb2 key strings and the claims layer, byte for byte, with the
@@ -15,7 +15,7 @@ accepted, and that "New versions will be decided and formalized by the
 PASETO developers", with version identifiers matching `v[0-9]+` reserved
 by the PASETO development team.
 
-paseto5 is therefore CipherBird's proposal for what a successor to v4
+cb2 is therefore CipherBird's proposal for what a successor to v4
 should look like. It is not a paseto-standard version and makes no claim
 to be one. Its headers are `cb2.local.` and `cb2.public.`, continuing
 CipherBird's own cb1 identifier instead of a reserved `v5`, so an
@@ -24,7 +24,7 @@ strings carry `kcb2.` in the same way PASERK pairs `k4.` with `v4.`.
 
 Where the v4 specification sets a direction (versioned protocol, no
 algorithm agility, PAE, implicit assertions, footer, key ids in the
-footer, the shape of PASERK) paseto5 follows it. Where it improves on v4
+footer, the shape of PASERK) cb2 follows it. Where it improves on v4
 the change is justified in section 9.
 
 ## 2. Notation
@@ -46,7 +46,7 @@ the change is justified in section 9.
   `OQS_SIG_verify` for `OQS_SIG_alg_ml_dsa_65` (FIPS 204, pure mode, no
   context string).
 
-Every primitive above is a vetted library call. paseto5 defines no
+Every primitive above is a vetted library call. cb2 defines no
 primitive of its own.
 
 ## 3. Common rules
@@ -204,9 +204,9 @@ cb2.local.JvdVM1RIKh2R1HhGJ4VLjaa4BCp5ZlI8K0BOjbvn9_LGrO_H8wxM8Dj6C62SC7LfKrsjDn
 
 ## 5. cb2.public
 
-cb2.public exists only in builds with liboqs (macro `PASETO5_HAS_PQ`). A
+cb2.public exists only in builds with liboqs (macro `CB2_HAS_PQ`). A
 build without it has no cb2.public purpose: the classes are absent and
-`paseto5::has_public()` is false. There is no Ed25519-only fallback.
+`cb2::has_public()` is false. There is no Ed25519-only fallback.
 
 ### 5.1 Keys
 
@@ -445,7 +445,7 @@ Lengths and limits count bytes, not characters.
 
 ## 9. Rationale: what changes from v4 and from cb1, and the attack each closes
 
-| decision | v4.local / v4.public | cb1 | paseto5 | closes |
+| decision | v4.local / v4.public | cb1 | cb2 | closes |
 |---|---|---|---|---|
 | hash | BLAKE2b, two keyed calls per token | BLAKE3, two keyed calls | BLAKE3, one keyed XOF call for Ek, n2 and Ak | nothing new in security; halves the derivation cost and removes a second domain string that could be mis-set |
 | derivation input | domain string plus nonce | domain string plus nonce | header plus nonce | binds the derived keys to the version and purpose: a cb2.local key schedule cannot be reproduced for another header, so a cross-purpose or cross-version key reuse yields unrelated keys |
@@ -461,7 +461,7 @@ Lengths and limits count bytes, not characters.
 | size limit | caller's problem | caller's problem | before any parsing | decompression-style and parser-cost denial of service |
 | JSON | caller's problem | caller's problem | strict reader, numbers never converted | duplicate-key and coercion ambiguities between issuer and verifier |
 | international text | UTF-8 accepted by the JSON grammar, nothing more | same | UTF-8 raw on the wire, escapes resolved before comparison, an identifier policy on both sides, no normalisation | identifiers that differ by an invisible or bidi character; tokens minted with text the verifier will refuse |
-| nonce source | batched per-thread CSPRNG | same | `randombytes_buf` per token, no batch | the batch is a public buffer held for a long time; one call per token keeps no nonce state at all. Measured cost on this Mac: about 1.4 us per seal (README benchmark), which is the whole difference between paseto5 and cb1 at seal time; open is at parity or faster |
+| nonce source | batched per-thread CSPRNG | same | `randombytes_buf` per token, no batch | the batch is a public buffer held for a long time; one call per token keeps no nonce state at all. Measured cost on this Mac: about 1.4 us per seal (README benchmark), which is the whole difference between cb2 and cb1 at seal time; open is at parity or faster |
 | PAE | materialised head of 73 bytes | streamed | streamed through a 128-byte buffered sink; never materialised for the MAC | nothing new in security; one or two hasher updates instead of eleven |
 | allocation | caller buffers | caller buffers | caller buffers plus convenience functions that allocate once | a convenience API that does not tempt callers into copying secrets |
 
@@ -506,7 +506,7 @@ drawn for the design:
   public token structure.
 - Every failure path wipes; an attacker who provokes a failure cannot
   retrieve partial plaintext from the output buffer.
-- No branch depends on secret data in paseto5's own code; the primitives
+- No branch depends on secret data in cb2's own code; the primitives
   are libsodium's and BLAKE3's.
 
 ### Out of scope
@@ -517,7 +517,7 @@ attacks, and the application's own authorisation logic.
 
 ## 11. Test hook
 
-When `PASETO5_TEST_NONCE` is defined, `Local::seal_with_nonce_for_testing`
+When `CB2_TEST_NONCE` is defined, `Local::seal_with_nonce_for_testing`
 and `KeyWrap::wrap_with_nonce_for_testing` accept a caller-chosen nonce.
 They exist to produce the known-answer vectors and must not be compiled
 into a shipping build; the CMake target defines the macro for the test
@@ -529,7 +529,7 @@ and generator executables only, never for the library interface.
    strings `kcb2.*`. The `v5` identifier the library first used is
    reserved by the PASETO developers for a future official version, and
    continuing CipherBird's own cb1 identifier removes the collision.
-2. Whether paseto5 should replace cb1 in the repository, sit beside it, or
+2. Whether cb2 should replace cb1 in the repository, sit beside it, or
    move to its own repository with its own release cadence.
 3. Resolved: the ML-DSA half uses the FIPS 204 context string with the
    header `cb2.public.` as the context (section 5.2), through liboqs
@@ -539,7 +539,7 @@ and generator executables only, never for the library interface.
    on top of the existing hybrid KEM of the repository.
 5. Whether to batch nonces per thread as cb1 does. The benchmark shows
    the per-token `randombytes_buf` costs about 1.4 us per seal, so cb1
-   seals a 64-byte token in 1.2 us and paseto5 in 2.7 us; at 1 KiB the
+   seals a 64-byte token in 1.2 us and cb2 in 2.7 us; at 1 KiB the
    gap is the same 1.4 us and at 64 KiB it vanishes. Batching would
    close the gap at the price of a nonce buffer that lives in process
    memory and a fork handler. This implementation follows the owner's

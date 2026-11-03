@@ -33,7 +33,7 @@
 #include <span>
 #include <string_view>
 
-namespace paseto5 {
+namespace cb2 {
 
 /// Verdict of the buffer-level functions. ok; invalid (any failure that
 /// depends on the token: one verdict, no detail); argument (a caller error

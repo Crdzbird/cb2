@@ -12,7 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace paseto5::detail {
+namespace cb2::detail {
 
 class Blake3Keyed {
 public:

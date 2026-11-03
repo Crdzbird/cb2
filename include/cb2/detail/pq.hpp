@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * ML-DSA-65 (FIPS 204) through liboqs, present only when PASETO5_HAS_PQ is
+ * ML-DSA-65 (FIPS 204) through liboqs, present only when CB2_HAS_PQ is
  * defined. One OQS_SIG object is created on first use and shared: it is an
  * immutable table of function pointers and sizes, safe to use from several
  * threads. The sizes liboqs reports are checked against the constants this
@@ -12,7 +12,7 @@
  * verifies for another, whatever else the same key signs.
  */
 
-#ifdef PASETO5_HAS_PQ
+#ifdef CB2_HAS_PQ
 
 #include <oqs/oqs.h>
 
@@ -20,7 +20,7 @@
 #include <cstdint>
 #include <span>
 
-namespace paseto5::detail {
+namespace cb2::detail {
 
 class MlDsa65 {
 public:

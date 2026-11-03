@@ -5,9 +5,9 @@
 #include <cstring>
 #include <string>
 
-using paseto5::Local;
-using paseto5::LocalKey;
-using paseto5::Status;
+using cb2::Local;
+using cb2::LocalKey;
+using cb2::Status;
 using tu::Bytes;
 
 namespace {
@@ -49,7 +49,7 @@ TEST_CASE("local/token length and open capacity are exact") {
     CHECK(Local::token_len(0, 0) == 10 + 86);
     CHECK(Local::token_len(1, 0) == 10 + 87);
     CHECK(Local::token_len(0, 1) == 10 + 86 + 1 + 2);
-    CHECK(Local::token_len(paseto5::MAX_INPUT_BYTES + 1, 0) == 0);
+    CHECK(Local::token_len(cb2::MAX_INPUT_BYTES + 1, 0) == 0);
     CHECK(Local::open_capacity(10) == 0);
     CHECK(Local::open_capacity(96) == 64);
     CHECK(Local::open_capacity(Local::max_token_len() + 1) == 0);
@@ -114,21 +114,21 @@ TEST_CASE("local/wrong key, implicit and footer all fail with the single invalid
     auto tok = Local::seal(k, msg, footer, implicit);
     REQUIRE(tok.is_ok());
     auto wrong_key = Local::open(tok.value(), key_b(), footer, implicit);
-    CHECK(wrong_key.is_err() && wrong_key.error() == paseto5::Error::invalid);
+    CHECK(wrong_key.is_err() && wrong_key.error() == cb2::Error::invalid);
     auto wrong_implicit = Local::open(tok.value(), k, footer, tu::bytes_of("implicix"));
-    CHECK(wrong_implicit.is_err() && wrong_implicit.error() == paseto5::Error::invalid);
+    CHECK(wrong_implicit.is_err() && wrong_implicit.error() == cb2::Error::invalid);
     auto no_implicit = Local::open(tok.value(), k, footer, {});
-    CHECK(no_implicit.is_err() && no_implicit.error() == paseto5::Error::invalid);
+    CHECK(no_implicit.is_err() && no_implicit.error() == cb2::Error::invalid);
     auto wrong_footer = Local::open(tok.value(), k, tu::bytes_of("footex"), implicit);
-    CHECK(wrong_footer.is_err() && wrong_footer.error() == paseto5::Error::invalid);
+    CHECK(wrong_footer.is_err() && wrong_footer.error() == cb2::Error::invalid);
     auto no_footer = Local::open(tok.value(), k, {}, implicit);
-    CHECK(no_footer.is_err() && no_footer.error() == paseto5::Error::invalid);
+    CHECK(no_footer.is_err() && no_footer.error() == cb2::Error::invalid);
     auto plain = Local::seal(k, msg);
     REQUIRE(plain.is_ok());
     auto extra_footer = Local::open(plain.value(), k, footer, {});
-    CHECK(extra_footer.is_err() && extra_footer.error() == paseto5::Error::invalid);
+    CHECK(extra_footer.is_err() && extra_footer.error() == cb2::Error::invalid);
     auto footer_in_text = Local::open(plain.value() + "." + "Zm9vdGVy", k, footer, {});
-    CHECK(footer_in_text.is_err() && footer_in_text.error() == paseto5::Error::invalid);
+    CHECK(footer_in_text.is_err() && footer_in_text.error() == cb2::Error::invalid);
 }
 
 TEST_CASE("local/other headers are rejected by the header check") {
@@ -158,7 +158,7 @@ TEST_CASE("local/argument errors never depend on the token") {
     CHECK(n == 0);
     std::vector<uint8_t> big(Local::token_len(3, 0));
     CHECK(Local::seal_into(big, n, k, {big.data(), 3}) == Status::argument);
-    std::vector<uint8_t> huge_implicit(paseto5::MAX_INPUT_BYTES + 1);
+    std::vector<uint8_t> huge_implicit(cb2::MAX_INPUT_BYTES + 1);
     CHECK(Local::seal_into(big, n, k, msg, {}, huge_implicit) == Status::argument);
     auto tok = Local::seal(k, msg);
     REQUIRE(tok.is_ok());
@@ -178,7 +178,7 @@ TEST_CASE("local/body layout is nonce, ciphertext, tag") {
     const std::string body = tok.value().substr(10);
     Bytes raw(body.size());
     size_t n = 0;
-    REQUIRE(paseto5::detail::b64::decode(raw.data(), raw.size(), body.data(), body.size(), n));
+    REQUIRE(cb2::detail::b64::decode(raw.data(), raw.size(), body.data(), body.size(), n));
     CHECK(n == 32 + 12 + 32);
 }
 
@@ -188,7 +188,7 @@ TEST_CASE("local/a one mebibyte message round trips") {
     auto tok = Local::seal(k, msg, {}, tu::bytes_of("ctx"));
     REQUIRE(tok.is_ok());
     auto refused = Local::open(tok.value(), k, {}, tu::bytes_of("ctx"));
-    CHECK(refused.is_err() && refused.error() == paseto5::Error::too_large);
+    CHECK(refused.is_err() && refused.error() == cb2::Error::too_large);
     auto back = Local::open(tok.value(), k, {}, tu::bytes_of("ctx"), tok.value().size());
     REQUIRE(back.is_ok());
     CHECK(back.value().size() == msg.size());
@@ -197,21 +197,21 @@ TEST_CASE("local/a one mebibyte message round trips") {
 
 TEST_CASE("local/the allocating open refuses an oversize token before reading it") {
     const LocalKey k = key_a();
-    const std::string just_over = std::string(Local::HEADER) + std::string(paseto5::DEFAULT_RAW_MAX_TOKEN_BYTES, 'A');
+    const std::string just_over = std::string(Local::HEADER) + std::string(cb2::DEFAULT_RAW_MAX_TOKEN_BYTES, 'A');
     auto r = Local::open(just_over, k);
-    CHECK(r.is_err() && r.error() == paseto5::Error::too_large);
+    CHECK(r.is_err() && r.error() == cb2::Error::too_large);
     auto raised = Local::open(just_over, k, {}, {}, just_over.size());
-    CHECK(raised.is_err() && raised.error() == paseto5::Error::invalid);
-    const std::string at_limit = std::string(Local::HEADER) + std::string(paseto5::DEFAULT_RAW_MAX_TOKEN_BYTES - Local::HEADER.size(), 'A');
+    CHECK(raised.is_err() && raised.error() == cb2::Error::invalid);
+    const std::string at_limit = std::string(Local::HEADER) + std::string(cb2::DEFAULT_RAW_MAX_TOKEN_BYTES - Local::HEADER.size(), 'A');
     auto limit = Local::open(at_limit, k);
-    CHECK(limit.is_err() && limit.error() == paseto5::Error::invalid);
-    const Bytes msg(paseto5::DEFAULT_RAW_MAX_TOKEN_BYTES, 0x5a);
+    CHECK(limit.is_err() && limit.error() == cb2::Error::invalid);
+    const Bytes msg(cb2::DEFAULT_RAW_MAX_TOKEN_BYTES, 0x5a);
     auto big = Local::seal(k, msg);
     REQUIRE(big.is_ok());
     auto refused = Local::open(big.value(), k);
-    CHECK(refused.is_err() && refused.error() == paseto5::Error::too_large);
+    CHECK(refused.is_err() && refused.error() == cb2::Error::too_large);
     auto allowed = Local::open(big.value(), k, {}, {}, big.value().size());
     REQUIRE(allowed.is_ok());
     CHECK(allowed.value().size() == msg.size());
-    CHECK(paseto5::DEFAULT_RAW_MAX_TOKEN_BYTES == (std::size_t{1} << 20));
+    CHECK(cb2::DEFAULT_RAW_MAX_TOKEN_BYTES == (std::size_t{1} << 20));
 }

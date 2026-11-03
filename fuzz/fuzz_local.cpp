@@ -9,11 +9,11 @@
  * other value and must be rejected. Finally the input is unwrapped as a
  * kcb2.local-wrap string.
  *
- * Build with -DPASETO5_FUZZ=ON (LLVM clang); run:
- *   ./paseto5_fuzz_local -max_total_time=120
+ * Build with -DCB2_FUZZ=ON (LLVM clang); run:
+ *   ./cb2_fuzz_local -max_total_time=120
  */
 
-#include <paseto5/paseto5.hpp>
+#include <cb2/cb2.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -21,9 +21,9 @@
 #include <string_view>
 #include <vector>
 
-using paseto5::Local;
-using paseto5::LocalKey;
-using paseto5::Status;
+using cb2::Local;
+using cb2::LocalKey;
+using cb2::Status;
 
 namespace {
 
@@ -88,6 +88,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         }
     }
 
-    (void)paseto5::KeyWrap::unwrap(token, key());
+    (void)cb2::KeyWrap::unwrap(token, key());
     return 0;
 }

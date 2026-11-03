@@ -23,7 +23,7 @@
  * halves it carries belong to the two secret halves, so a corrupted or
  * tampered key file is refused at import rather than producing tokens
  * nothing verifies. PublicKey and SecretKey exist only under
- * PASETO5_HAS_PQ.
+ * CB2_HAS_PQ.
  *
  * A local key must be uniformly random. Its default key id is a fast hash
  * of the key bytes and travels in clear in every token footer, so a key
@@ -52,7 +52,7 @@
 #include <utility>
 #include <vector>
 
-namespace paseto5 {
+namespace cb2 {
 
 namespace detail {
 
@@ -182,7 +182,7 @@ private:
     std::optional<std::string> kid_;
 };
 
-#ifdef PASETO5_HAS_PQ
+#ifdef CB2_HAS_PQ
 
 /// The hybrid verification key: Ed25519 || ML-DSA-65.
 class PublicKey {
@@ -292,7 +292,7 @@ public:
         if (crypto_sign_seed_keypair(ed_pk, derived.v, sk_.data()) != 0) return false;
         if (sodium_memcmp(ed_pk, sk_.data() + crypto_sign_SEEDBYTES, crypto_sign_PUBLICKEYBYTES) != 0)
             return false;
-        static constexpr uint8_t PROBE[] = "paseto5 secret key self-test";
+        static constexpr uint8_t PROBE[] = "cb2 secret key self-test";
         const std::span<const uint8_t> ctx = detail::as_bytes(SELF_TEST_CONTEXT);
         uint8_t sig[detail::MlDsa65::SIG_BYTES];
         if (!detail::MlDsa65::sign(sig, PROBE, sizeof PROBE, ctx, sk_.data() + ED_BYTES)) return false;
@@ -352,7 +352,7 @@ namespace detail {
 /// The only way the token code reaches raw key bytes.
 struct KeyAccess {
     [[nodiscard]] static const uint8_t* local(const LocalKey& k) noexcept { return k.k_; }
-#ifdef PASETO5_HAS_PQ
+#ifdef CB2_HAS_PQ
     [[nodiscard]] static const uint8_t* ed_public(const PublicKey& k) noexcept { return k.pk_.data(); }
     [[nodiscard]] static const uint8_t* ml_public(const PublicKey& k) noexcept {
         return k.pk_.data() + PublicKey::ED_BYTES;

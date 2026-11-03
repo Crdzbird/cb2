@@ -3,7 +3,7 @@
 /**
  * Text rules for the strings a token carries.
  *
- * Every string in a paseto5 token is UTF-8, so any script (Latin with
+ * Every string in a cb2 token is UTF-8, so any script (Latin with
  * diacritics, Cyrillic, Greek, Arabic, Hebrew, the CJK scripts, emoji and
  * anything else Unicode encodes) is carried as is, raw in the JSON, and
  * compared byte for byte after escapes are resolved. The decoder here is
@@ -26,7 +26,7 @@
 #include <cstddef>
 #include <string_view>
 
-namespace paseto5::text {
+namespace cb2::text {
 
 /// Decodes one UTF-8 code point at in[i], strictly; advances i.
 [[nodiscard]] inline bool decode(std::string_view in, std::size_t& i, unsigned& cp) noexcept {

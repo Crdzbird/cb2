@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * paseto5::Local: cb2.local tokens. The construction is in
+ * cb2::Local: cb2.local tokens. The construction is in
  * detail/local_core.hpp; this class fixes the header, takes a LocalKey and
  * offers both the caller-buffer functions (no allocation) and the
  * convenience functions (exactly one allocation each).
@@ -19,7 +19,7 @@
 #include <string>
 #include <string_view>
 
-namespace paseto5 {
+namespace cb2 {
 
 /// Bytes of a string, for footers and implicit assertions given as text.
 [[nodiscard]] inline std::span<const uint8_t> bytes(std::string_view s) noexcept {
@@ -122,7 +122,7 @@ public:
         return Result<SecureBytes>::ok(std::move(buf));
     }
 
-#ifdef PASETO5_TEST_NONCE
+#ifdef CB2_TEST_NONCE
     /// Test builds only: seals with a caller-chosen 32-byte nonce, to
     /// produce known-answer vectors. A repeated nonce under one key reuses
     /// the keystream and must never happen outside a test.

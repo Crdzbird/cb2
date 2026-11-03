@@ -4,8 +4,8 @@
 #include <algorithm>
 #include <string>
 
-using paseto5::KeyWrap;
-using paseto5::LocalKey;
+using cb2::KeyWrap;
+using cb2::LocalKey;
 using tu::Bytes;
 
 TEST_CASE("keys/local key generate, import, PASERK and id") {
@@ -15,7 +15,7 @@ TEST_CASE("keys/local key generate, import, PASERK and id") {
     REQUIRE(g2.is_ok());
     CHECK(g.value().paserk_id() != g2.value().paserk_id());
     const LocalKey& k = g.value();
-    const paseto5::SecureString p = k.to_paserk();
+    const cb2::SecureString p = k.to_paserk();
     const std::string_view pv(p.data(), p.size());
     CHECK(pv.rfind("kcb2.local.", 0) == 0 && pv.size() == 11 + 43);
     auto back = LocalKey::from_paserk(pv);
@@ -57,7 +57,7 @@ TEST_CASE("keys/local-wrap round trip and failures") {
     REQUIRE(w2.is_ok());
     CHECK(w2.value() != w.value());
     auto bad_key = KeyWrap::unwrap(w.value(), other);
-    CHECK(bad_key.is_err() && bad_key.error() == paseto5::Error::invalid);
+    CHECK(bad_key.is_err() && bad_key.error() == cb2::Error::invalid);
     for (size_t pos = 0; pos < w.value().size(); ++pos) {
         std::string t = w.value();
         t[pos] = t[pos] == 'A' ? 'B' : 'A';
@@ -67,13 +67,13 @@ TEST_CASE("keys/local-wrap round trip and failures") {
     CHECK(KeyWrap::unwrap(w.value() + "A", wrapping).is_err());
     std::string as_token = w.value();
     as_token.replace(0, 16, "cb2.local.");
-    CHECK(paseto5::Local::open(as_token, wrapping).is_err());
+    CHECK(cb2::Local::open(as_token, wrapping).is_err());
 }
 
 TEST_CASE("keys/wrapped keys are not cb2.local tokens of the key and vice versa") {
     const LocalKey wrapping = LocalKey::from_bytes(tu::pattern(32, 0x01)).value();
     const LocalKey inner = LocalKey::from_bytes(tu::pattern(32, 0x03)).value();
-    auto tok = paseto5::Local::seal(wrapping, tu::pattern(32, 0x03));
+    auto tok = cb2::Local::seal(wrapping, tu::pattern(32, 0x03));
     REQUIRE(tok.is_ok());
     std::string as_wrap = tok.value();
     as_wrap.replace(0, 10, "kcb2.local-wrap.");
@@ -84,16 +84,16 @@ TEST_CASE("keys/a key whose bytes are all equal is refused on import") {
     for (uint8_t b : {uint8_t{0x00}, uint8_t{0x42}, uint8_t{0xff}}) {
         const Bytes k(32, b);
         auto r = LocalKey::from_bytes(k);
-        CHECK(r.is_err() && r.error() == paseto5::Error::argument);
+        CHECK(r.is_err() && r.error() == cb2::Error::argument);
         std::string text = "kcb2.local.";
-        std::string body(paseto5::detail::b64::encoded_len(k.size()), '\0');
-        paseto5::detail::b64::encode(body.data(), k.data(), k.size());
+        std::string body(cb2::detail::b64::encoded_len(k.size()), '\0');
+        cb2::detail::b64::encode(body.data(), k.data(), k.size());
         auto p = LocalKey::from_paserk(text + body);
-        CHECK(p.is_err() && p.error() == paseto5::Error::argument);
+        CHECK(p.is_err() && p.error() == cb2::Error::argument);
     }
     Bytes almost(32, 0x42);
     almost[31] = 0x43;
     CHECK(LocalKey::from_bytes(almost).is_ok());
     CHECK(LocalKey::from_bytes(tu::pattern(32, 0x00)).is_ok());
-    CHECK(paseto5::detail::constant_bytes(almost.data(), 31) && !paseto5::detail::constant_bytes(almost.data(), 32));
+    CHECK(cb2::detail::constant_bytes(almost.data(), 31) && !cb2::detail::constant_bytes(almost.data(), 32));
 }

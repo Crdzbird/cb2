@@ -19,7 +19,7 @@
 #include <string>
 #include <string_view>
 
-namespace paseto5 {
+namespace cb2 {
 
 class KeyWrap {
 public:
@@ -48,7 +48,7 @@ public:
         return LocalKey::from_bytes({work.v, LocalKey::BYTES});
     }
 
-#ifdef PASETO5_TEST_NONCE
+#ifdef CB2_TEST_NONCE
     /// Test builds only: wraps with a caller-chosen 32-byte nonce.
     [[nodiscard]] static Result<std::string>
     wrap_with_nonce_for_testing(const LocalKey& wrapping_key, const LocalKey& key,

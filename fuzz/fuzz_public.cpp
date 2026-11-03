@@ -8,11 +8,11 @@
  * must round trip, and one byte of the signature region chosen by the
  * input is flipped and must be rejected.
  *
- * Build with -DPASETO5_FUZZ=ON (LLVM clang); run:
- *   ./paseto5_fuzz_public -max_total_time=120
+ * Build with -DCB2_FUZZ=ON (LLVM clang); run:
+ *   ./cb2_fuzz_public -max_total_time=120
  */
 
-#include <paseto5/paseto5.hpp>
+#include <cb2/cb2.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -20,12 +20,12 @@
 #include <string_view>
 #include <vector>
 
-#ifdef PASETO5_HAS_PQ
+#ifdef CB2_HAS_PQ
 
-using paseto5::Public;
-using paseto5::PublicKey;
-using paseto5::SecretKey;
-using paseto5::Status;
+using cb2::Public;
+using cb2::PublicKey;
+using cb2::SecretKey;
+using cb2::Status;
 
 namespace {
 

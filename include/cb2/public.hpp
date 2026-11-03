@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * paseto5::Public: cb2.public tokens, present only under PASETO5_HAS_PQ.
+ * cb2::Public: cb2.public tokens, present only under CB2_HAS_PQ.
  *
  *   h    = "cb2.public."
  *   m2   = PAE(h, m, f, i)
@@ -18,7 +18,7 @@
  * case), otherwise in one heap allocation.
  */
 
-#ifdef PASETO5_HAS_PQ
+#ifdef CB2_HAS_PQ
 
 #include "detail/local_core.hpp"
 #include "detail/pae.hpp"
@@ -37,7 +37,7 @@
 #include <string_view>
 #include <vector>
 
-namespace paseto5 {
+namespace cb2 {
 
 class Public {
 public:

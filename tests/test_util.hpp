@@ -6,7 +6,7 @@
  * deterministic byte pattern.
  */
 
-#include <paseto5/paseto5.hpp>
+#include <cb2/cb2.hpp>
 #include <sodium.h>
 
 #include <cstdint>
@@ -25,7 +25,7 @@ inline Bytes bytes_of(std::string_view s) { return Bytes(s.begin(), s.end()); }
 
 inline std::span<const uint8_t> sp(const Bytes& b) { return b; }
 
-inline std::span<const uint8_t> sp(std::string_view s) { return paseto5::bytes(s); }
+inline std::span<const uint8_t> sp(std::string_view s) { return cb2::bytes(s); }
 
 inline std::string hex(std::span<const uint8_t> b) {
     std::string s(b.size() * 2 + 1, '\0');
@@ -67,25 +67,25 @@ inline bool write_file(const char* path, std::string_view text) {
     return ok;
 }
 
-inline std::string str(const paseto5::json::Value& v, std::string_view key) {
+inline std::string str(const cb2::json::Value& v, std::string_view key) {
     const auto* m = v.get(key);
     return m != nullptr && m->is_string() ? m->text : std::string();
 }
 
-inline bool flag(const paseto5::json::Value& v, std::string_view key) {
+inline bool flag(const cb2::json::Value& v, std::string_view key) {
     const auto* m = v.get(key);
-    return m != nullptr && m->kind == paseto5::json::Value::Kind::boolean && m->b;
+    return m != nullptr && m->kind == cb2::json::Value::Kind::boolean && m->b;
 }
 
-inline long long num(const paseto5::json::Value& v, std::string_view key) {
+inline long long num(const cb2::json::Value& v, std::string_view key) {
     const auto* m = v.get(key);
-    return m != nullptr && m->kind == paseto5::json::Value::Kind::number ? std::stoll(m->text) : 0;
+    return m != nullptr && m->kind == cb2::json::Value::Kind::number ? std::stoll(m->text) : 0;
 }
 
 /// Rules at a fixed clock that accept any audience and issuer, for tests
 /// whose subject is something else.
-inline paseto5::ValidationRules lenient(paseto5::Seconds now) {
-    return paseto5::ValidationRules().at(now).allow_any_audience().allow_any_issuer();
+inline cb2::ValidationRules lenient(cb2::Seconds now) {
+    return cb2::ValidationRules().at(now).allow_any_audience().allow_any_issuer();
 }
 
 inline std::string str_of(std::span<const uint8_t> b) {

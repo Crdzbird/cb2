@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * paseto5::Result and paseto5::Error.
+ * cb2::Result and cb2::Error.
  *
  * Every operation returns a Result. A failure that depends on the bytes of
  * a token that has not been authenticated yet is always reported as
@@ -15,9 +15,9 @@
 #include <optional>
 #include <utility>
 
-namespace paseto5 {
+namespace cb2 {
 
-/// The failures paseto5 reports. invalid: any failure that depends on an
+/// The failures cb2 reports. invalid: any failure that depends on an
 /// unverified token (header, encoding, footer, key id, tag or signature).
 /// too_large: the token exceeds the size limit, decided before parsing.
 /// argument: a caller error that does not depend on token content.
