@@ -32,7 +32,7 @@ cmake --build build
 ```
 
 Options: `CB2_PQ` (default ON; OFF builds without liboqs and without
-cb2.public), `CB2_BUILD_TESTS`, `CB2_BUILD_BENCH` (needs
+cb2.public), `CB2_BUILD_TESTS`, `CB2_BUILD_PLAYGROUND`, `CB2_BUILD_BENCH` (needs
 CipherBird's headers; `CB2_CRYPTOLIB_INCLUDE` names them, default
 `../cryptolib/include`), `CB2_FUZZ` (LLVM clang), `CB2_SANITIZE`
 (ASan + UBSan).
@@ -105,6 +105,28 @@ as a test. Run it and look at how the spoofed strings render:
 ```
 
 `CB2_BUILD_EXAMPLES` (default ON) controls the target.
+
+## Playground
+
+`cb2_playground` is a line-oriented session with the library: generate
+and import keys, seal and open, sign and verify, build claims and check
+them under rules, wrap keys, peek at a footer, tamper with a token and
+watch the verdict change. Run it with no arguments for a prompt, or give
+it a script; `help` lists the commands and `$` stands for the last token.
+
+```
+./build/cb2_playground
+cb2> keygen local alice
+cb2> claims alice iss=https://issuer.example aud=api sub=user-1 exp=+3600 role=admin
+cb2> check alice $ iss=https://issuer.example aud=api
+cb2> check alice $ iss=https://issuer.example aud=other
+cb2> tamper $
+cb2> check alice $ iss=https://issuer.example aud=api
+```
+
+`playground/demo.cb2` and `playground/demo_public.cb2` are scripted
+sessions whose `assert` lines make them tests; CI runs them in every
+build.
 
 ## API
 
@@ -181,6 +203,7 @@ include/cb2/claims.hpp         Claims, ValidationRules, Token, Rfc3339
 include/cb2/detail/            base64url, PAE, BLAKE3 and liboqs wrappers, the local core, secure memory
 tests/                             runner, cases, gen_vectors.cpp, vectors/*.json, vectors/paseto-v4/ (the official v4 vectors, ISC)
 examples/international_text.cpp    the text policy against a legacy check, eight scenarios, self-checking
+playground/                        cb2_playground and the two scripted, self-checking demo sessions
 fuzz/                              fuzz_local, fuzz_public, fuzz_claims
 bench/                             bench_main.cpp, bench_ref.cpp (CipherBird's v4.local and cb1.local)
 docs/SPEC.md                       wire format, rationale, threat model

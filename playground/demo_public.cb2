@@ -1,0 +1,23 @@
+# cb2 playground demo: cb2.public, Ed25519 plus ML-DSA-65. Needs liboqs.
+echo -- a signing pair
+keygen public issuer
+assert ok
+claims issuer iss=https://issuer.example aud=api sub=user-1 exp=+3600
+assert ok
+peek $
+check issuer $ iss=https://issuer.example aud=api
+assert ok
+echo -- another pair does not verify it
+keygen public other
+check other $ iss=https://issuer.example aud=api
+assert invalid
+echo -- one flipped character
+tamper $
+check issuer $ iss=https://issuer.example aud=api
+assert invalid
+echo -- raw signed bytes under an implicit assertion
+sign issuer "signed bytes" "" request-9
+verify issuer $ "" request-9
+assert ok
+verify issuer $ "" request-10
+assert invalid

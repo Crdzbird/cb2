@@ -24,26 +24,31 @@ jobs:
           cmake --build build
           ./build/cb2_tests
           ./build/cb2_example_text
+          ./build/cb2_playground playground/demo.cb2
+          ./build/cb2_playground playground/demo_public.cb2
       - name: Tests under ASan/UBSan
         run: |
           cmake -S . -B build-asan -G Ninja -DCB2_SANITIZE=ON -DCB2_BUILD_BENCH=OFF
-          cmake --build build-asan --target cb2_tests cb2_example_text
+          cmake --build build-asan --target cb2_tests cb2_example_text cb2_playground
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_tests
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_example_text
+          ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_playground playground/demo.cb2
+          ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_playground playground/demo_public.cb2
       - name: Build without liboqs (cb2.local only)
         run: |
           cmake -S . -B build-nopq -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCB2_PQ=OFF -DCB2_BUILD_BENCH=OFF
-          cmake --build build-nopq --target cb2_tests cb2_example_text
+          cmake --build build-nopq --target cb2_tests cb2_example_text cb2_playground
           ./build-nopq/cb2_tests
           ./build-nopq/cb2_example_text
+          ./build-nopq/cb2_playground playground/demo.cb2
       - name: Fuzz targets (time-boxed)
         env:
           CC: /opt/homebrew/opt/llvm/bin/clang
           CXX: /opt/homebrew/opt/llvm/bin/clang++
         run: |
           cmake -S . -B build-fuzz -G Ninja -DCB2_FUZZ=ON \
-            -DCB2_BUILD_TESTS=OFF -DCB2_BUILD_BENCH=OFF -DCB2_BUILD_EXAMPLES=OFF \
+            -DCB2_BUILD_TESTS=OFF -DCB2_BUILD_BENCH=OFF -DCB2_BUILD_EXAMPLES=OFF -DCB2_BUILD_PLAYGROUND=OFF \
             -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=/opt/homebrew/opt/lld/bin/ld64.lld
           cmake --build build-fuzz
           for fz in fuzz_local fuzz_public fuzz_claims; do
@@ -75,16 +80,21 @@ jobs:
           cmake --build build
           ./build/cb2_tests
           ./build/cb2_example_text
+          ./build/cb2_playground playground/demo.cb2
+          ./build/cb2_playground playground/demo_public.cb2
       - name: Tests under ASan/UBSan
         run: |
           cmake -S . -B build-asan -G Ninja -DCB2_SANITIZE=ON -DCB2_BUILD_BENCH=OFF
-          cmake --build build-asan --target cb2_tests cb2_example_text
+          cmake --build build-asan --target cb2_tests cb2_example_text cb2_playground
           ./build-asan/cb2_tests
           ./build-asan/cb2_example_text
+          ./build-asan/cb2_playground playground/demo.cb2
+          ./build-asan/cb2_playground playground/demo_public.cb2
       - name: Build without liboqs (cb2.local only)
         run: |
           cmake -S . -B build-nopq -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCB2_PQ=OFF -DCB2_BUILD_BENCH=OFF
-          cmake --build build-nopq --target cb2_tests cb2_example_text
+          cmake --build build-nopq --target cb2_tests cb2_example_text cb2_playground
           ./build-nopq/cb2_tests
           ./build-nopq/cb2_example_text
+          ./build-nopq/cb2_playground playground/demo.cb2
