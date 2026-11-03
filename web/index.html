@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>cb2 playground</title>
-<meta name="description" content="Try cb2 tokens in the browser: keys, claims, rules, tampering, key wrapping. The library runs as WebAssembly on this page; nothing leaves it.">
+<meta name="description" content="Try cb2 tokens in the browser: keys, claims, footers, rules, tampering, key wrapping. The library runs as WebAssembly on this page; nothing leaves it.">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,73 +12,200 @@
   <h1>cb2 playground</h1>
   <p>
     The cb2 token library, compiled to WebAssembly and running on this
-    page. Nothing you type leaves the browser. Type a command below or
-    press the buttons; <code>help</code> lists every command and
-    <code>$</code> stands for the last token produced.
+    page. Nothing you type leaves the browser. Build a token on the left,
+    step by step; every button runs a playground command, and the
+    transcript on the right shows the command and what the library
+    answered, so the same session works in the command-line playground.
     <a href="https://github.com/Crdzbird/cb2">Source and specification</a>.
   </p>
   <p id="status" class="status">loading the library</p>
 </header>
 
 <main>
+<div class="work">
+
+  <section class="card" id="card-scenarios">
+    <h2>Scenarios</h2>
+    <p>Each one fills the forms below and runs them, so you can see a complete case and then change any field.</p>
+    <p class="row" id="scenarios"></p>
+    <p id="scenario-hint" class="hint"></p>
+  </section>
+
+  <section class="card" id="card-keys">
+    <h2><span class="num">1</span> Keys</h2>
+    <p>A local key seals tokens that only holders of the same key can open. A signing pair signs tokens that anyone with the public half can verify. A key id is bound into the token's footer, so a verifier can pick the right key before verifying anything.</p>
+    <table id="keys-table" class="keys">
+      <thead><tr><th>name</th><th>kind</th><th>key id</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <p id="keys-empty" class="hint">No keys yet.</p>
+    <div class="grid2">
+      <label>name <input id="key-name" type="text" placeholder="alice" spellcheck="false"></label>
+      <p class="row">
+        <button type="button" id="key-local">new local key</button>
+        <button type="button" id="key-public" data-pq="1">new signing pair (Ed25519 + ML-DSA-65)</button>
+      </p>
+    </div>
+    <details>
+      <summary>Import a key or change a key id</summary>
+      <div class="grid2">
+        <label>kcb2 string <input id="import-text" type="text" placeholder="kcb2.local.... or kcb2.secret.... or kcb2.public...." spellcheck="false"></label>
+        <p class="row"><button type="button" id="import-run">import</button></p>
+      </div>
+      <div class="grid3">
+        <label>key <select id="kid-key"></select></label>
+        <label>key id <input id="kid-text" type="text" placeholder="prod-2026" spellcheck="false"></label>
+        <p class="row">
+          <button type="button" id="kid-set">set</button>
+          <button type="button" id="kid-clear">clear</button>
+        </p>
+      </div>
+      <p class="hint">A freshly generated key carries its own id (the kcb2.lid or kcb2.pid of the key). Clearing it leaves the token without a footer.</p>
+    </details>
+  </section>
+
+  <section class="card" id="card-issue">
+    <h2><span class="num">2</span> Issue a token</h2>
+    <div class="grid2">
+      <label>key <select id="issue-key"></select></label>
+      <p class="row modes">
+        <label><input type="radio" name="issue-mode" value="claims" checked> claims (JSON payload)</label>
+        <label><input type="radio" name="issue-mode" value="raw"> raw message</label>
+      </p>
+    </div>
+    <div id="issue-claims">
+      <p class="hint">The registered claims become the JSON payload; identifiers are compared byte for byte and may not contain invisible or look-alike characters. Times accept <code>+3600</code> (seconds from now), Unix seconds or RFC 3339.</p>
+      <div class="grid3">
+        <label>iss (issuer) <input id="c-iss" type="text" value="https://issuer.example" spellcheck="false"></label>
+        <label>aud (audience) <input id="c-aud" type="text" value="api" spellcheck="false"></label>
+        <label>sub (subject) <input id="c-sub" type="text" value="user-1" spellcheck="false"></label>
+        <label>jti (token id) <span class="with-button"><input id="c-jti" type="text" value="t-1" spellcheck="false"><button type="button" id="c-jti-random" title="a random id">random</button></span></label>
+        <label>exp (expires) <input id="c-exp" type="text" value="+3600" list="time-presets" spellcheck="false"></label>
+        <label>nbf (not before) <input id="c-nbf" type="text" placeholder="optional" list="time-presets" spellcheck="false"></label>
+        <label>iat (issued at) <input id="c-iat" type="text" placeholder="optional" list="time-presets" spellcheck="false"></label>
+        <label>implicit assertion <input id="c-implicit" type="text" placeholder="optional, bound but not sent" spellcheck="false"></label>
+      </div>
+      <datalist id="time-presets">
+        <option value="+60">in a minute</option>
+        <option value="+3600">in an hour</option>
+        <option value="+86400">in a day</option>
+        <option value="-60">a minute ago (already expired)</option>
+        <option value="2030-01-01T00:00:00Z">RFC 3339</option>
+      </datalist>
+      <h3>Custom claims</h3>
+      <table id="custom-table" class="custom">
+        <thead><tr><th>name</th><th>value</th><th>type</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="row"><button type="button" id="custom-add">add a claim</button></p>
+    </div>
+    <div id="issue-raw" hidden>
+      <p class="hint">A raw token carries any bytes. The footer travels in the clear but is authenticated; the implicit assertion is authenticated but not sent, so both sides must know it.</p>
+      <label>message <textarea id="r-msg" rows="3" spellcheck="false">hello, world</textarea></label>
+      <div class="grid2">
+        <label>footer <input id="r-footer" type="text" value='{"kid":"example"}' spellcheck="false"></label>
+        <label>implicit assertion <input id="r-implicit" type="text" value="request-7" spellcheck="false"></label>
+      </div>
+    </div>
+    <p class="row"><button type="button" id="issue-run" class="primary">issue the token</button></p>
+    <div id="issue-result" class="result" hidden></div>
+  </section>
+
+  <section class="card" id="card-token">
+    <h2><span class="num">3</span> The token</h2>
+    <p class="hint">Edit it freely: one changed character makes it invalid, with no further detail. The parts below are read without verifying anything.</p>
+    <textarea id="token" rows="4" spellcheck="false" placeholder="issue a token above, or paste one"></textarea>
+    <div id="anatomy" class="anatomy"></div>
+    <dl id="peek" class="peek"></dl>
+    <p class="row">
+      <button type="button" id="token-tamper">flip one character</button>
+      <button type="button" id="token-peek">peek in the transcript</button>
+      <button type="button" id="token-copy">copy</button>
+      <button type="button" id="token-clear">clear</button>
+    </p>
+  </section>
+
+  <section class="card" id="card-verify">
+    <h2><span class="num">4</span> Verify</h2>
+    <div class="grid2">
+      <label>key <select id="verify-key"></select></label>
+      <p class="row modes">
+        <label><input type="radio" name="verify-mode" value="rules" checked> claims and rules</label>
+        <label><input type="radio" name="verify-mode" value="raw"> raw open or verify</label>
+      </p>
+    </div>
+    <div id="verify-rules">
+      <p class="hint">A verifier states what it expects before reading the token. Rules that name no issuer and no audience are refused before the token is touched. Claim verdicts are given only after the token authenticated.</p>
+      <div class="grid3">
+        <label>expected issuer <input id="v-iss" type="text" value="https://issuer.example" spellcheck="false"></label>
+        <label>expected audience <input id="v-aud" type="text" value="api" spellcheck="false"></label>
+        <label>expected subject <input id="v-sub" type="text" placeholder="optional" spellcheck="false"></label>
+        <label>clock skew (seconds) <input id="v-skew" type="number" min="0" placeholder="0"></label>
+        <label>verify at <input id="v-now" type="text" placeholder="now; or +7200, Unix seconds, RFC 3339" list="time-presets" spellcheck="false"></label>
+        <label>max token bytes <input id="v-max" type="number" min="1" placeholder="default"></label>
+        <label>implicit assertion <input id="v-implicit" type="text" placeholder="must match the issuer's" spellcheck="false"></label>
+      </div>
+      <p class="row checks">
+        <label><input type="checkbox" id="v-any-iss"> any issuer</label>
+        <label><input type="checkbox" id="v-any-aud"> any audience</label>
+        <label><input type="checkbox" id="v-replay"> replay check (each jti once)</label>
+        <label><input type="checkbox" id="v-no-exp"> allow a missing exp</label>
+      </p>
+    </div>
+    <div id="verify-raw" hidden>
+      <div class="grid2">
+        <label>footer <input id="vr-footer" type="text" value='{"kid":"example"}' spellcheck="false"></label>
+        <label>implicit assertion <input id="vr-implicit" type="text" value="request-7" spellcheck="false"></label>
+      </div>
+    </div>
+    <p class="row"><button type="button" id="verify-run" class="primary">verify</button></p>
+    <div id="verify-result" class="result" hidden></div>
+  </section>
+
+  <section class="card" id="card-text">
+    <h2><span class="num">5</span> International text</h2>
+    <p class="hint">Identifiers (iss, sub, aud, jti and claim names) are UTF-8 in any script, compared byte for byte, with no invisible or formatting characters. Type anything, or try one of these.</p>
+    <p class="row" id="text-presets"></p>
+    <div class="grid2">
+      <label>text <input id="text-in" type="text" placeholder="anything" spellcheck="false"></label>
+      <p class="row"><button type="button" id="text-run">inspect</button><button type="button" id="text-use">use as subject</button></p>
+    </div>
+    <dl id="text-result" class="peek"></dl>
+  </section>
+
+</div>
+
+<aside class="side">
   <section class="console">
+    <div class="console-head">
+      <span>transcript</span>
+      <span class="row">
+        <button type="button" id="help">help</button>
+        <button type="button" id="clear">clear</button>
+        <button type="button" id="reset">reset session</button>
+      </span>
+    </div>
     <pre id="out" aria-live="polite"></pre>
     <form id="form" autocomplete="off">
       <label for="cmd" class="prompt">cb2&gt;</label>
-      <input id="cmd" type="text" spellcheck="false" placeholder="keygen local alice" disabled>
+      <input id="cmd" type="text" spellcheck="false" placeholder="a command; help lists them; $ is the last token" disabled>
       <button id="run" type="submit" disabled>run</button>
     </form>
   </section>
-
-  <aside class="panel">
-    <h2>Walk through</h2>
-    <p>Each button runs one step; read the verdicts as they change.</p>
-    <ol id="steps">
-      <li><button type="button" data-cmd="keygen local alice">a key</button></li>
-      <li><button type="button" data-cmd="claims alice iss=https://issuer.example aud=api sub=user-1 jti=t-1 exp=+3600 role=admin">claims sealed under it</button></li>
-      <li><button type="button" data-cmd="peek $">peek, nothing verified</button></li>
-      <li><button type="button" data-cmd="check alice $ iss=https://issuer.example aud=api">check with the right rules</button></li>
-      <li><button type="button" data-cmd="check alice $ iss=https://issuer.example aud=other">check for another audience</button></li>
-      <li><button type="button" data-cmd="check alice $">rules that name nothing</button></li>
-      <li><button type="button" data-cmd="check alice $ iss=https://issuer.example aud=api replay">a replay check, twice</button></li>
-      <li><button type="button" data-cmd="tamper $">flip one character</button></li>
-      <li><button type="button" data-cmd="check alice $ iss=https://issuer.example aud=api">check again</button></li>
-      <li><button type="button" data-cmd="keygen local vault">a wrapping key</button></li>
-      <li><button type="button" data-cmd="wrap vault alice">wrap the first key</button></li>
-      <li><button type="button" data-cmd="unwrap vault $ alice-again">unwrap it</button></li>
-      <li><button type="button" data-cmd="keygen public issuer" data-pq="1">a signing pair (Ed25519 + ML-DSA-65)</button></li>
-      <li><button type="button" data-cmd="claims issuer iss=https://issuer.example aud=api sub=user-1 exp=+3600" data-pq="1">claims signed under it</button></li>
-      <li><button type="button" data-cmd="check issuer $ iss=https://issuer.example aud=api" data-pq="1">verify</button></li>
-    </ol>
-    <h2>International text</h2>
-    <p>Identifiers are UTF-8 in any script, compared byte for byte, with no invisible characters. Inside quotes <code>\uXXXX</code> carries a code point.</p>
-    <ol id="text-steps">
-      <li><button type="button" data-cmd="text &quot;\u5c71\u7530\u592a\u90ce&quot;">a Japanese identifier</button></li>
-      <li><button type="button" data-cmd="claims alice iss=https://issuer.example aud=api sub=&quot;\u5c71\u7530\u592a\u90ce&quot; exp=+3600">claims with it</button></li>
-      <li><button type="button" data-cmd="check alice $ iss=https://issuer.example aud=api sub=&quot;\u5c71\u7530\u592a\u90ce&quot;">check for that subject</button></li>
-      <li><button type="button" data-cmd="text &quot;admin\u200b&quot;">admin with a zero-width space</button></li>
-      <li><button type="button" data-cmd="claims alice iss=https://issuer.example aud=api sub=&quot;admin\u200b&quot; exp=+3600">claims with that subject</button></li>
-      <li><button type="button" data-cmd="text &quot;paid \u202eDIAPNU&quot;">a bidi override</button></li>
-      <li><button type="button" data-cmd="text &quot;caf\u00e9&quot;">composed cafe</button></li>
-      <li><button type="button" data-cmd="text &quot;cafe\u0301&quot;">decomposed cafe</button></li>
-    </ol>
-    <h2>Scripts</h2>
-    <p>The same scripted sessions that CI runs as tests.</p>
+  <section class="card scripts">
+    <h2>Scripted sessions</h2>
+    <p>The same scripts CI runs as tests.</p>
     <p class="row">
       <button type="button" id="demo">run demo.cb2</button>
       <button type="button" id="demo-public" data-pq="1">run demo_public.cb2</button>
       <button type="button" id="demo-text">run demo_text.cb2</button>
-      <button type="button" id="help">help</button>
-      <button type="button" id="clear">clear</button>
-      <button type="button" id="reset">reset session</button>
     </p>
-    <h2>Notes</h2>
     <ul>
       <li>Keys are generated from the browser's random source and live only in this page's memory.</li>
       <li>Verdicts before authentication are always <code>invalid</code>; the named errors appear only after a token has been authenticated.</li>
-      <li>Times accept <code>+3600</code>, Unix seconds or RFC 3339.</li>
     </ul>
-  </aside>
+  </section>
+</aside>
 </main>
 
 <script src="dist/cb2.js"></script>

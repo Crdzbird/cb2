@@ -32,6 +32,13 @@ check alice $ iss=https://issuer.example aud=api
 assert expired
 check alice $ iss=https://issuer.example aud=api skew=120
 assert ok
+echo -- custom claims: strings with =, any JSON value with :=
+claims alice iss=https://issuer.example aud=api exp=+3600 role=admin "scopes:=[\"read\",\"write\"]" level:=3 "exp:=1"
+assert argument
+claims alice iss=https://issuer.example aud=api exp=+3600 role=admin "scopes:=[\"read\",\"write\"]" level:=3
+assert ok
+check alice $ iss=https://issuer.example aud=api
+assert ok
 echo -- raw tokens: the footer and the implicit assertion are both bound
 seal alice "hello, world" "{\"kid\":\"example\"}" request-7
 open alice $ "{\"kid\":\"example\"}" request-7

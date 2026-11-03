@@ -124,6 +124,8 @@ cb2> tamper $
 cb2> check alice $ iss=https://issuer.example aud=api
 ```
 
+Custom claims are `name=value` for a string and `name:=json` for any
+JSON value; `show <key>` prints a stored key's kcb2 strings.
 Inside double quotes `\uXXXX` and `\u{X...}` carry any code point and
 `\xNN` a raw byte, so a script stays ASCII while it exercises
 international text; `text <string>`
@@ -140,7 +142,15 @@ The same session runs in the browser: `web/` holds a page that loads the
 library compiled to WebAssembly (`web/dist/cb2.js` and `cb2.wasm`, built
 by `web/build.sh` with Emscripten against wasm32 builds of the pinned
 dependencies from `web/build_deps.sh`) and drives the interpreter of
-`playground/session.hpp` through a four-function C shim. Nothing typed
+`playground/session.hpp` through a four-function C shim. The page is a
+guided builder: keys, a token form (registered claims, custom claims of
+any JSON type, footer and implicit assertion, or a raw message), a token
+inspector that colours the header, body and footer and reads them
+without verifying, a verifier with every rule, and an international-text
+checker, plus scenarios that fill the forms and run them. Every button
+runs a playground command, and the transcript beside the forms shows
+the command and the library's answer, so what the page does can be
+repeated in `cb2_playground`. Nothing typed
 into the page leaves it. It is published at https://crdzbird.github.io/cb2/
 by the Pages workflow on every push that touches `web/`; to run it
 locally, serve the directory with any static server, for example

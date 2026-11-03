@@ -292,14 +292,15 @@ inline void help(Session& s) {
         "  keygen public [name]           new Ed25519 + ML-DSA-65 pair (default signer)\n"
         "  import <kcb2 string> [name]    kcb2.local, kcb2.secret or kcb2.public\n"
         "  keys                           list the stored keys\n"
+        "  show <key>                     the kcb2 strings and id of a stored key\n"
         "  kid <key> <id>|none            set or clear the key id bound into the footer\n"
         "  seal <key> <msg> [footer] [implicit]      raw cb2.local token\n"
         "  open <key> <token> [footer] [implicit]    message or verdict\n"
         "  sign <key> <msg> [footer] [implicit]      raw cb2.public token\n"
         "  verify <key> <token> [footer] [implicit]  message or verdict\n"
         "  claims <key> [iss=] [aud=] [sub=] [jti=] [exp=] [nbf=] [iat=] [name=value]...\n"
-        "                                 [implicit=] seal (local key) or sign (secret key)\n"
-        "                                 times: +3600, Unix seconds or RFC 3339\n"
+        "                                 [name:=json]... [implicit=]  seal (local key) or\n"
+        "                                 sign (secret key); times: +3600, Unix seconds or RFC 3339\n"
         "  check <key> <token> [iss=] [aud=] [sub=] [any-iss] [any-aud] [skew=] [now=]\n"
         "                                 [replay] [no-exp] [max=] [implicit=]  open or verify\n"
         "  peek <token>                   header, body size, footer and kid, nothing verified\n"
@@ -452,6 +453,25 @@ inline bool cmd_keys(Session& s, const Args&) {
     return true;
 }
 
+inline bool cmd_show(Session& s, const Args& a) {
+    if (a.size() < 2) return fail(s, "show <key>");
+    if (const cb2::LocalKey* k = find_local(s, a[1])) {
+        describe_local(s, a[1], *k);
+        return true;
+    }
+#ifdef CB2_HAS_PQ
+    if (const cb2::SecretKey* k = find_secret(s, a[1])) {
+        describe_secret(s, a[1], *k);
+        return true;
+    }
+    if (const auto it = s.pub.find(a[1]); it != s.pub.end()) {
+        describe_public(s, a[1], it->second);
+        return true;
+    }
+#endif
+    return fail(s, "no key named " + a[1]);
+}
+
 inline bool cmd_kid(Session& s, const Args& a) {
     if (a.size() < 3) return fail(s, "kid <key> <id>|none");
     bool found = false;
@@ -557,7 +577,7 @@ inline bool cmd_verify(Session& s, const Args& a) {
 }
 
 inline bool cmd_claims(Session& s, const Args& a) {
-    if (a.size() < 2) return fail(s, "claims <key> [iss=] [aud=] [sub=] [jti=] [exp=] [nbf=] [iat=] [name=value]... [implicit=]");
+    if (a.size() < 2) return fail(s, "claims <key> [iss=] [aud=] [sub=] [jti=] [exp=] [nbf=] [iat=] [name=value]... [name:=json]... [implicit=]");
     cb2::Claims c;
     std::string implicit;
     for (std::size_t i = 2; i < a.size(); ++i) {
@@ -580,6 +600,11 @@ inline bool cmd_claims(Session& s, const Args& a) {
             if (name == "exp") c.exp = t;
             if (name == "nbf") c.nbf = t;
             if (name == "iat") c.iat = t;
+        } else if (!name.empty() && name.back() == ':') {
+            if (!c.set_json(std::string_view(name).substr(0, name.size() - 1), value)) {
+                verdict(s, Error::argument);
+                return true;
+            }
         } else if (!c.set(name, value)) {
             verdict(s, Error::argument);
             return true;
@@ -706,8 +731,10 @@ inline bool cmd_peek(Session& s, const Args& a) {
     const std::size_t dot = t.find('.', header.size());
     const std::string_view body(t.data() + header.size(),
                                 (dot == std::string::npos ? t.size() : dot) - header.size());
+    const std::size_t body_bytes = cb2::detail::b64::decoded_len(body.size());
     say(s, "body", std::to_string(body.size()) + " characters, " +
-                    std::to_string(cb2::detail::b64::decoded_len(body.size())) + " bytes");
+                    (body_bytes == static_cast<std::size_t>(-1) ? std::string("not a valid base64 length")
+                                                                 : std::to_string(body_bytes) + " bytes"));
     if (dot == std::string::npos) {
         say(s, "footer", "none");
     } else {
@@ -801,6 +828,7 @@ inline bool run(Session& s, const std::string& line) {
     if (c == "keygen") return cmd_keygen(s, a);
     if (c == "import") return cmd_import(s, a);
     if (c == "keys") return cmd_keys(s, a);
+    if (c == "show") return cmd_show(s, a);
     if (c == "kid") return cmd_kid(s, a);
     if (c == "seal") return cmd_seal(s, a);
     if (c == "open") return cmd_open(s, a);
