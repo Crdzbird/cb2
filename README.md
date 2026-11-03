@@ -128,6 +128,20 @@ cb2> check alice $ iss=https://issuer.example aud=api
 sessions whose `assert` lines make them tests; CI runs them in every
 build.
 
+### In the browser
+
+The same session runs in the browser: `web/` holds a page that loads the
+library compiled to WebAssembly (`web/dist/cb2.js` and `cb2.wasm`, built
+by `web/build.sh` with Emscripten against wasm32 builds of the pinned
+dependencies from `web/build_deps.sh`) and drives the interpreter of
+`playground/session.hpp` through a four-function C shim. Nothing typed
+into the page leaves it. Serve the directory with any static server, for
+example `python3 -m http.server -d web`, or publish it with the Pages
+workflow once GitHub Pages is enabled for the repository with GitHub
+Actions as the source. `node web/smoke.cjs` runs both demo scripts
+through the built module; the `web` CI job rebuilds the module from
+source and runs the same smoke test.
+
 ## API
 
 Everything is in namespace `cb2` and reached through
@@ -204,6 +218,7 @@ include/cb2/detail/            base64url, PAE, BLAKE3 and liboqs wrappers, the l
 tests/                             runner, cases, gen_vectors.cpp, vectors/*.json, vectors/paseto-v4/ (the official v4 vectors, ISC)
 examples/international_text.cpp    the text policy against a legacy check, eight scenarios, self-checking
 playground/                        cb2_playground and the two scripted, self-checking demo sessions
+web/                               the browser playground: page, C shim, Emscripten build, the built module, node smoke test
 fuzz/                              fuzz_local, fuzz_public, fuzz_claims
 bench/                             bench_main.cpp, bench_ref.cpp (CipherBird's v4.local and cb1.local)
 docs/SPEC.md                       wire format, rationale, threat model

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cb2 playground</title>
+<meta name="description" content="Try cb2 tokens in the browser: keys, claims, rules, tampering, key wrapping. The library runs as WebAssembly on this page; nothing leaves it.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>cb2 playground</h1>
+  <p>
+    The cb2 token library, compiled to WebAssembly and running on this
+    page. Nothing you type leaves the browser. Type a command below or
+    press the buttons; <code>help</code> lists every command and
+    <code>$</code> stands for the last token produced.
+    <a href="https://github.com/Crdzbird/pasetoV5">Source and specification</a>.
+  </p>
+  <p id="status" class="status">loading the library</p>
+</header>
+
+<main>
+  <section class="console">
+    <pre id="out" aria-live="polite"></pre>
+    <form id="form" autocomplete="off">
+      <label for="cmd" class="prompt">cb2&gt;</label>
+      <input id="cmd" type="text" spellcheck="false" placeholder="keygen local alice" disabled>
+      <button id="run" type="submit" disabled>run</button>
+    </form>
+  </section>
+
+  <aside class="panel">
+    <h2>Walk through</h2>
+    <p>Each button runs one step; read the verdicts as they change.</p>
+    <ol id="steps">
+      <li><button type="button" data-cmd="keygen local alice">a key</button></li>
+      <li><button type="button" data-cmd="claims alice iss=https://issuer.example aud=api sub=user-1 jti=t-1 exp=+3600 role=admin">claims sealed under it</button></li>
+      <li><button type="button" data-cmd="peek $">peek, nothing verified</button></li>
+      <li><button type="button" data-cmd="check alice $ iss=https://issuer.example aud=api">check with the right rules</button></li>
+      <li><button type="button" data-cmd="check alice $ iss=https://issuer.example aud=other">check for another audience</button></li>
+      <li><button type="button" data-cmd="check alice $">rules that name nothing</button></li>
+      <li><button type="button" data-cmd="check alice $ iss=https://issuer.example aud=api replay">a replay check, twice</button></li>
+      <li><button type="button" data-cmd="tamper $">flip one character</button></li>
+      <li><button type="button" data-cmd="check alice $ iss=https://issuer.example aud=api">check again</button></li>
+      <li><button type="button" data-cmd="keygen local vault">a wrapping key</button></li>
+      <li><button type="button" data-cmd="wrap vault alice">wrap the first key</button></li>
+      <li><button type="button" data-cmd="unwrap vault $ alice-again">unwrap it</button></li>
+      <li><button type="button" data-cmd="keygen public issuer" data-pq="1">a signing pair (Ed25519 + ML-DSA-65)</button></li>
+      <li><button type="button" data-cmd="claims issuer iss=https://issuer.example aud=api sub=user-1 exp=+3600" data-pq="1">claims signed under it</button></li>
+      <li><button type="button" data-cmd="check issuer $ iss=https://issuer.example aud=api" data-pq="1">verify</button></li>
+    </ol>
+    <h2>Scripts</h2>
+    <p>The same scripted sessions that CI runs as tests.</p>
+    <p class="row">
+      <button type="button" id="demo">run demo.cb2</button>
+      <button type="button" id="demo-public" data-pq="1">run demo_public.cb2</button>
+      <button type="button" id="help">help</button>
+      <button type="button" id="clear">clear</button>
+      <button type="button" id="reset">reset session</button>
+    </p>
+    <h2>Notes</h2>
+    <ul>
+      <li>Keys are generated from the browser's random source and live only in this page's memory.</li>
+      <li>Verdicts before authentication are always <code>invalid</code>; the named errors appear only after a token has been authenticated.</li>
+      <li>Times accept <code>+3600</code>, Unix seconds or RFC 3339.</li>
+    </ul>
+  </aside>
+</main>
+
+<script src="dist/cb2.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

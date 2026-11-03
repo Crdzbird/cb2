@@ -7,3 +7,4 @@ timeout-*
 cmake-build-*/
 .idea/
 deps/
+.claude/

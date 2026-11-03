@@ -1,0 +1,50 @@
+# cb2 playground demo: local tokens, claims and rules, replay, tampering,
+# raw tokens with footer and implicit assertion, key wrapping. Runs in
+# every build; the asserts make it a test.
+echo -- a key
+keygen local alice
+assert ok
+echo -- claims sealed under it
+claims alice iss=https://issuer.example aud=api sub=user-1 jti=t-1 exp=+3600 role=admin
+assert ok
+peek $
+echo -- the verifier names what it expects
+check alice $ iss=https://issuer.example aud=api
+assert ok
+echo -- the wrong audience is a verdict given only after authentication
+check alice $ iss=https://issuer.example aud=other
+assert audience_mismatch
+echo -- rules that name nothing are refused before the token is read
+check alice $
+assert rules_incomplete
+echo -- a replay check sees each jti once
+check alice $ iss=https://issuer.example aud=api replay
+assert ok
+check alice $ iss=https://issuer.example aud=api replay
+assert replayed
+echo -- one flipped character is invalid, with no further detail
+tamper $
+check alice $ iss=https://issuer.example aud=api
+assert invalid
+echo -- an expired token, then the same token under a clock skew
+claims alice iss=https://issuer.example aud=api exp=-60
+check alice $ iss=https://issuer.example aud=api
+assert expired
+check alice $ iss=https://issuer.example aud=api skew=120
+assert ok
+echo -- raw tokens: the footer and the implicit assertion are both bound
+seal alice "hello, world" "{\"kid\":\"example\"}" request-7
+open alice $ "{\"kid\":\"example\"}" request-7
+assert ok
+open alice $ "{\"kid\":\"example\"}" request-8
+assert invalid
+echo -- a key wrapped under another key
+keygen local vault
+wrap vault alice
+unwrap vault $ alice-again
+assert ok
+keygen local other
+unwrap other $
+assert invalid
+echo -- the key ids of a key and of its wrapped copy
+keys

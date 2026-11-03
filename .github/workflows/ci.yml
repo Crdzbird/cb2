@@ -98,3 +98,26 @@ jobs:
           ./build-nopq/cb2_tests
           ./build-nopq/cb2_example_text
           ./build-nopq/cb2_playground playground/demo.cb2
+
+  # The web playground: the same interpreter compiled to WebAssembly with
+  # Emscripten against wasm32 builds of the pinned dependencies, then the
+  # demo scripts run through it under node. The committed web/dist is
+  # what Pages serves; this job proves the sources still build and pass.
+  web:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021
+        with:
+          version: latest
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+      - name: Cache the wasm32 dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: web/deps/wasm32
+          key: wasm-deps-${{ hashFiles('web/build_deps.sh') }}-${{ runner.os }}
+      - name: Build the module and run the demos under node
+        run: |
+          bash web/build.sh
+          node web/smoke.cjs
