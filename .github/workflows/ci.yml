@@ -6,7 +6,7 @@ on:
   pull_request:
 
 # Two runners, the same matrix on both: a release build with the hybrid
-# v5.public, tests, the self-checking example and the v4 cross-check, the
+# cb2.public, tests, the self-checking example and the v4 cross-check, the
 # tests under ASan and UBSan, and a build without liboqs. macOS also runs
 # the three libFuzzer targets time-boxed; it mirrors the known-good local
 # build with Homebrew dependencies. Linux takes libsodium and libcrypto
@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install deps (LLVM clang for libFuzzer)
         run: brew install cmake ninja libsodium liboqs blake3 openssl@3 llvm lld
-      - name: Release build with v5.public, tests, the example and the v4 cross-check
+      - name: Release build with cb2.public, tests, the example and the v4 cross-check
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPASETO5_BUILD_BENCH=OFF
           cmake --build build
@@ -30,7 +30,7 @@ jobs:
           cmake --build build-asan --target paseto5_tests paseto5_example_text
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/paseto5_tests
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/paseto5_example_text
-      - name: Build without liboqs (v5.local only)
+      - name: Build without liboqs (cb2.local only)
         run: |
           cmake -S . -B build-nopq -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DPASETO5_PQ=OFF -DPASETO5_BUILD_BENCH=OFF
@@ -69,7 +69,7 @@ jobs:
           key: linux-deps-${{ hashFiles('scripts/ci/linux_deps.sh') }}
       - name: Build BLAKE3 and liboqs from pinned sources
         run: bash scripts/ci/linux_deps.sh "${{ github.workspace }}/deps"
-      - name: Release build with v5.public, tests, the example and the v4 cross-check
+      - name: Release build with cb2.public, tests, the example and the v4 cross-check
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPASETO5_BUILD_BENCH=OFF
           cmake --build build
@@ -81,7 +81,7 @@ jobs:
           cmake --build build-asan --target paseto5_tests paseto5_example_text
           ./build-asan/paseto5_tests
           ./build-asan/paseto5_example_text
-      - name: Build without liboqs (v5.local only)
+      - name: Build without liboqs (cb2.local only)
         run: |
           cmake -S . -B build-nopq -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DPASETO5_PQ=OFF -DPASETO5_BUILD_BENCH=OFF

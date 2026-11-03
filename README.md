@@ -1,7 +1,7 @@
 # paseto5
 
-A header-only C++20 token library: v5.local (XChaCha20 with a keyed
-BLAKE3 key split and a key-committing tag) and v5.public (Ed25519 plus
+A header-only C++20 token library: cb2.local (XChaCha20 with a keyed
+BLAKE3 key split and a key-committing tag) and cb2.public (Ed25519 plus
 ML-DSA-65, both required), a typed claims layer that validates before it
 trusts, key types that cannot be confused, PASERK-shaped key strings and
 ids, and local key wrapping. It is CipherBird's proposal for a successor
@@ -15,7 +15,7 @@ Status: 0.1.0, built and verified as described at the end of this file. Not yet 
 ## Install
 
 Dependencies: libsodium 1.0.18 or later, BLAKE3 (libblake3), and, for
-v5.public, liboqs with libcrypto. On macOS they come from Homebrew
+cb2.public, liboqs with libcrypto. On macOS they come from Homebrew
 (`brew install libsodium blake3 liboqs openssl@3`); on Linux the CI job
 takes libsodium and libcrypto from the distribution and builds BLAKE3 and
 liboqs from pinned sources with `scripts/ci/linux_deps.sh`. All of them
@@ -32,7 +32,7 @@ cmake --build build
 ```
 
 Options: `PASETO5_PQ` (default ON; OFF builds without liboqs and without
-v5.public), `PASETO5_BUILD_TESTS`, `PASETO5_BUILD_BENCH` (needs
+cb2.public), `PASETO5_BUILD_TESTS`, `PASETO5_BUILD_BENCH` (needs
 CipherBird's headers; `PASETO5_CRYPTOLIB_INCLUDE` names them, default
 `../cryptolib/include`), `PASETO5_FUZZ` (LLVM clang), `PASETO5_SANITIZE`
 (ASan + UBSan).
@@ -77,7 +77,7 @@ before the token is read. The replay check is optional; installed, it
 receives the `jti` of every token that passed every other rule and may
 refuse it. A token longer than 16 KiB is refused before it is read.
 
-For v5.public, `SecretKey::generate()`, `Token::sign(sk, claims)` and
+For cb2.public, `SecretKey::generate()`, `Token::sign(sk, claims)` and
 `Token::verify(token, sk.public_key(), rules)`.
 
 ## Examples
@@ -115,17 +115,17 @@ Everything is in namespace `paseto5` and reached through
 Keys (`keys.hpp`)
 
 - `LocalKey`: 32 uniformly random bytes. `generate()`, `from_bytes(span)`,
-  `from_paserk("k5.local...")`, `to_paserk()` (wiped string),
-  `paserk_id()` (`k5.lid...`), `key_id()` / `set_key_id()` /
+  `from_paserk("kcb2.local...")`, `to_paserk()` (wiped string),
+  `paserk_id()` (`kcb2.lid...`), `key_id()` / `set_key_id()` /
   `clear_key_id()`, `clone()`. Move-only; no implicit copies. The
   importers refuse a key whose bytes are all equal.
 - `PublicKey` (1984 bytes) and `SecretKey` (6048 bytes), with liboqs:
   `SecretKey::generate()`, `public_key()`, `consistent()`, the same
-  PASERK functions with `k5.public`, `k5.secret` and `k5.pid`. Importing
+  PASERK functions with `kcb2.public`, `kcb2.secret` and `kcb2.pid`. Importing
   a secret key checks that its public halves belong to its secret
   halves.
 - `KeyWrap::wrap(wrapping, key)` / `unwrap(text, wrapping)`:
-  `k5.local-wrap`.
+  `kcb2.local-wrap`.
 
 Tokens
 
@@ -139,7 +139,7 @@ Tokens
   with the same default limit on `verify`; `verify_into` takes a buffer
   sized by `verify_capacity`, which includes the scratch for the
   pre-authentication encoding, so it allocates nothing either. The
-  ML-DSA half signs under the FIPS 204 context string `v5.public.`.
+  ML-DSA half signs under the FIPS 204 context string `cb2.public.`.
 
 Claims (`claims.hpp`)
 
@@ -172,9 +172,9 @@ verdict), `too_large`, `argument`, `rules_incomplete`, `internal`,
 include/paseto5/paseto5.hpp        single include
 include/paseto5/result.hpp         Result and Error
 include/paseto5/keys.hpp           LocalKey, PublicKey, SecretKey, PASERK forms and ids
-include/paseto5/local.hpp          v5.local
-include/paseto5/public.hpp         v5.public (PASETO5_HAS_PQ)
-include/paseto5/keywrap.hpp        k5.local-wrap
+include/paseto5/local.hpp          cb2.local
+include/paseto5/public.hpp         cb2.public (PASETO5_HAS_PQ)
+include/paseto5/keywrap.hpp        kcb2.local-wrap
 include/paseto5/text.hpp           strict UTF-8 decoder and the identifier policy
 include/paseto5/json.hpp           strict JSON reader and writer
 include/paseto5/claims.hpp         Claims, ValidationRules, Token, Rfc3339
@@ -198,8 +198,8 @@ percent; this is the first.
 
 | implementation | seal 64 B | seal 1 KiB | seal 64 KiB | open 64 B | open 1 KiB | open 64 KiB |
 |---|---:|---:|---:|---:|---:|---:|
-| paseto5 v5.local (caller buffers) | 2631 ns | 6567 ns | 204.2 us | 1225 ns | 5168 ns | 209.0 us |
-| paseto5 v5.local (allocating) | 2699 ns | 6638 ns | 209.8 us | 1303 ns | 5381 ns | 226.6 us |
+| paseto5 cb2.local (caller buffers) | 2631 ns | 6567 ns | 204.2 us | 1225 ns | 5168 ns | 209.0 us |
+| paseto5 cb2.local (allocating) | 2699 ns | 6638 ns | 209.8 us | 1303 ns | 5381 ns | 226.6 us |
 | cryptolib v4.local | 1938 ns | 5641 ns | 250.1 us | 1921 ns | 5739 ns | 257.5 us |
 | cryptolib cb1.local | 1271 ns | 5096 ns | 211.9 us | 1206 ns | 5176 ns | 217.4 us |
 
@@ -219,18 +219,18 @@ does not, since all three share it.
 
 ## What is covered and what is not
 
-Covered: v5.local, v5.public, the claims layer, key types
-and ids, k5.local-wrap, international text in claims, footers and key ids
+Covered: cb2.local, cb2.public, the claims layer, key types
+and ids, kcb2.local-wrap, international text in claims, footers and key ids
 (with the self-checking example above), the hardening from the
 adversarial review (rules that must declare their audience and issuer,
 the raw-layer size limit, the replay check, the weak-key and secret-key
 import checks, the ML-DSA context string), the vector files, the official-v4 cross-check of
 PAE and base64url, tests under ASan and UBSan, the three fuzz targets, a
 build without liboqs, and the benchmark above. CI runs the same matrix
-on every push and pull request: the `macos` job (release with v5.public,
+on every push and pull request: the `macos` job (release with cb2.public,
 ASan and UBSan, a build without liboqs, one minute of each fuzz target)
 and the `linux` job (Ubuntu 24.04 with gcc, BLAKE3 and liboqs built from
-pinned sources, release with v5.public, a build without liboqs, ASan and
+pinned sources, release with cb2.public, a build without liboqs, ASan and
 UBSan).
 
 Not covered: a C ABI and language bindings (those are CipherBird's,
@@ -253,14 +253,14 @@ All on an Apple silicon Mac on 2026-11-03, from the tree as committed.
   during development, an iterator pair taken from two temporaries in
   the vector generator, which is fixed; the library itself produced no
   report at any point.
-- `-DPASETO5_PQ=OFF` (no liboqs): builds, 47 of 47 cases, v5.public
+- `-DPASETO5_PQ=OFF` (no liboqs): builds, 47 of 47 cases, cb2.public
   absent as specified.
 - `paseto5_example_text`: zero warnings, all eight scenarios hold their
   expectations in the release, the sanitizer and the no-liboqs builds.
-- Known-answer vectors under `tests/vectors`: 11 v5.local success
+- Known-answer vectors under `tests/vectors`: 11 cb2.local success
   vectors reproduced byte for byte and 15 failure vectors rejected, 99
   single-character tamper cases of a 99-character token all rejected;
-  6 v5.public success vectors verified and 14 failure vectors rejected,
+  6 cb2.public success vectors verified and 14 failure vectors rejected,
   38 sampled tamper cases rejected and every byte of a 4512-character
   token swept live; 40 claims-layer vectors with the recorded verdicts
   (among them incomplete rules, replayed and missing token ids); 3 weak

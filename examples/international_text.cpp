@@ -1,7 +1,7 @@
 /**
  * International text: the same tokens through two claim checks.
  *
- * Each scenario below seals a v5.local token and looks at it twice. The
+ * Each scenario below seals a cb2.local token and looks at it twice. The
  * legacy check is what a token library without a text policy does:
  * authenticate the token, parse the JSON, take every string as it comes.
  * The paseto5 check is the Token layer with the policy of docs/SPEC.md

@@ -1,5 +1,5 @@
 /**
- * libFuzzer target for v5.public.
+ * libFuzzer target for cb2.public.
  *
  * The input is fed to verify_into as an untrusted token under a fixed
  * key pair, with and without an expected footer; the verdict must be
@@ -81,7 +81,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
     if (size > 0) {
         std::string bad = signed_token.value();
-        const std::size_t body_end = bad.find('.', 10);
+        const std::size_t body_end = bad.find('.', 11);
         const std::size_t sig_text = Public::SIG_BYTES * 4 / 3;
         const std::size_t pos = body_end - 1 - (data[0] % sig_text);
         bad[pos] = bad[pos] == 'A' ? 'B' : 'A';

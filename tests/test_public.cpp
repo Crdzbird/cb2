@@ -32,18 +32,18 @@ const SecretKey& other_signer() {
 }
 
 std::string reencode(const std::string& token, const Bytes& raw) {
-    std::string out = "v5.public.";
+    std::string out = "cb2.public.";
     std::string body(paseto5::detail::b64::encoded_len(raw.size()), '\0');
     paseto5::detail::b64::encode(body.data(), raw.data(), raw.size());
     out += body;
-    const size_t dot = token.find('.', 10);
+    const size_t dot = token.find('.', 11);
     if (dot != std::string::npos) out += token.substr(dot);
     return out;
 }
 
 Bytes decode_body(const std::string& token) {
-    const size_t dot = token.find('.', 10);
-    const std::string body = token.substr(10, dot == std::string::npos ? std::string::npos : dot - 10);
+    const size_t dot = token.find('.', 11);
+    const std::string body = token.substr(11, dot == std::string::npos ? std::string::npos : dot - 11);
     Bytes raw(body.size());
     size_t n = 0;
     if (!paseto5::detail::b64::decode(raw.data(), raw.size(), body.data(), body.size(), n)) return {};
@@ -64,7 +64,7 @@ TEST_CASE("public/sizes match the pinned wire format and liboqs") {
 TEST_CASE("public/sign and verify round trip with exact lengths") {
     const SecretKey& sk = signer();
     const PublicKey pk = sk.public_key();
-    const Bytes footer = tu::bytes_of("{\"kid\":\"k5.pid.x\"}");
+    const Bytes footer = tu::bytes_of("{\"kid\":\"kcb2.pid.x\"}");
     const Bytes implicit = tu::bytes_of("ctx");
     for (size_t n : {0u, 1u, 2u, 3u, 100u, 4097u}) {
         const Bytes msg = tu::pattern(n, 0x33);
@@ -74,7 +74,7 @@ TEST_CASE("public/sign and verify round trip with exact lengths") {
             auto tok = Public::sign(sk, msg, f, i);
             REQUIRE(tok.is_ok());
             CHECK(tok.value().size() == Public::token_len(n, f.size()));
-            CHECK(tok.value().rfind("v5.public.", 0) == 0);
+            CHECK(tok.value().rfind("cb2.public.", 0) == 0);
             auto back = Public::verify(tok.value(), pk, f, i);
             REQUIRE(back.is_ok());
             CHECK(back.value() == msg);
@@ -143,12 +143,12 @@ TEST_CASE("public/wrong footer, implicit and headers fail") {
     CHECK(Public::verify(tok.value(), pk, footer, {}).is_err());
     CHECK(Public::verify(tok.value(), pk, footer, tu::bytes_of("implicix")).is_err());
     std::string local = tok.value();
-    local.replace(0, 10, "v5.local.");
+    local.replace(0, 11, "cb2.local.");
     CHECK(Public::verify(local, pk, footer, implicit).is_err());
     std::string v4 = tok.value();
-    v4.replace(0, 10, "v4.public.");
+    v4.replace(0, 11, "v4.public.");
     CHECK(Public::verify(v4, pk, footer, implicit).is_err());
-    CHECK(Public::verify("v5.public.", pk).is_err());
+    CHECK(Public::verify("cb2.public.", pk).is_err());
 }
 
 TEST_CASE("public/an implicit assertion larger than the output takes the heap path") {
@@ -188,13 +188,13 @@ TEST_CASE("public/keys survive the PASERK round trip and derive the same public 
     CHECK(pk2.value().bytes().size() == PublicKey::BYTES);
     CHECK(std::equal(pk.bytes().begin(), pk.bytes().end(), pk2.value().bytes().begin()));
     CHECK(sk2.value().public_key().paserk_id() == pk.paserk_id());
-    CHECK(pk.paserk_id().rfind("k5.pid.", 0) == 0 && pk.paserk_id().size() == 7 + 44);
+    CHECK(pk.paserk_id().rfind("kcb2.pid.", 0) == 0 && pk.paserk_id().size() == 9 + 44);
     auto tok = Public::sign(sk2.value(), tu::bytes_of("m"));
     REQUIRE(tok.is_ok());
     CHECK(Public::verify(tok.value(), pk2.value()).is_ok());
     CHECK(PublicKey::from_bytes(tu::pattern(1983, 0)).is_err());
     CHECK(SecretKey::from_bytes(tu::pattern(6047, 0)).is_err());
-    CHECK(PublicKey::from_paserk("k5.local.AAAA").is_err());
+    CHECK(PublicKey::from_paserk("kcb2.local.AAAA").is_err());
 }
 
 TEST_CASE("public/the ML-DSA half is bound to the header by its FIPS 204 context string") {
@@ -246,7 +246,7 @@ TEST_CASE("public/importing a secret key checks that its public halves belong to
         auto r = SecretKey::from_bytes(bad);
         if (!r.is_err()) std::printf("      corrupting %s was not noticed\n", c.what);
         CHECK(r.is_err() && r.error() == Error::argument);
-        std::string pas = "k5.secret.";
+        std::string pas = "kcb2.secret.";
         std::string body(paseto5::detail::b64::encoded_len(bad.size()), '\0');
         paseto5::detail::b64::encode(body.data(), bad.data(), bad.size());
         auto p = SecretKey::from_paserk(pas + body);
@@ -256,7 +256,7 @@ TEST_CASE("public/importing a secret key checks that its public halves belong to
 
 #else
 
-TEST_CASE("public/this build has no v5.public") {
+TEST_CASE("public/this build has no cb2.public") {
     CHECK(!paseto5::has_public());
 }
 

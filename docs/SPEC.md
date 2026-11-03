@@ -1,7 +1,7 @@
 # paseto5 specification
 
-Version 0.1.0. This document defines the v5.local and v5.public token
-formats, the k5 key strings and the claims layer, byte for byte, with the
+Version 0.1.0. This document defines the cb2.local and cb2.public token
+formats, the kcb2 key strings and the claims layer, byte for byte, with the
 rationale for each decision and the threat model.
 
 ## 1. Status: a CipherBird proposal, not a PASETO version
@@ -17,10 +17,10 @@ by the PASETO development team.
 
 paseto5 is therefore CipherBird's proposal for what a successor to v4
 should look like. It is not a paseto-standard version and makes no claim
-to be one. The headers `v5.local.` and `v5.public.` are used because the
-owner asked for them; should the PASETO developers define an official
-Version 5, the two will not interoperate and this library's headers would
-have to change. Section 12 lists this as an open question.
+to be one. Its headers are `cb2.local.` and `cb2.public.`, continuing
+CipherBird's own cb1 identifier instead of a reserved `v5`, so an
+official Version 5, should one be defined, cannot collide with it. Key
+strings carry `kcb2.` in the same way PASERK pairs `k4.` with `v4.`.
 
 Where the v4 specification sets a direction (versioned protocol, no
 algorithm agility, PAE, implicit assertions, footer, key ids in the
@@ -55,7 +55,7 @@ primitive of its own.
 
 ```
 token   = header payload [ "." footer ]
-header  = "v5.local." | "v5.public."
+header  = "cb2.local." | "cb2.public."
 payload = b64(body)
 footer  = b64(f)                   ; present if and only if f is not empty
 ```
@@ -118,7 +118,7 @@ claims layer adds `too_large`, decided on the length alone before any
 parsing, and the claim errors, which are reported only after the token
 has been authenticated.
 
-## 4. v5.local
+## 4. cb2.local
 
 ### 4.1 Inputs
 
@@ -132,7 +132,7 @@ has been authenticated.
 ### 4.2 Seal
 
 ```
-h              = "v5.local."                                   (9 bytes)
+h              = "cb2.local."                                   (9 bytes)
 Ek || n2 || Ak = BLAKE3-keyed(K, h || n, 88)
                  Ek = bytes 0..31, n2 = bytes 32..55, Ak = bytes 56..87
 c              = XChaCha20(Ek, n2, m)
@@ -156,7 +156,7 @@ The PAE fed to the tag is, byte for byte:
 
 ```
 LE64(5)
-LE64(9)       "v5.local."
+LE64(9)       "cb2.local."
 LE64(32)      n
 LE64(len(c))  c
 LE64(len(f))  f
@@ -165,7 +165,7 @@ LE64(len(i))  i
 
 ### 4.3 Open
 
-1. Check the header is exactly `v5.local.`; else invalid.
+1. Check the header is exactly `cb2.local.`; else invalid.
 2. Split the rest at the first `.`; a dot followed by nothing is invalid;
    a footer present when none is expected, or absent when one is, is
    invalid.
@@ -183,29 +183,29 @@ LE64(len(i))  i
 
 ### 4.4 Worked example
 
-Vector 5-E-11 from tests/vectors/v5_local.json, produced by this
+Vector cb2-E-11 from tests/vectors/cb2_local.json, produced by this
 implementation with the deterministic-nonce test hook:
 
 ```
 K   = 707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f
 n   = 26f7553354482a1d91d4784627854b8da6b8042a7966523c2b404e8dbbe7f7f2
 m   = "x"     f = "f"     i = "i"
-token (108 bytes) =
-v5.local.JvdVM1RIKh2R1HhGJ4VLjaa4BCp5ZlI8K0BOjbvn9_Lm8pHfytu8Xu09Xb9s1JvckKi7fVNHye3g0RS05xOkPwk.Zg
+token (100 bytes) =
+cb2.local.JvdVM1RIKh2R1HhGJ4VLjaa4BCp5ZlI8K0BOjbvn9_KI7EWlZq44gJBpDJftI7jUKqAqzQ1hXF_mnsanxnzuvrg.Zg
 ```
 
 The 65-byte body decodes to n (32), one ciphertext byte, and t (32); the
-footer `Zg` is `f`. Vector 5-E-10 is the empty message under the same
-key and nonce (95 bytes of token text, the shortest possible):
+footer `Zg` is `f`. Vector cb2-E-10 is the empty message under the same
+key and nonce (96 bytes of token text, the shortest possible):
 
 ```
-v5.local.JvdVM1RIKh2R1HhGJ4VLjaa4BCp5ZlI8K0BOjbvn9_JXskFd0oxrwerqJgWHaOqe2wMDmq4vX5Ty2JeFQQYlBA
+cb2.local.JvdVM1RIKh2R1HhGJ4VLjaa4BCp5ZlI8K0BOjbvn9_LGrO_H8wxM8Dj6C62SC7LfKrsjDn1mk1_e8KyPNi0-Wg
 ```
 
-## 5. v5.public
+## 5. cb2.public
 
-v5.public exists only in builds with liboqs (macro `PASETO5_HAS_PQ`). A
-build without it has no v5.public purpose: the classes are absent and
+cb2.public exists only in builds with liboqs (macro `PASETO5_HAS_PQ`). A
+build without it has no cb2.public purpose: the classes are absent and
 `paseto5::has_public()` is false. There is no Ed25519-only fallback.
 
 ### 5.1 Keys
@@ -226,7 +226,7 @@ Importing a secret key (`from_bytes`, `from_paserk`) checks that the
 public halves it carries belong to its secret halves: `ed_pk` must equal
 the public key derived from the seed, and `ml_pk` must verify a signature
 made with `ml_sk` over a fixed probe under the context string
-`k5.secret.self-test`, which no token uses. A key that fails either check
+`kcb2.secret.self-test`, which no token uses. A key that fails either check
 is `argument`. The check catches a corrupted or tampered key file and any
 corruption of the ML-DSA secret half that changes what it signs; it does
 not claim to detect every possible change to the secret halves.
@@ -234,7 +234,7 @@ not claim to detect every possible change to the secret halves.
 ### 5.2 Sign
 
 ```
-h     = "v5.public."                                                   (10 bytes)
+h     = "cb2.public."                                                   (10 bytes)
 m2    = PAE(h, m, f, i)
 sig   = Ed25519-sign(ed_sk, m2) || ML-DSA-65-sign(ml_sk, m2, ctx = h)  (64 + 3309 = 3373 bytes)
 body  = m || sig
@@ -242,11 +242,11 @@ token = h || b64(body) [ || "." || b64(f) ]
 ```
 
 The ML-DSA half is the FIPS 204 signature with the header as its context
-string (ML-DSA.Sign(sk, M, ctx) with ctx = "v5.public.", 10 bytes; the
+string (ML-DSA.Sign(sk, M, ctx) with ctx = "cb2.public.", 10 bytes; the
 ctx of the pure signing interface, so the signed message is
 `0 || 10 || ctx || m2` inside the algorithm). A signature the same key
 made over the same m2 for any other purpose, under an empty or another
-context, is not a v5.public signature. Ed25519 as libsodium provides it
+context, is not a cb2.public signature. Ed25519 as libsodium provides it
 has no context parameter; its half is separated by the header inside m2
 only, and the hybrid requires both halves.
 
@@ -258,7 +258,7 @@ Body layout:
 | len(m) | 64 | Ed25519 signature |
 | len(m) + 64 | 3309 | ML-DSA-65 signature |
 
-The PAE, byte for byte: `LE64(4) || LE64(10) || "v5.public." || LE64(len(m)) || m || LE64(len(f)) || f || LE64(len(i)) || i`.
+The PAE, byte for byte: `LE64(4) || LE64(10) || "cb2.public." || LE64(len(m)) || m || LE64(len(f)) || f || LE64(len(i)) || i`.
 
 ### 5.3 Verify
 
@@ -271,7 +271,7 @@ The PAE, byte for byte: `LE64(4) || LE64(10) || "v5.public." || LE64(len(m)) || 
    One failure is invalid.
 
 ML-DSA-65 signing is randomised (FIPS 204 hedged signing as liboqs
-implements it), so a v5.public token is not reproducible byte for byte;
+implements it), so a cb2.public token is not reproducible byte for byte;
 the vectors record tokens that must verify and keys under which signing
 must round trip. The Ed25519 half is deterministic.
 
@@ -293,25 +293,25 @@ The id may be read from a token without verification (`peek_key_id`),
 which returns an `UnverifiedKeyId` good only for selecting a candidate
 key; the binding is then checked during authentication.
 
-## 7. k5 key strings (PASERK-shaped)
+## 7. kcb2 key strings (PASERK-shaped)
 
 | type | form | length |
 |---|---|---|
-| k5.local | `k5.local.` \|\| b64(K) | 9 + 43 = 52 |
-| k5.public | `k5.public.` \|\| b64(pk) | 10 + 2646 = 2656 |
-| k5.secret | `k5.secret.` \|\| b64(sk) | 10 + 8064 = 8074 |
-| k5.lid | `k5.lid.` \|\| b64(BLAKE3(`k5.lid.` \|\| k5.local-string, 33)) | 7 + 44 = 51 |
-| k5.pid | `k5.pid.` \|\| b64(BLAKE3(`k5.pid.` \|\| k5.public-string, 33)) | 7 + 44 = 51 |
-| k5.local-wrap | `k5.local-wrap.` \|\| b64(n \|\| c \|\| t) | 14 + 128 = 142 |
+| kcb2.local | `kcb2.local.` \|\| b64(K) | 11 + 43 = 54 |
+| kcb2.public | `kcb2.public.` \|\| b64(pk) | 12 + 2646 = 2658 |
+| kcb2.secret | `kcb2.secret.` \|\| b64(sk) | 12 + 8064 = 8076 |
+| kcb2.lid | `kcb2.lid.` \|\| b64(BLAKE3(`kcb2.lid.` \|\| kcb2.local-string, 33)) | 9 + 44 = 53 |
+| kcb2.pid | `kcb2.pid.` \|\| b64(BLAKE3(`kcb2.pid.` \|\| kcb2.public-string, 33)) | 9 + 44 = 53 |
+| kcb2.local-wrap | `kcb2.local-wrap.` \|\| b64(n \|\| c \|\| t) | 16 + 128 = 144 |
 
 The ids follow PASERK's shape (an id header, then the hash of the id
 header and the key string, 33 bytes) with BLAKE3 in place of BLAKE2b.
 
-k5.local-wrap is the v5.local construction of section 4 with the header
-`k5.local-wrap.` in place of `v5.local.` everywhere (the key derivation
+kcb2.local-wrap is the cb2.local construction of section 4 with the header
+`kcb2.local-wrap.` in place of `cb2.local.` everywhere (the key derivation
 input, the PAE, the token text), the 32-byte key to wrap as the message,
 an empty footer and an empty implicit assertion. Because the header is
-different in the derivation and the PAE, a wrapped key is not a v5.local
+different in the derivation and the PAE, a wrapped key is not a cb2.local
 token of the key bytes and cannot be opened as one, and the other way
 round. Example from tests/vectors/paserk.json:
 
@@ -319,9 +319,9 @@ round. Example from tests/vectors/paserk.json:
 wrapping key = 808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f
 key          = 707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f
 nonce        = df654812bac492663825520ba2f6e67cf5ca5bdc13d4e7507a98cc4c2fcc3ad8
-k5.local-wrap.32VIErrEkmY4JVILovbmfPXKW9wT1OdQepjMTC_MOtiySNEmk_S0QpDXBrBxx0J1CJKz4bJ0eOKaZPdDICR6vKAKbJBzu1eBii6zk3H5z70T5P1Yxz_XiBGn3VnwjFAv
-k5.local     = k5.local.cHFyc3R1dnd4eXp7fH1-f4CBgoOEhYaHiImKi4yNjo8
-k5.lid       = k5.lid.Z9PNvJCfmjXOnflTwUvnFQOtQwF5AY9V6jFvelyLWm08
+kcb2.local-wrap.32VIErrEkmY4JVILovbmfPXKW9wT1OdQepjMTC_MOtglFt_HVImGkJytBCsR_wRmZJksaMsZPWtbKSs7ESd-tGHeiV53g-P9-9OBKH_ECdlifNY7TiALS3EWC03Gma82
+kcb2.local = kcb2.local.cHFyc3R1dnd4eXp7fH1-f4CBgoOEhYaHiImKi4yNjo8
+kcb2.lid   = kcb2.lid.1aEqnqYMImOxxw-gsD1cek4Y7mdyCF9Qh7Mq_Q976E01
 ```
 
 ## 8. Claims layer
@@ -448,7 +448,7 @@ Lengths and limits count bytes, not characters.
 | decision | v4.local / v4.public | cb1 | paseto5 | closes |
 |---|---|---|---|---|
 | hash | BLAKE2b, two keyed calls per token | BLAKE3, two keyed calls | BLAKE3, one keyed XOF call for Ek, n2 and Ak | nothing new in security; halves the derivation cost and removes a second domain string that could be mis-set |
-| derivation input | domain string plus nonce | domain string plus nonce | header plus nonce | binds the derived keys to the version and purpose: a v5.local key schedule cannot be reproduced for another header, so a cross-purpose or cross-version key reuse yields unrelated keys |
+| derivation input | domain string plus nonce | domain string plus nonce | header plus nonce | binds the derived keys to the version and purpose: a cb2.local key schedule cannot be reproduced for another header, so a cross-purpose or cross-version key reuse yields unrelated keys |
 | key commitment | Ak derived from K, committing | same | same, documented with its 2^128 bound | partitioning-oracle and multi-key attacks on non-committing AEAD |
 | tag check before decrypt | yes | yes | yes, with the output region wiped on failure | chosen-ciphertext and decryption-oracle attacks; plaintext never exists on a failed path |
 | one verdict | yes | yes | yes, plus `too_large` decided on length only | error oracles |
@@ -525,18 +525,17 @@ and generator executables only, never for the library interface.
 
 ## 12. Open questions for the owner
 
-1. The `v5` identifier is reserved by the PASETO developers for a future
-   official version. Keeping `v5.local.` and `v5.public.` risks a header
-   collision with a standard that may define different cryptography.
-   The alternatives are a CipherBird identifier (for example `cb2`,
-   continuing cb1) or a registration request with the PASETO developers.
+1. Resolved: the headers are `cb2.local.` and `cb2.public.` and the key
+   strings `kcb2.*`. The `v5` identifier the library first used is
+   reserved by the PASETO developers for a future official version, and
+   continuing CipherBird's own cb1 identifier removes the collision.
 2. Whether paseto5 should replace cb1 in the repository, sit beside it, or
    move to its own repository with its own release cadence.
 3. Resolved: the ML-DSA half uses the FIPS 204 context string with the
-   header `v5.public.` as the context (section 5.2), through liboqs
+   header `cb2.public.` as the context (section 5.2), through liboqs
    `OQS_SIG_sign_with_ctx_str`, which requires a liboqs that reports
    `sig_with_ctx_support` for ML-DSA-65 (0.12 and later).
-4. Whether a `k5.seal` (local key sealed to a public key) should be added
+4. Whether a `kcb2.seal` (local key sealed to a public key) should be added
    on top of the existing hybrid KEM of the repository.
 5. Whether to batch nonces per thread as cb1 does. The benchmark shows
    the per-token `randombytes_buf` costs about 1.4 us per seal, so cb1

@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * paseto5::Local: v5.local tokens. The construction is in
+ * paseto5::Local: cb2.local tokens. The construction is in
  * detail/local_core.hpp; this class fixes the header, takes a LocalKey and
  * offers both the caller-buffer functions (no allocation) and the
  * convenience functions (exactly one allocation each).
@@ -39,7 +39,7 @@ namespace paseto5 {
 
 class Local {
 public:
-    static constexpr std::string_view HEADER = "v5.local.";
+    static constexpr std::string_view HEADER = "cb2.local.";
     static constexpr std::size_t NONCE_BYTES = detail::LOCAL_NONCE_BYTES;
     static constexpr std::size_t TAG_BYTES = detail::LOCAL_TAG_BYTES;
 

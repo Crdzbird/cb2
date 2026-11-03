@@ -17,15 +17,15 @@ TEST_CASE("keys/local key generate, import, PASERK and id") {
     const LocalKey& k = g.value();
     const paseto5::SecureString p = k.to_paserk();
     const std::string_view pv(p.data(), p.size());
-    CHECK(pv.rfind("k5.local.", 0) == 0 && pv.size() == 9 + 43);
+    CHECK(pv.rfind("kcb2.local.", 0) == 0 && pv.size() == 11 + 43);
     auto back = LocalKey::from_paserk(pv);
     REQUIRE(back.is_ok());
     CHECK(back.value().paserk_id() == k.paserk_id());
-    CHECK(k.paserk_id().rfind("k5.lid.", 0) == 0 && k.paserk_id().size() == 7 + 44);
+    CHECK(k.paserk_id().rfind("kcb2.lid.", 0) == 0 && k.paserk_id().size() == 9 + 44);
     CHECK(k.key_id() == std::optional<std::string>(k.paserk_id()));
     CHECK(LocalKey::from_bytes(tu::pattern(31, 0)).is_err());
     CHECK(LocalKey::from_bytes(tu::pattern(33, 0)).is_err());
-    CHECK(LocalKey::from_paserk("k5.lid.AAAA").is_err());
+    CHECK(LocalKey::from_paserk("kcb2.lid.AAAA").is_err());
     CHECK(LocalKey::from_paserk(std::string(pv) + "A").is_err());
     CHECK(LocalKey::from_paserk(pv.substr(0, pv.size() - 1)).is_err());
     auto fixed = LocalKey::from_bytes(tu::pattern(32, 0x70));
@@ -48,8 +48,8 @@ TEST_CASE("keys/local-wrap round trip and failures") {
     auto w = KeyWrap::wrap(wrapping, inner);
     REQUIRE(w.is_ok());
     CHECK(w.value().size() == KeyWrap::WRAPPED_LEN);
-    CHECK(KeyWrap::WRAPPED_LEN == 142);
-    CHECK(w.value().rfind("k5.local-wrap.", 0) == 0);
+    CHECK(KeyWrap::WRAPPED_LEN == 144);
+    CHECK(w.value().rfind("kcb2.local-wrap.", 0) == 0);
     auto u = KeyWrap::unwrap(w.value(), wrapping);
     REQUIRE(u.is_ok());
     CHECK(u.value().paserk_id() == inner.paserk_id());
@@ -66,17 +66,17 @@ TEST_CASE("keys/local-wrap round trip and failures") {
     CHECK(KeyWrap::unwrap(w.value().substr(1), wrapping).is_err());
     CHECK(KeyWrap::unwrap(w.value() + "A", wrapping).is_err());
     std::string as_token = w.value();
-    as_token.replace(0, 14, "v5.local.");
+    as_token.replace(0, 16, "cb2.local.");
     CHECK(paseto5::Local::open(as_token, wrapping).is_err());
 }
 
-TEST_CASE("keys/wrapped keys are not v5.local tokens of the key and vice versa") {
+TEST_CASE("keys/wrapped keys are not cb2.local tokens of the key and vice versa") {
     const LocalKey wrapping = LocalKey::from_bytes(tu::pattern(32, 0x01)).value();
     const LocalKey inner = LocalKey::from_bytes(tu::pattern(32, 0x03)).value();
     auto tok = paseto5::Local::seal(wrapping, tu::pattern(32, 0x03));
     REQUIRE(tok.is_ok());
     std::string as_wrap = tok.value();
-    as_wrap.replace(0, 9, "k5.local-wrap.");
+    as_wrap.replace(0, 10, "kcb2.local-wrap.");
     CHECK(KeyWrap::unwrap(as_wrap, wrapping).is_err());
 }
 
@@ -85,7 +85,7 @@ TEST_CASE("keys/a key whose bytes are all equal is refused on import") {
         const Bytes k(32, b);
         auto r = LocalKey::from_bytes(k);
         CHECK(r.is_err() && r.error() == paseto5::Error::argument);
-        std::string text = "k5.local.";
+        std::string text = "kcb2.local.";
         std::string body(paseto5::detail::b64::encoded_len(k.size()), '\0');
         paseto5::detail::b64::encode(body.data(), k.data(), k.size());
         auto p = LocalKey::from_paserk(text + body);

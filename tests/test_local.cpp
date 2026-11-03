@@ -25,7 +25,7 @@ bool only_token_chars(std::string_view s) {
 
 TEST_CASE("local/round trip at many lengths with footer and implicit variations") {
     const LocalKey k = key_a();
-    const Bytes footer = tu::bytes_of("{\"kid\":\"k5.lid.test\"}");
+    const Bytes footer = tu::bytes_of("{\"kid\":\"kcb2.lid.test\"}");
     const Bytes implicit = tu::bytes_of("{\"audience\":\"api\"}");
     for (size_t n : {0u, 1u, 2u, 3u, 4u, 31u, 32u, 33u, 63u, 64u, 65u, 127u, 128u, 1000u, 4096u, 70000u}) {
         const Bytes msg = tu::pattern(n, 0x11);
@@ -35,9 +35,9 @@ TEST_CASE("local/round trip at many lengths with footer and implicit variations"
             auto tok = Local::seal(k, msg, f, i);
             REQUIRE(tok.is_ok());
             CHECK(tok.value().size() == Local::token_len(n, f.size()));
-            CHECK(tok.value().rfind("v5.local.", 0) == 0);
+            CHECK(tok.value().rfind("cb2.local.", 0) == 0);
             CHECK(only_token_chars(tok.value()));
-            CHECK((tok.value().find('.', 9) != std::string::npos) == !f.empty());
+            CHECK((tok.value().find('.', 10) != std::string::npos) == !f.empty());
             auto back = Local::open(tok.value(), k, f, i);
             REQUIRE(back.is_ok());
             CHECK(Bytes(back.value().begin(), back.value().end()) == msg);
@@ -46,12 +46,12 @@ TEST_CASE("local/round trip at many lengths with footer and implicit variations"
 }
 
 TEST_CASE("local/token length and open capacity are exact") {
-    CHECK(Local::token_len(0, 0) == 9 + 86);
-    CHECK(Local::token_len(1, 0) == 9 + 87);
-    CHECK(Local::token_len(0, 1) == 9 + 86 + 1 + 2);
+    CHECK(Local::token_len(0, 0) == 10 + 86);
+    CHECK(Local::token_len(1, 0) == 10 + 87);
+    CHECK(Local::token_len(0, 1) == 10 + 86 + 1 + 2);
     CHECK(Local::token_len(paseto5::MAX_INPUT_BYTES + 1, 0) == 0);
-    CHECK(Local::open_capacity(9) == 0);
-    CHECK(Local::open_capacity(95) == 64);
+    CHECK(Local::open_capacity(10) == 0);
+    CHECK(Local::open_capacity(96) == 64);
     CHECK(Local::open_capacity(Local::max_token_len() + 1) == 0);
 }
 
@@ -136,17 +136,17 @@ TEST_CASE("local/other headers are rejected by the header check") {
     auto tok = Local::seal(k, tu::bytes_of("x"));
     REQUIRE(tok.is_ok());
     std::string v4 = tok.value();
-    v4.replace(0, 9, "v4.local.");
+    v4.replace(0, 10, "v4.local.");
     CHECK(Local::open(v4, k).is_err());
     std::string upper = tok.value();
     upper[0] = 'V';
     CHECK(Local::open(upper, k).is_err());
     std::string pub = tok.value();
-    pub.replace(0, 9, "v5.public.");
+    pub.replace(0, 10, "cb2.public.");
     CHECK(Local::open(pub, k).is_err());
     CHECK(Local::open("", k).is_err());
-    CHECK(Local::open("v5.local.", k).is_err());
-    CHECK(Local::open("v5.local..", k).is_err());
+    CHECK(Local::open("cb2.local.", k).is_err());
+    CHECK(Local::open("cb2.local..", k).is_err());
 }
 
 TEST_CASE("local/argument errors never depend on the token") {
@@ -175,7 +175,7 @@ TEST_CASE("local/body layout is nonce, ciphertext, tag") {
     const Bytes msg = tu::bytes_of("twelve bytes");
     auto tok = Local::seal(k, msg);
     REQUIRE(tok.is_ok());
-    const std::string body = tok.value().substr(9);
+    const std::string body = tok.value().substr(10);
     Bytes raw(body.size());
     size_t n = 0;
     REQUIRE(paseto5::detail::b64::decode(raw.data(), raw.size(), body.data(), body.size(), n));

@@ -183,7 +183,7 @@ TEST_CASE("claims/token layer binds the key id into the footer and validates aft
     const Claims c = good_claims();
     auto tok = Token::seal(k, c, "ctx");
     REQUIRE(tok.is_ok());
-    CHECK(tok.value().find('.', 9) != std::string::npos);
+    CHECK(tok.value().find('.', 10) != std::string::npos);
     auto peek = Token::peek_key_id(tok.value());
     REQUIRE(peek.has_value());
     CHECK(peek->value == k.paserk_id());
@@ -217,7 +217,7 @@ TEST_CASE("claims/token layer binds the key id into the footer and validates aft
 
     auto no_kid = Token::seal(anonymous, c);
     REQUIRE(no_kid.is_ok());
-    CHECK(no_kid.value().find('.', 9) == std::string::npos);
+    CHECK(no_kid.value().find('.', 10) == std::string::npos);
     CHECK(!Token::peek_key_id(no_kid.value()).has_value());
     CHECK(Token::open(no_kid.value(), anonymous, tu::lenient(NOW)).is_ok());
     CHECK(Token::open(no_kid.value(), k, tu::lenient(NOW)).is_err());

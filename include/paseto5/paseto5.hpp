@@ -3,8 +3,8 @@
 /**
  * paseto5: the single include.
  *
- * v5.local and v5.public tokens, the typed claims layer, the key types with
- * their PASERK forms and ids, and k5.local-wrap. v5.public and the
+ * cb2.local and cb2.public tokens, the typed claims layer, the key types with
+ * their PASERK forms and ids, and kcb2.local-wrap. cb2.public and the
  * PublicKey and SecretKey types exist only when PASETO5_HAS_PQ is defined,
  * which the CMake target does when liboqs is available; without it the
  * public purpose is absent, never silently reduced to Ed25519 alone.
@@ -26,7 +26,7 @@ namespace paseto5 {
 
 inline constexpr std::string_view VERSION = "0.1.0";
 
-/// Whether this build has the v5.public purpose.
+/// Whether this build has the cb2.public purpose.
 [[nodiscard]] constexpr bool has_public() noexcept {
 #ifdef PASETO5_HAS_PQ
     return true;

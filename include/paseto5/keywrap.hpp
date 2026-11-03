@@ -1,8 +1,8 @@
 #pragma once
 
 /**
- * k5.local-wrap: a LocalKey wrapped under another LocalKey with the
- * v5.local construction, header "k5.local-wrap.", no footer and no
+ * kcb2.local-wrap: a LocalKey wrapped under another LocalKey with the
+ * cb2.local construction, header "kcb2.local-wrap.", no footer and no
  * implicit assertion. The wrapped form is header || base64url(n || c || t)
  * with c the 32 encrypted key bytes, 142 characters in all.
  */
@@ -23,7 +23,7 @@ namespace paseto5 {
 
 class KeyWrap {
 public:
-    static constexpr std::string_view HEADER = "k5.local-wrap.";
+    static constexpr std::string_view HEADER = "kcb2.local-wrap.";
     static constexpr std::size_t WRAPPED_LEN =
         detail::LocalCore::token_len(HEADER, LocalKey::BYTES, 0);
 
@@ -35,8 +35,8 @@ public:
         return wrap_with(wrapping_key, key, n);
     }
 
-    /// Unwraps a k5.local-wrap string under wrapping_key. The returned
-    /// key carries its derived k5.lid as key id.
+    /// Unwraps a kcb2.local-wrap string under wrapping_key. The returned
+    /// key carries its derived kcb2.lid as key id.
     [[nodiscard]] static Result<LocalKey> unwrap(std::string_view wrapped, const LocalKey& wrapping_key) {
         if (wrapped.size() != WRAPPED_LEN) return Result<LocalKey>::err(Error::invalid);
         detail::SecureArray<detail::LocalCore::open_capacity(HEADER, WRAPPED_LEN)> work;

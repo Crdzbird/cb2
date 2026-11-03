@@ -1,5 +1,5 @@
 /**
- * libFuzzer target for v5.local and k5.local-wrap.
+ * libFuzzer target for cb2.local and kcb2.local-wrap.
  *
  * The input is fed to open_into as an untrusted token under a fixed key,
  * with and without an expected footer; the result must be a fail-closed
@@ -7,7 +7,7 @@
  * re-seals and re-opens. The input is also sealed as a message and must
  * round trip, and one byte chosen by the input is replaced with every
  * other value and must be rejected. Finally the input is unwrapped as a
- * k5.local-wrap string.
+ * kcb2.local-wrap string.
  *
  * Build with -DPASETO5_FUZZ=ON (LLVM clang); run:
  *   ./paseto5_fuzz_local -max_total_time=120

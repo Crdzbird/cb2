@@ -417,7 +417,7 @@ public:
         if (token.size() > max_token_bytes) return std::nullopt;
         detail::Split s{};
         if (!detail::split_token(token, Local::HEADER, true, s) &&
-            !detail::split_token(token, "v5.public.", true, s))
+            !detail::split_token(token, "cb2.public.", true, s))
             return std::nullopt;
         const std::size_t need = detail::b64::decoded_len(s.footer_len);
         if (need == static_cast<std::size_t>(-1)) return std::nullopt;
@@ -438,7 +438,7 @@ public:
         return !kid || text::identifier_ok(*kid);
     }
 
-    /// Seals claims as a v5.local token; the key id, if any, goes into
+    /// Seals claims as a cb2.local token; the key id, if any, goes into
     /// the footer.
     [[nodiscard]] static Result<std::string>
     seal(const LocalKey& key, const Claims& claims, std::string_view implicit = {}) {
@@ -452,7 +452,7 @@ public:
         }
     }
 
-    /// Opens a v5.local token: rules and key checks, size limit,
+    /// Opens a cb2.local token: rules and key checks, size limit,
     /// authentication, parsing, validation, in that order.
     [[nodiscard]] static Result<Claims>
     open(std::string_view token, const LocalKey& key, const ValidationRules& rules,
@@ -472,7 +472,7 @@ public:
     }
 
 #ifdef PASETO5_HAS_PQ
-    /// Signs claims as a v5.public token; the key id, if any, goes into
+    /// Signs claims as a cb2.public token; the key id, if any, goes into
     /// the footer.
     [[nodiscard]] static Result<std::string>
     sign(const SecretKey& key, const Claims& claims, std::string_view implicit = {}) {
@@ -486,7 +486,7 @@ public:
         }
     }
 
-    /// Verifies a v5.public token: rules and key checks, size limit,
+    /// Verifies a cb2.public token: rules and key checks, size limit,
     /// signature, parsing, validation, in that order.
     [[nodiscard]] static Result<Claims>
     verify(std::string_view token, const PublicKey& key, const ValidationRules& rules,

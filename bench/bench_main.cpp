@@ -1,5 +1,5 @@
 /**
- * paseto5_bench: v5.local seal and open against cryptolib's v4.local and
+ * paseto5_bench: cb2.local seal and open against cryptolib's v4.local and
  * cb1.local at 64 B, 1 KiB and 64 KiB payloads, with a 44-byte footer and
  * an empty implicit assertion. Each cell is the median of seven repeats
  * of at least 200 ms of back-to-back calls, in ns per operation; the
@@ -135,11 +135,11 @@ int main() {
     uint8_t raw[32];
     for (int i = 0; i < 32; ++i) raw[i] = static_cast<uint8_t>(0x70 + i);
     const paseto5::LocalKey key = paseto5::LocalKey::from_bytes(raw).value();
-    const std::string footer_text = "{\"kid\":\"k5.lid.0123456789abcdefghijklmnopqrs\"}";
+    const std::string footer_text = "{\"kid\":\"kcb2.lid.0123456789abcdefghijklmnopqrs\"}";
     const std::vector<uint8_t> footer(footer_text.begin(), footer_text.end());
     std::vector<Row> rows;
-    Row buffers{"paseto5 v5.local (caller buffers)", {}, {}};
-    Row alloc{"paseto5 v5.local (allocating)", {}, {}};
+    Row buffers{"paseto5 cb2.local (caller buffers)", {}, {}};
+    Row alloc{"paseto5 cb2.local (allocating)", {}, {}};
     bench_paseto5(key, footer, buffers, alloc);
     rows.push_back(buffers);
     rows.push_back(alloc);

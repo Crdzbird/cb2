@@ -68,9 +68,9 @@ std::string verdict_name(bool ok, Error e) { return ok ? "ok" : paseto5::error_n
 
 }
 
-TEST_CASE("vectors/v5.local vectors reproduce and open") {
+TEST_CASE("vectors/cb2.local vectors reproduce and open") {
     Value root;
-    REQUIRE(load("v5_local.json", root));
+    REQUIRE(load("cb2_local.json", root));
     const Value* tests = tests_of(root);
     REQUIRE(tests != nullptr);
     int seen = 0;
@@ -103,9 +103,9 @@ TEST_CASE("vectors/v5.local vectors reproduce and open") {
     CHECK(seen >= 10);
 }
 
-TEST_CASE("vectors/v5.local weak keys are refused on import") {
+TEST_CASE("vectors/cb2.local weak keys are refused on import") {
     Value root;
-    REQUIRE(load("v5_local.json", root));
+    REQUIRE(load("cb2_local.json", root));
     const Value* weak = root.get("weak-keys");
     REQUIRE(weak != nullptr && weak->kind == Value::Kind::array);
     int seen = 0;
@@ -117,9 +117,9 @@ TEST_CASE("vectors/v5.local weak keys are refused on import") {
     CHECK(seen == 3);
 }
 
-TEST_CASE("vectors/v5.local tamper vectors all fail") {
+TEST_CASE("vectors/cb2.local tamper vectors all fail") {
     Value root;
-    REQUIRE(load("v5_local.json", root));
+    REQUIRE(load("cb2_local.json", root));
     const Value* tamper = root.get("tamper");
     REQUIRE(tamper != nullptr && tamper->is_object());
     const Bytes key = tu::unhex(tu::str(*tamper, "key"));
@@ -138,9 +138,9 @@ TEST_CASE("vectors/v5.local tamper vectors all fail") {
 }
 
 #ifdef PASETO5_HAS_PQ
-TEST_CASE("vectors/v5.public vectors verify and failure vectors fail") {
+TEST_CASE("vectors/cb2.public vectors verify and failure vectors fail") {
     Value root;
-    REQUIRE(load("v5_public.json", root));
+    REQUIRE(load("cb2_public.json", root));
     const Value* tests = tests_of(root);
     REQUIRE(tests != nullptr);
     int seen = 0;
@@ -184,9 +184,9 @@ TEST_CASE("vectors/v5.public vectors verify and failure vectors fail") {
 #endif
 
 #ifdef PASETO5_HAS_PQ
-TEST_CASE("vectors/v5.public rejected secret keys are refused on import") {
+TEST_CASE("vectors/cb2.public rejected secret keys are refused on import") {
     Value root;
-    REQUIRE(load("v5_public.json", root));
+    REQUIRE(load("cb2_public.json", root));
     const Value* rejected = root.get("rejected-secret-keys");
     REQUIRE(rejected != nullptr && rejected->kind == Value::Kind::array);
     int seen = 0;
@@ -259,16 +259,16 @@ TEST_CASE("vectors/paserk vectors reproduce") {
     auto k = LocalKey::from_bytes(tu::unhex(tu::str(*local, "key")));
     REQUIRE(k.is_ok());
     const paseto5::SecureString p = k.value().to_paserk();
-    CHECK(std::string(p.data(), p.size()) == tu::str(*local, "k5.local"));
-    CHECK(k.value().paserk_id() == tu::str(*local, "k5.lid"));
+    CHECK(std::string(p.data(), p.size()) == tu::str(*local, "kcb2.local"));
+    CHECK(k.value().paserk_id() == tu::str(*local, "kcb2.lid"));
     const Value* wrap = root.get("local-wrap");
     REQUIRE(wrap != nullptr);
     auto wk = LocalKey::from_bytes(tu::unhex(tu::str(*wrap, "wrapping-key")));
     REQUIRE(wk.is_ok());
     auto w = paseto5::KeyWrap::wrap_with_nonce_for_testing(wk.value(), k.value(), tu::unhex(tu::str(*wrap, "nonce")));
     REQUIRE(w.is_ok());
-    CHECK(w.value() == tu::str(*wrap, "k5.local-wrap"));
-    auto u = paseto5::KeyWrap::unwrap(tu::str(*wrap, "k5.local-wrap"), wk.value());
+    CHECK(w.value() == tu::str(*wrap, "kcb2.local-wrap"));
+    auto u = paseto5::KeyWrap::unwrap(tu::str(*wrap, "kcb2.local-wrap"), wk.value());
     REQUIRE(u.is_ok());
     CHECK(u.value().paserk_id() == k.value().paserk_id());
 #ifdef PASETO5_HAS_PQ
@@ -277,10 +277,10 @@ TEST_CASE("vectors/paserk vectors reproduce") {
     auto sk = paseto5::SecretKey::from_bytes(tu::unhex(tu::str(*pub, "secret-key")));
     REQUIRE(sk.is_ok());
     const paseto5::PublicKey pk = sk.value().public_key();
-    CHECK(pk.to_paserk() == tu::str(*pub, "k5.public"));
-    CHECK(pk.paserk_id() == tu::str(*pub, "k5.pid"));
+    CHECK(pk.to_paserk() == tu::str(*pub, "kcb2.public"));
+    CHECK(pk.paserk_id() == tu::str(*pub, "kcb2.pid"));
     const paseto5::SecureString sp = sk.value().to_paserk();
-    CHECK(std::string(sp.data(), sp.size()) == tu::str(*pub, "k5.secret"));
+    CHECK(std::string(sp.data(), sp.size()) == tu::str(*pub, "kcb2.secret"));
     CHECK(tu::hex(pk.bytes()) == tu::str(*pub, "public-key"));
 #endif
 }

@@ -8,17 +8,17 @@
  * id) that the claims layer binds into the token footer and compares in
  * constant time.
  *
- * PASERK forms (k5.local, k5.public, k5.secret) and ids (k5.lid, k5.pid)
+ * PASERK forms (kcb2.local, kcb2.public, kcb2.secret) and ids (kcb2.lid, kcb2.pid)
  * follow the PASERK shape: header || base64url(bytes), and an id is
  * header || base64url(BLAKE3(id-header || paserk)[0..33]).
  *
- *   LocalKey   32 bytes, k5.local, id k5.lid
- *   PublicKey  1984 bytes: Ed25519 pk (32) || ML-DSA-65 pk (1952), k5.public, id k5.pid
+ *   LocalKey   32 bytes, kcb2.local, id kcb2.lid
+ *   PublicKey  1984 bytes: Ed25519 pk (32) || ML-DSA-65 pk (1952), kcb2.public, id kcb2.pid
  *   SecretKey  6048 bytes: Ed25519 sk (64) || ML-DSA-65 sk (4032) || ML-DSA-65 pk (1952),
- *              k5.secret, id k5.pid of its public key
+ *              kcb2.secret, id kcb2.pid of its public key
  *
  * The secret key carries its public key so that signing can bind the key
- * id without a second object, and so that a stored k5.secret alone
+ * id without a second object, and so that a stored kcb2.secret alone
  * restores the pair. Importing a secret key checks that the two public
  * halves it carries belong to the two secret halves, so a corrupted or
  * tampered key file is refused at import rather than producing tokens
@@ -97,12 +97,12 @@ struct KeyAccess;
 
 }
 
-/// A 32-byte symmetric key for v5.local tokens and k5.local-wrap.
+/// A 32-byte symmetric key for cb2.local tokens and kcb2.local-wrap.
 class LocalKey {
 public:
     static constexpr std::size_t BYTES = 32;
-    static constexpr std::string_view PASERK_HEADER = "k5.local.";
-    static constexpr std::string_view ID_HEADER = "k5.lid.";
+    static constexpr std::string_view PASERK_HEADER = "kcb2.local.";
+    static constexpr std::string_view ID_HEADER = "kcb2.lid.";
 
     LocalKey(const LocalKey&) = delete;
     LocalKey& operator=(const LocalKey&) = delete;
@@ -141,7 +141,7 @@ public:
         return Result<LocalKey>::ok(std::move(k));
     }
 
-    /// Imports a k5.local PASERK string, with the same weak-key check.
+    /// Imports a kcb2.local PASERK string, with the same weak-key check.
     [[nodiscard]] static Result<LocalKey> from_paserk(std::string_view text) {
         LocalKey k;
         if (!detail::paserk_decode(PASERK_HEADER, text, k.k_, BYTES) ||
@@ -151,12 +151,12 @@ public:
         return Result<LocalKey>::ok(std::move(k));
     }
 
-    /// The k5.local form, in wiped memory.
+    /// The kcb2.local form, in wiped memory.
     [[nodiscard]] SecureString to_paserk() const {
         return detail::paserk_encode<SecureString>(PASERK_HEADER, {k_, BYTES});
     }
 
-    /// The k5.lid id of this key.
+    /// The kcb2.lid id of this key.
     [[nodiscard]] std::string paserk_id() const {
         const SecureString p = to_paserk();
         return detail::paserk_id(ID_HEADER, std::string_view(p.data(), p.size()));
@@ -190,8 +190,8 @@ public:
     static constexpr std::size_t ED_BYTES = crypto_sign_PUBLICKEYBYTES;
     static constexpr std::size_t ML_BYTES = detail::MlDsa65::PUBLIC_BYTES;
     static constexpr std::size_t BYTES = ED_BYTES + ML_BYTES;
-    static constexpr std::string_view PASERK_HEADER = "k5.public.";
-    static constexpr std::string_view ID_HEADER = "k5.pid.";
+    static constexpr std::string_view PASERK_HEADER = "kcb2.public.";
+    static constexpr std::string_view ID_HEADER = "kcb2.pid.";
 
     [[nodiscard]] static Result<PublicKey> from_bytes(std::span<const uint8_t> bytes) {
         if (bytes.size() != BYTES) return Result<PublicKey>::err(Error::argument);
@@ -214,7 +214,7 @@ public:
         return detail::paserk_encode<std::string>(PASERK_HEADER, pk_);
     }
 
-    /// The k5.pid id of this key.
+    /// The kcb2.pid id of this key.
     [[nodiscard]] std::string paserk_id() const {
         return detail::paserk_id(ID_HEADER, to_paserk());
     }
@@ -240,7 +240,7 @@ public:
     static constexpr std::size_t ED_BYTES = crypto_sign_SECRETKEYBYTES;
     static constexpr std::size_t ML_BYTES = detail::MlDsa65::SECRET_BYTES;
     static constexpr std::size_t BYTES = ED_BYTES + ML_BYTES + detail::MlDsa65::PUBLIC_BYTES;
-    static constexpr std::string_view PASERK_HEADER = "k5.secret.";
+    static constexpr std::string_view PASERK_HEADER = "kcb2.secret.";
 
     SecretKey(const SecretKey&) = delete;
     SecretKey& operator=(const SecretKey&) = delete;
@@ -273,7 +273,7 @@ public:
         return finish_import(std::move(k));
     }
 
-    /// Imports a k5.secret PASERK string with the same checks.
+    /// Imports a kcb2.secret PASERK string with the same checks.
     [[nodiscard]] static Result<SecretKey> from_paserk(std::string_view text) {
         SecretKey k;
         k.sk_.resize(BYTES);
@@ -300,7 +300,7 @@ public:
                                        sk_.data() + ED_BYTES + ML_BYTES);
     }
 
-    /// The k5.secret form, in wiped memory.
+    /// The kcb2.secret form, in wiped memory.
     [[nodiscard]] SecureString to_paserk() const {
         return detail::paserk_encode<SecureString>(PASERK_HEADER, sk_);
     }
@@ -332,7 +332,7 @@ private:
 
     /// The ML-DSA context of the self-test signature, so that it can never
     /// be mistaken for a token signature.
-    static constexpr std::string_view SELF_TEST_CONTEXT = "k5.secret.self-test";
+    static constexpr std::string_view SELF_TEST_CONTEXT = "kcb2.secret.self-test";
 
     [[nodiscard]] static Result<SecretKey> finish_import(SecretKey k) {
         if (!detail::MlDsa65::available()) return Result<SecretKey>::err(Error::unavailable);

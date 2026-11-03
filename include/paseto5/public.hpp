@@ -1,9 +1,9 @@
 #pragma once
 
 /**
- * paseto5::Public: v5.public tokens, present only under PASETO5_HAS_PQ.
+ * paseto5::Public: cb2.public tokens, present only under PASETO5_HAS_PQ.
  *
- *   h    = "v5.public."
+ *   h    = "cb2.public."
  *   m2   = PAE(h, m, f, i)
  *   sig  = Ed25519-sign(sk_ed, m2) || ML-DSA-65-sign(sk_ml, m2, ctx = h), 3373 bytes
  *   body = m || sig
@@ -12,7 +12,7 @@
  * A token verifies only when both halves verify under the matching halves
  * of the public key. The ML-DSA half carries the header as its FIPS 204
  * context string, so the same key signing anything else, even these PAE
- * bytes under another context, yields nothing a v5.public verifier
+ * bytes under another context, yields nothing a cb2.public verifier
  * accepts. The pre-authentication encoding is public, so it is built in
  * plain memory: inside the output buffer when it fits there (the usual
  * case), otherwise in one heap allocation.
@@ -41,7 +41,7 @@ namespace paseto5 {
 
 class Public {
 public:
-    static constexpr std::string_view HEADER = "v5.public.";
+    static constexpr std::string_view HEADER = "cb2.public.";
     static constexpr std::size_t ED_SIG_BYTES = crypto_sign_BYTES;
     static constexpr std::size_t ML_SIG_BYTES = detail::MlDsa65::SIG_BYTES;
     static constexpr std::size_t SIG_BYTES = ED_SIG_BYTES + ML_SIG_BYTES;

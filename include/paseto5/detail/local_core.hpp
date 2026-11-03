@@ -1,8 +1,8 @@
 #pragma once
 
 /**
- * The v5.local construction, parameterised by its header so that the
- * k5.local-wrap key wrapping reuses it byte for byte.
+ * The cb2.local construction, parameterised by its header so that the
+ * kcb2.local-wrap key wrapping reuses it byte for byte.
  *
  * Inputs: a 32-byte key K, a 32-byte nonce n, a message m, a footer f and
  * an implicit assertion i.

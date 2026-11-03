@@ -7,9 +7,9 @@ is listed in README.md.
 
 ## What is claimed
 
-### v5.local
+### cb2.local
 
-A v5.local token is an authenticated encryption of the message under a
+A cb2.local token is an authenticated encryption of the message under a
 32-byte key, bound to the header, the nonce, the footer and the implicit
 assertion.
 
@@ -41,9 +41,9 @@ assertion.
    path are wiped with sodium_memzero. Plaintext returned to the caller
    lives in memory that is wiped when freed.
 
-### v5.public
+### cb2.public
 
-A v5.public token is the message in clear with a hybrid signature over
+A cb2.public token is the message in clear with a hybrid signature over
 the pre-authentication encoding of the header, message, footer and
 implicit assertion.
 
@@ -56,9 +56,9 @@ implicit assertion.
    id) or another context. The ML-DSA half also carries the header as
    its FIPS 204 context string, so a signature the same key made for any
    other purpose, even over these very bytes under another context, is
-   not a v5.public signature.
+   not a cb2.public signature.
 3. No downgrade. There is no Ed25519-only mode. A build without liboqs has
-   no v5.public purpose at all, and a token is never accepted on the
+   no cb2.public purpose at all, and a token is never accepted on the
    strength of one half.
 4. No oracle. Every token-dependent failure is the single verdict invalid.
 
@@ -68,13 +68,13 @@ implicit assertion.
    distinct C++ types; the token functions accept only the type their
    purpose needs. Raw key bytes are never an argument of the token API.
 2. Key ids. Every key carries an optional id, by default its PASERK id
-   (k5.lid or k5.pid: 33 bytes of BLAKE3 over the id header and the
+   (kcb2.lid or kcb2.pid: 33 bytes of BLAKE3 over the id header and the
    PASERK string). The claims layer binds the id into the footer as
    {"kid":"..."} and compares it in constant time; a token minted under a
    key with one id does not open under a key with another, even if the
    key bytes are equal.
-3. k5.local-wrap. A local key wrapped under another local key is the
-   v5.local construction with its own header, so a wrapped key is not a
+3. kcb2.local-wrap. A local key wrapped under another local key is the
+   cb2.local construction with its own header, so a wrapped key is not a
    token and a token is not a wrapped key.
 4. Key entropy. A local key must be 32 uniformly random bytes. Its
    default key id is a fast hash of the key that travels in clear in
@@ -85,7 +85,7 @@ implicit assertion.
    is the caller's error, and such a key should at least carry an
    explicit opaque key id instead of the default.
 5. Secret key import. A secret key imported from bytes or from its
-   k5.secret form is checked before use: its Ed25519 public half must be
+   kcb2.secret form is checked before use: its Ed25519 public half must be
    the one its seed derives and its ML-DSA public half must verify a
    signature its secret half makes. A corrupted or tampered key file is
    refused with argument instead of producing tokens nothing verifies.
@@ -165,11 +165,11 @@ implicit assertion.
   key rotation (the key id makes rotation routine).
 - Forward secrecy. Compromise of a local key exposes every token made
   under it, past and future, until it is rotated.
-- Hiding the message length. A v5.local token reveals the message length
+- Hiding the message length. A cb2.local token reveals the message length
   exactly. Pad the message before sealing if that matters.
 - Hiding the footer. The footer, including the key id, is authenticated
   but sent in clear.
-- Interoperability with PASETO. v5.local and v5.public are CipherBird
+- Interoperability with PASETO. cb2.local and cb2.public are CipherBird
   constructions; a PASETO v4 implementation will reject them by header
   and paseto5 rejects v3 and v4 tokens the same way. The PASERK-shaped
   key strings are likewise CipherBird's, not the PASERK standard's.
@@ -194,7 +194,7 @@ implicit assertion.
 | local key | exactly 32 bytes |
 | public key | exactly 1,984 bytes |
 | secret key | exactly 6,048 bytes |
-| wrapped local key | exactly 142 characters |
+| wrapped local key | exactly 144 characters |
 
 ## Reporting
 
