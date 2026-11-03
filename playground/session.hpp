@@ -474,6 +474,89 @@ inline bool cmd_show(Session& s, const Args& a) {
     return fail(s, "no key named " + a[1]);
 }
 
+/// s as one playground argument: bare when it is plain, else double
+/// quoted with \\, \", \n and \t escaped.
+inline std::string script_arg(std::string_view s) {
+    bool plain = !s.empty();
+    for (const char c : s) {
+        if (c == ' ' || c == '"' || c == '\\' || c == '\n' || c == '\t' || c == '\r') plain = false;
+    }
+    if (plain && s != "$") return std::string(s);
+    std::string q = "\"";
+    for (const char c : s) {
+        if (c == '\\' || c == '"') q += '\\';
+        if (c == '\n') { q += "\\n"; continue; }
+        if (c == '\t') { q += "\\t"; continue; }
+        if (c == '\r') { q += "\\r"; continue; }
+        q += c;
+    }
+    return q + "\"";
+}
+
+/// The import line of a key and, when its id is not the default one, the
+/// kid line that restores it.
+inline void export_lines(Session& s, const std::string& name, std::string_view paserk,
+                         const std::optional<std::string>& kid, const std::string& default_kid) {
+    emit(s, "import " + std::string(paserk) + " " + script_arg(name));
+    if (!kid) emit(s, "kid " + script_arg(name) + " none");
+    else if (*kid != default_kid) emit(s, "kid " + script_arg(name) + " " + script_arg(*kid));
+}
+
+inline bool cmd_export(Session& s, const Args& a) {
+    if (a.size() < 2) {
+        for (const auto& [name, k] : s.local) {
+            const cb2::SecureString p = k.to_paserk();
+            export_lines(s, name, std::string_view(p.data(), p.size()), k.key_id(), k.paserk_id());
+        }
+#ifdef CB2_HAS_PQ
+        for (const auto& [name, k] : s.secret) {
+            const cb2::SecureString p = k.to_paserk();
+            export_lines(s, name, std::string_view(p.data(), p.size()), k.key_id(), k.public_key().paserk_id());
+        }
+        for (const auto& [name, k] : s.pub) export_lines(s, name, k.to_paserk(), k.key_id(), k.paserk_id());
+#endif
+        say(s, "keys", std::to_string(s.local.size()
+#ifdef CB2_HAS_PQ
+            + s.secret.size() + s.pub.size()
+#endif
+        ));
+        verdict(s, "ok");
+        return true;
+    }
+    const bool public_half = a.size() > 2 && a[2] == "public";
+    if (const cb2::LocalKey* k = find_local(s, a[1])) {
+        if (public_half) return fail(s, "a local key has no public half");
+        const cb2::SecureString p = k->to_paserk();
+        say(s, "key", a[1]);
+        say(s, "kcb2.local", std::string_view(p.data(), p.size()));
+        say(s, "kid", k->key_id() ? *k->key_id() : "none");
+        verdict(s, "ok");
+        return true;
+    }
+#ifdef CB2_HAS_PQ
+    if (const cb2::SecretKey* k = find_secret(s, a[1])) {
+        say(s, "key", a[1]);
+        if (public_half) {
+            say(s, "kcb2.public", k->public_key().to_paserk());
+        } else {
+            const cb2::SecureString p = k->to_paserk();
+            say(s, "kcb2.secret", std::string_view(p.data(), p.size()));
+        }
+        say(s, "kid", k->key_id() ? *k->key_id() : "none");
+        verdict(s, "ok");
+        return true;
+    }
+    if (const auto it = s.pub.find(a[1]); it != s.pub.end()) {
+        say(s, "key", a[1]);
+        say(s, "kcb2.public", it->second.to_paserk());
+        say(s, "kid", it->second.key_id() ? *it->second.key_id() : "none");
+        verdict(s, "ok");
+        return true;
+    }
+#endif
+    return fail(s, "no key named " + a[1]);
+}
+
 inline bool cmd_kid(Session& s, const Args& a) {
     if (a.size() < 3) return fail(s, "kid <key> <id>|none");
     bool found = false;
@@ -904,6 +987,7 @@ inline bool run(Session& s, const std::string& line) {
     if (c == "import") return cmd_import(s, a);
     if (c == "keys") return cmd_keys(s, a);
     if (c == "show") return cmd_show(s, a);
+    if (c == "export") return cmd_export(s, a);
     if (c == "kid") return cmd_kid(s, a);
     if (c == "seal") return cmd_seal(s, a);
     if (c == "open") return cmd_open(s, a);

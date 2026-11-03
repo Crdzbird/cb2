@@ -21,3 +21,6 @@ verify issuer $ "" request-9
 assert ok
 verify issuer $ "" request-10
 assert invalid
+echo -- the public half alone verifies, and is the half to share
+export issuer public
+assert ok

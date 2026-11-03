@@ -127,6 +127,10 @@ cb2> check alice $ iss=https://issuer.example aud=api
 Custom claims are `name=value` for a string and `name:=json` for any
 JSON value; `show <key>` prints a stored key's kcb2 strings and `lookup <token>`
 names the stored keys whose id matches the footer's kid, unverified.
+`export <key>` prints a key as its kcb2 string (`export <pair> public`
+the verifying half only) and `export` alone prints every key as a
+script of `import` lines, with a `kid` line for each id that is not
+the default, so a session's keys can be saved and fed back in.
 Inside double quotes `\uXXXX` and `\u{X...}` carry any code point and
 `\xNN` a raw byte, so a script stays ASCII while it exercises
 international text; `text <string>`
@@ -150,7 +154,9 @@ inspector that colours the header, body and footer, reads them
 without verifying and, for a public token, decodes the claims in clear
 with a warning that nothing in them is trusted yet, a verifier with every rule, key lookup by the
 footer's kid (with a forged kid to follow), key wrapping and
-unwrapping, and an international-text checker, plus scenarios that fill the forms and run them. Every button
+unwrapping, key import and export (one key as its kcb2 string, a
+signing pair as its public half only, or every key as a script that
+restores the ids too), and an international-text checker, plus scenarios that fill the forms and run them. Every button
 runs a playground command, and the transcript beside the forms shows
 the command and the library's answer, so what the page does can be
 repeated in `cb2_playground`. Nothing typed

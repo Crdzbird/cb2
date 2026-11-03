@@ -47,11 +47,7 @@
       </p>
     </div>
     <details>
-      <summary>Import a key or change a key id</summary>
-      <div class="grid2">
-        <label>kcb2 string <input id="import-text" type="text" placeholder="kcb2.local.... or kcb2.secret.... or kcb2.public...." spellcheck="false"></label>
-        <p class="row"><button type="button" id="import-run">import</button></p>
-      </div>
+      <summary>Change a key id</summary>
       <div class="grid3">
         <label>key <select id="kid-key"></select></label>
         <label>key id <input id="kid-text" type="text" placeholder="prod-2026" spellcheck="false"></label>
@@ -60,7 +56,7 @@
           <button type="button" id="kid-clear">clear</button>
         </p>
       </div>
-      <p class="hint">A freshly generated key carries its own id (the kcb2.lid or kcb2.pid of the key). Clearing it leaves the token without a footer.</p>
+      <p class="hint">A freshly generated key carries its own id (the kcb2.lid or kcb2.pid of the key). Clearing it leaves the token without a footer. Keys come and go as kcb2 strings in step 7.</p>
     </details>
   </section>
 
@@ -202,8 +198,30 @@
     <div id="wrap-result" class="result" hidden></div>
   </section>
 
+  <section class="card" id="card-export">
+    <h2><span class="num">7</span> Import and export keys</h2>
+    <p class="hint">A key leaves the session as a kcb2 string. A <code>kcb2.local</code> or <code>kcb2.secret</code> string is the key itself and stays private; a <code>kcb2.public</code> string is the verifying half of a signing pair, the one to hand to verifiers. The string carries the key bytes only: an imported key gets its default key id back, so a script exported from the whole session restores custom ids with a kid line of its own.</p>
+    <div class="grid3">
+      <label>key <select id="export-key"></select></label>
+      <label>as <select id="export-as"></select></label>
+      <p class="row">
+        <button type="button" id="export-run" class="primary">export</button>
+        <button type="button" id="export-all">every key, as a script</button>
+      </p>
+    </div>
+    <label>exported <textarea id="export-text" rows="3" spellcheck="false" placeholder="export a key above"></textarea></label>
+    <p class="row"><button type="button" id="export-copy">copy</button><button type="button" id="export-to-import">move to the import box</button></p>
+    <h3>Import</h3>
+    <div class="grid3">
+      <label>kcb2 string, or a script of import and kid lines <textarea id="import-text" rows="3" spellcheck="false" placeholder="kcb2.local.... or kcb2.secret.... or kcb2.public...."></textarea></label>
+      <label>store as <input id="import-name" type="text" placeholder="alice-copy" spellcheck="false"></label>
+      <p class="row"><button type="button" id="import-run">import</button></p>
+    </div>
+    <div id="export-result" class="result" hidden></div>
+  </section>
+
   <section class="card" id="card-text">
-    <h2><span class="num">7</span> International text</h2>
+    <h2><span class="num">8</span> International text</h2>
     <p class="hint">Identifiers (iss, sub, aud, jti and claim names) are UTF-8 in any script, compared byte for byte, with no invisible or formatting characters. Type anything, or try one of these.</p>
     <p class="row" id="text-presets"></p>
     <div class="grid2">

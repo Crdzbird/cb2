@@ -193,6 +193,29 @@
         fillSelect($("wrap-key"), locals, true);
         fillSelect($("wrap-target"), locals, true);
         fillSelect($("unwrap-key"), locals, true);
+        fillSelect($("export-key"), names, true);
+        refreshExportAs();
+    }
+
+    function refreshExportAs() {
+        var kind = keyKind($("export-key").value);
+        var select = $("export-as");
+        var current = select.value;
+        select.textContent = "";
+        var options = [];
+        if (kind === "local") options.push(["", "kcb2.local: the key itself (keep private)"]);
+        if (kind === "secret") {
+            options.push(["", "kcb2.secret: the whole pair (keep private)"]);
+            options.push(["public", "kcb2.public: the verifying half (share)"]);
+        }
+        if (kind === "public") options.push(["", "kcb2.public: the verifying half (share)"]);
+        if (options.length === 0) options.push(["", "no key yet"]);
+        for (var i = 0; i < options.length; i++) {
+            var o = el("option", "", options[i][1]);
+            o.value = options[i][0];
+            select.appendChild(o);
+        }
+        if (kind === "secret" && current === "public") select.value = "public";
     }
 
     function keyKind(name) {
@@ -638,6 +661,88 @@
         if (f.token !== undefined) $("wrap-text").value = f.token;
     }
 
+    function exportedString(f) {
+        return f["kcb2.local"] || f["kcb2.secret"] || f["kcb2.public"] || "";
+    }
+
+    function exportKey() {
+        var k = $("export-key").value;
+        var box = $("export-result");
+        if (k === "") {
+            resultBox(box, "argument", [], "Make a key in step 1 first.");
+            return;
+        }
+        var half = $("export-as").value === "public";
+        var f = exec("export " + arg(k) + (half ? " public" : ""));
+        var text = exportedString(f);
+        if (text !== "") $("export-text").value = text;
+        var rows = [];
+        if (f["kcb2.local"]) rows.push(["kind", "kcb2.local: a secret, only its holders open its tokens"]);
+        if (f["kcb2.secret"]) rows.push(["kind", "kcb2.secret: a secret, it signs"]);
+        if (f["kcb2.public"]) rows.push(["kind", "kcb2.public: not secret, it only verifies"]);
+        if (text !== "") rows.push(["length", text.length + " characters"]);
+        if (f.kid) rows.push(["kid", f.kid + " (not part of the string)"]);
+        var note = "";
+        if (f.lines.length && f.lines[0].indexOf("error:") === 0) note = f.lines[0];
+        if (f.verdict === "ok") note = "Import it below under another name, or copy it into another session.";
+        resultBox(box, f.verdict || "argument", rows, note);
+    }
+
+    function exportAll() {
+        var f = exec("export");
+        var script = [];
+        for (var i = 0; i < f.lines.length; i++) {
+            var l = f.lines[i];
+            if (l.indexOf("import ") === 0 || l.indexOf("kid ") === 0) script.push(l);
+        }
+        $("export-text").value = script.join("\n");
+        var rows = [["keys", f.keys || "0"], ["lines", script.length + " (one import per key, plus a kid line for each id that is not the default)"]];
+        resultBox($("export-result"), f.verdict || "argument", rows, "Reset the transcript, paste the script into the import box, and every key comes back with its id.");
+    }
+
+    function importScript(text) {
+        var lines = text.split("\n");
+        var imported = 0;
+        var verdict = "ok";
+        var note = "";
+        for (var i = 0; i < lines.length; i++) {
+            var l = lines[i].trim();
+            if (l === "") continue;
+            var f = exec(l);
+            if (l.indexOf("import ") === 0 && f.verdict === "ok") imported += 1;
+            if (f.verdict && f.verdict !== "ok" && verdict === "ok") verdict = f.verdict;
+            if (f.lines.length && f.lines[0].indexOf("error:") === 0 && note === "") note = f.lines[0];
+        }
+        if (verdict === "ok" && note === "") note = "The keys are in step 1, with the ids the script set.";
+        resultBox($("export-result"), verdict, [["imported", imported + " key" + (imported === 1 ? "" : "s")]], note);
+    }
+
+    function importKeys() {
+        var t = $("import-text").value.trim();
+        var box = $("export-result");
+        if (t === "") return;
+        if (t.indexOf("\n") >= 0 || t.indexOf("import ") === 0 || t.indexOf("kid ") === 0 || t.charAt(0) === "#") {
+            importScript(t);
+            return;
+        }
+        if (t.indexOf("kcb2.local-wrap.") === 0) {
+            resultBox(box, "argument", [], "That is a wrapped key: unwrap it in step 6 under the key that wrapped it.");
+            return;
+        }
+        var n = $("import-name").value.trim();
+        var f = exec("import " + arg(t) + (n === "" ? "" : " " + arg(n)));
+        var rows = [];
+        if (f.key) rows.push(["stored as", f.key]);
+        if (f["kcb2.lid"]) rows.push(["kcb2.lid", f["kcb2.lid"]]);
+        if (f["kcb2.pid"]) rows.push(["kcb2.pid", f["kcb2.pid"]]);
+        if (f.kid) rows.push(["kid", f.kid]);
+        var note = "";
+        if (f.lines.length && f.lines[0].indexOf("error:") === 0) note = f.lines[0];
+        if (f.verdict === "ok") note = "The key is in step 1 with its default id. If the original had another id, set it there.";
+        if (f.verdict && f.verdict !== "ok" && note === "") note = "Not a kcb2 string this build accepts: the prefix names the kind and the rest is its base64url bytes.";
+        resultBox(box, f.verdict || "argument", rows, note);
+    }
+
     function inspectText(value) {
         var f = exec("text " + quote(value));
         var dl = $("text-result");
@@ -834,6 +939,46 @@
             unwrapKey();
             $("wrap-result").scrollIntoView({behavior: "smooth", block: "nearest"});
         }},
+        {label: "export and import a key", hint: "The key alice leaves as a kcb2.local string and comes back as alice-copy: the same kcb2.lid in step 1. A token issued under alice verifies under alice-copy.", go: function () {
+            scenarioStart();
+            $("export-key").value = "alice";
+            refreshExportAs();
+            exportKey();
+            $("import-text").value = $("export-text").value;
+            $("import-name").value = "alice-copy";
+            importKeys();
+            setClaims(BASE);
+            issue();
+            $("verify-key").value = "alice-copy";
+            setRules(RULES);
+            verify();
+        }},
+        {label: "save every key as a script", hint: "The key alice gets the id prod-2026, then the whole session is exported: one import line per key, and a kid line for alice, since a kcb2 string does not carry the id. Importing the script puts every key back with its id.", go: function () {
+            ensureLocal("alice");
+            exec("kid alice prod-2026");
+            exportAll();
+            $("import-text").value = $("export-text").value;
+            importKeys();
+            $("export-result").scrollIntoView({behavior: "smooth", block: "nearest"});
+        }},
+        {label: "share only the public key", pq: true, hint: "The signing pair issuer is exported as its public half and imported as verifier, a key that verifies and cannot sign: step 2 does not list it. A token signed by issuer verifies under verifier.", go: function () {
+            ensureSigner("issuer");
+            $("export-key").value = "issuer";
+            refreshExportAs();
+            $("export-as").value = "public";
+            exportKey();
+            $("import-text").value = $("export-text").value;
+            $("import-name").value = "verifier";
+            importKeys();
+            $("issue-key").value = "issuer";
+            setMode("issue-mode", "claims");
+            setMode("verify-mode", "rules");
+            setClaims(BASE);
+            issue();
+            $("verify-key").value = "verifier";
+            setRules(RULES);
+            verify();
+        }},
         {label: "signed token (Ed25519 + ML-DSA-65)", pq: true, hint: "A signing pair signs; its public half verifies. Both signatures must verify: a classical one and a post-quantum one. Step 3 can read the claims of a public token before verifying, since they travel in clear; it says so, and nothing there is trusted.", go: function () {
             ensureSigner("issuer");
             $("issue-key").value = "issuer";
@@ -903,11 +1048,20 @@
 
         $("key-local").addEventListener("click", function () { exec("keygen local " + arg(keyName())); $("key-name").value = ""; });
         $("key-public").addEventListener("click", function () { exec("keygen public " + arg(keyName())); $("key-name").value = ""; });
-        $("import-run").addEventListener("click", function () {
-            var t = $("import-text").value.trim();
-            if (t === "") return;
-            var n = $("key-name").value.trim();
-            exec("import " + arg(t) + (n === "" ? "" : " " + arg(n)));
+        $("import-run").addEventListener("click", importKeys);
+        $("export-key").addEventListener("change", refreshExportAs);
+        $("export-run").addEventListener("click", exportKey);
+        $("export-all").addEventListener("click", exportAll);
+        $("export-copy").addEventListener("click", function () {
+            try {
+                navigator.clipboard.writeText($("export-text").value);
+            } catch (e) {
+                $("export-text").select();
+            }
+        });
+        $("export-to-import").addEventListener("click", function () {
+            $("import-text").value = $("export-text").value;
+            $("import-name").value = "";
         });
         $("kid-set").addEventListener("click", function () {
             var k = $("kid-key").value;

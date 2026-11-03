@@ -63,3 +63,9 @@ unwrap other $
 assert invalid
 echo -- the key ids of a key and of its wrapped copy
 keys
+echo -- a key leaves as its kcb2 string; the whole session as an import script
+export alice
+assert ok
+kid alice prod-2026
+export
+assert ok
