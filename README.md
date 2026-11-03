@@ -168,7 +168,11 @@ does not, since all three share it.
 Covered on this branch: v5.local, v5.public, the claims layer, key types
 and ids, k5.local-wrap, the vector files, the official-v4 cross-check of
 PAE and base64url, tests under ASan and UBSan, the three fuzz targets, a
-build without liboqs, and the benchmark above.
+build without liboqs, and the benchmark above. The repository's CI runs
+the same matrix on every push and pull request: the `paseto5` job
+(macOS: release with v5.public, ASan and UBSan, a build without liboqs,
+one minute of each fuzz target) and the `paseto5_linux` job (Ubuntu,
+v5.local only against the pinned static dependency set).
 
 Not covered: a C ABI and language bindings (the repository's bridge is
 not touched), interoperability with any other implementation (there is
