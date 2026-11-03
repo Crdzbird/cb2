@@ -303,7 +303,8 @@ inline void help(Session& s) {
         "                                 sign (secret key); times: +3600, Unix seconds or RFC 3339\n"
         "  check <key> <token> [iss=] [aud=] [sub=] [any-iss] [any-aud] [skew=] [now=]\n"
         "                                 [replay] [no-exp] [max=] [implicit=]  open or verify\n"
-        "  peek <token>                   header, body size, footer and kid, nothing verified\n"
+        "  peek <token>                   header, body size, footer and kid, nothing verified;\n"
+        "                                 for cb2.public the message and claims, in clear, unverified\n"
         "  tamper <token> [index]         flip one character (default: last of the body)\n"
         "  wrap <wrapping key> <key>      kcb2.local-wrap string\n"
         "  unwrap <wrapping key> <string> [name]\n"
@@ -716,6 +717,37 @@ inline bool cmd_check(Session& s, const Args& a) {
     return true;
 }
 
+/// The two signatures at the end of a cb2.public body: Ed25519 (64) and
+/// ML-DSA-65 (3309), so the message before them can be shown unverified.
+inline constexpr std::size_t PUBLIC_SIG_BYTES = 64 + 3309;
+
+/// The body of a cb2.public token, decoded, with the message shown in
+/// clear and the claims parsed; none of it verified.
+inline void peek_public_body(Session& s, std::string_view body) {
+    const std::size_t need = cb2::detail::b64::decoded_len(body.size());
+    std::vector<uint8_t> raw(need == static_cast<std::size_t>(-1) ? 0 : need);
+    std::size_t n = 0;
+    if (raw.empty() || !cb2::detail::b64::decode(raw.data(), raw.size(), body.data(), body.size(), n)) {
+        say(s, "payload", "undecodable");
+        return;
+    }
+    if (n < PUBLIC_SIG_BYTES) {
+        say(s, "payload", "too short for the two signatures");
+        return;
+    }
+    const std::span<const uint8_t> m(raw.data(), n - PUBLIC_SIG_BYTES);
+    say(s, "payload", show_bytes(m));
+    say(s, "signatures", "Ed25519 64 bytes, ML-DSA-65 3309 bytes");
+    const std::string_view text(reinterpret_cast<const char*>(m.data()), m.size());
+    auto c = cb2::Claims::from_json(text);
+    if (c.is_ok()) {
+        say(s, "claims", c.value().to_json());
+        if (c.value().exp) say(s, "exp", time_text(*c.value().exp));
+    } else {
+        say(s, "claims", std::string("not a claims object (") + cb2::error_name(c.error()) + ")");
+    }
+}
+
 inline bool cmd_peek(Session& s, const Args& a) {
     if (a.size() < 2) return fail(s, "peek <token>");
     const std::string& t = a[1];
@@ -735,6 +767,11 @@ inline bool cmd_peek(Session& s, const Args& a) {
     say(s, "body", std::to_string(body.size()) + " characters, " +
                     (body_bytes == static_cast<std::size_t>(-1) ? std::string("not a valid base64 length")
                                                                  : std::to_string(body_bytes) + " bytes"));
+    if (header == "cb2.public.") {
+        peek_public_body(s, body);
+    } else {
+        say(s, "payload", "ciphertext; readable only with the key");
+    }
     if (dot == std::string::npos) {
         say(s, "footer", "none");
     } else {

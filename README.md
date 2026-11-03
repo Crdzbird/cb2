@@ -145,8 +145,9 @@ dependencies from `web/build_deps.sh`) and drives the interpreter of
 `playground/session.hpp` through a four-function C shim. The page is a
 guided builder: keys, a token form (registered claims, custom claims of
 any JSON type, footer and implicit assertion, or a raw message), a token
-inspector that colours the header, body and footer and reads them
-without verifying, a verifier with every rule, key wrapping and
+inspector that colours the header, body and footer, reads them
+without verifying and, for a public token, decodes the claims in clear
+with a warning that nothing in them is trusted yet, a verifier with every rule, key wrapping and
 unwrapping, and an international-text checker, plus scenarios that fill the forms and run them. Every button
 runs a playground command, and the transcript beside the forms shows
 the command and the library's answer, so what the page does can be

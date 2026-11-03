@@ -219,6 +219,10 @@ tr:last-child td { border-bottom: 0; }
 .peek dd.good { color: var(--good-fg); }
 .peek dd.refused { color: var(--bad-fg); }
 
+.unverified { margin: 0 0 8px; border: 1px dashed var(--bad-fg); border-radius: 8px; padding: 8px 12px; }
+.unverified .warn { color: var(--bad-fg); font-size: 14px; margin: 0 0 6px; }
+.unverified .ok-line { color: var(--muted); font-size: 14px; margin: 0 0 6px; }
+
 .result { margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--bg); }
 .verdict { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 6px; }
 .badge {

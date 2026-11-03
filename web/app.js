@@ -268,6 +268,11 @@
         inspect();
     }
 
+    function shorten(seg) {
+        if (seg.length <= 240) return seg;
+        return seg.substring(0, 180) + " [" + (seg.length - 204) + " more] " + seg.substring(seg.length - 24);
+    }
+
     function inspect() {
         var t = tokenBox.value.trim();
         var anatomy = $("anatomy");
@@ -287,10 +292,10 @@
             var body = dot < 0 ? rest : rest.substring(0, dot);
             var footer = dot < 0 ? "" : rest.substring(dot + 1);
             anatomy.appendChild(el("span", "seg hdr", header));
-            anatomy.appendChild(el("span", "seg body", body));
+            anatomy.appendChild(el("span", "seg body", shorten(body)));
             if (dot >= 0) {
                 anatomy.appendChild(el("span", "seg dot", "."));
-                anatomy.appendChild(el("span", "seg ftr", footer));
+                anatomy.appendChild(el("span", "seg ftr", shorten(footer)));
             }
             var legend = el("div", "legend");
             legend.appendChild(el("span", "sw hdr", "header, " + header.length + " chars: the version and purpose"));
@@ -301,9 +306,50 @@
         var f = exec("peek " + arg(t), true);
         var all = f.all || [];
         for (var i = 0; i < all.length; i++) {
+            if (all[i][0] === "claims" || all[i][0] === "exp") continue;
             peek.appendChild(el("dt", "", all[i][0]));
             peek.appendChild(el("dd", "mono", all[i][1]));
         }
+        unverified(f);
+    }
+
+    function relative(rfc) {
+        var at = Date.parse(rfc);
+        if (isNaN(at)) return "";
+        var d = Math.round((at - Date.now()) / 1000);
+        var abs = Math.abs(d);
+        var unit = abs < 120 ? abs + " seconds" : abs < 7200 ? Math.round(abs / 60) + " minutes" : abs < 172800 ? Math.round(abs / 3600) + " hours" : Math.round(abs / 86400) + " days";
+        return d < 0 ? unit + " ago" : "in " + unit;
+    }
+
+    function unverified(f) {
+        var box = $("unverified");
+        box.textContent = "";
+        box.hidden = true;
+        if (f.header !== "cb2.public.") {
+            if (f.header === "cb2.local.") {
+                box.hidden = false;
+                box.appendChild(el("p", "ok-line", "A local token's claims are encrypted: nothing can read them without the key. Only the footer travels in clear."));
+            }
+            return;
+        }
+        box.hidden = false;
+        box.appendChild(el("p", "warn", "Decoded without verifying: anyone can write these bytes. Nothing below may be trusted until step 4 verifies the signatures."));
+        if (f.claims === undefined) return;
+        var t = claimsTable(f.claims);
+        if (t === null) {
+            box.appendChild(el("p", "ok-line", f.claims));
+            return;
+        }
+        var rows = t.querySelectorAll("tr");
+        for (var i = 0; i < rows.length; i++) {
+            var name = rows[i].children[0].textContent;
+            if (name === "exp" || name === "nbf" || name === "iat") {
+                var when = relative(rows[i].children[1].textContent);
+                if (when !== "") rows[i].children[1].appendChild(el("span", "small", "  (" + when + (name === "exp" && when.indexOf("ago") >= 0 ? ", expired" : "") + ")"));
+            }
+        }
+        box.appendChild(t);
     }
 
     function customRow(name, value, type) {
@@ -682,7 +728,7 @@
             unwrapKey();
             $("wrap-result").scrollIntoView({behavior: "smooth", block: "nearest"});
         }},
-        {label: "signed token (Ed25519 + ML-DSA-65)", pq: true, hint: "A signing pair signs; its public half verifies. Both signatures must verify: a classical one and a post-quantum one.", go: function () {
+        {label: "signed token (Ed25519 + ML-DSA-65)", pq: true, hint: "A signing pair signs; its public half verifies. Both signatures must verify: a classical one and a post-quantum one. Step 3 can read the claims of a public token before verifying, since they travel in clear; it says so, and nothing there is trusted.", go: function () {
             ensureSigner("issuer");
             $("issue-key").value = "issuer";
             $("verify-key").value = "issuer";
