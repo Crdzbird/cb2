@@ -135,10 +135,10 @@ library compiled to WebAssembly (`web/dist/cb2.js` and `cb2.wasm`, built
 by `web/build.sh` with Emscripten against wasm32 builds of the pinned
 dependencies from `web/build_deps.sh`) and drives the interpreter of
 `playground/session.hpp` through a four-function C shim. Nothing typed
-into the page leaves it. Serve the directory with any static server, for
-example `python3 -m http.server -d web`, or publish it with the Pages
-workflow once GitHub Pages is enabled for the repository with GitHub
-Actions as the source. `node web/smoke.cjs` runs both demo scripts
+into the page leaves it. It is published at https://crdzbird.github.io/pasetoV5/
+by the Pages workflow on every push that touches `web/`; to run it
+locally, serve the directory with any static server, for example
+`python3 -m http.server -d web`. `node web/smoke.cjs` runs both demo scripts
 through the built module; the `web` CI job rebuilds the module from
 source and runs the same smoke test.
 
