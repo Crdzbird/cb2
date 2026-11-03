@@ -106,6 +106,7 @@
 
     document.getElementById("demo").addEventListener("click", function () { runScript("demo.cb2"); });
     document.getElementById("demo-public").addEventListener("click", function () { runScript("demo_public.cb2"); });
+    document.getElementById("demo-text").addEventListener("click", function () { runScript("demo_text.cb2"); });
     document.getElementById("help").addEventListener("click", function () { exec("help"); });
     document.getElementById("clear").addEventListener("click", function () { out.textContent = ""; });
     document.getElementById("reset").addEventListener("click", function () {

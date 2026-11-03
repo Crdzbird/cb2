@@ -1,7 +1,7 @@
 name: Pages
 
 # Publishes the web playground (web/, with the committed dist/cb2.js and
-# cb2.wasm) to GitHub Pages at https://crdzbird.github.io/pasetoV5/.
+# cb2.wasm) to GitHub Pages at https://crdzbird.github.io/cb2/.
 # Pages is configured with "GitHub Actions" as the source.
 on:
   push:

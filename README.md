@@ -124,7 +124,13 @@ cb2> tamper $
 cb2> check alice $ iss=https://issuer.example aud=api
 ```
 
-`playground/demo.cb2` and `playground/demo_public.cb2` are scripted
+Inside double quotes `\uXXXX` and `\u{X...}` carry any code point and
+`\xNN` a raw byte, so a script stays ASCII while it exercises
+international text; `text <string>`
+prints the bytes, the code points (marked when the identifier policy
+refuses them) and the policy's verdict. `playground/demo.cb2`,
+`playground/demo_text.cb2` (the international-text scenarios of the
+example, as a session) and `playground/demo_public.cb2` are scripted
 sessions whose `assert` lines make them tests; CI runs them in every
 build.
 
@@ -135,10 +141,10 @@ library compiled to WebAssembly (`web/dist/cb2.js` and `cb2.wasm`, built
 by `web/build.sh` with Emscripten against wasm32 builds of the pinned
 dependencies from `web/build_deps.sh`) and drives the interpreter of
 `playground/session.hpp` through a four-function C shim. Nothing typed
-into the page leaves it. It is published at https://crdzbird.github.io/pasetoV5/
+into the page leaves it. It is published at https://crdzbird.github.io/cb2/
 by the Pages workflow on every push that touches `web/`; to run it
 locally, serve the directory with any static server, for example
-`python3 -m http.server -d web`. `node web/smoke.cjs` runs both demo scripts
+`python3 -m http.server -d web`. `node web/smoke.cjs` runs the demo scripts
 through the built module; the `web` CI job rebuilds the module from
 source and runs the same smoke test.
 

@@ -6,7 +6,9 @@
  * run() executes one line and appends its output to Session::out as
  * "name = value" lines; a verdict line reports ok or an error name, an
  * "error:" line reports a malformed command and counts a failure. The
- * token "$" in any argument stands for the last token produced.
+ * token "$" in any argument stands for the last token produced. Inside
+ * double quotes, \" \\ \n \t, \uXXXX or \u{X...} (a code point) and
+ * \xNN (a raw byte) are resolved, so an ASCII script can carry any text.
  */
 
 #include <cb2/cb2.hpp>
@@ -93,6 +95,74 @@ inline std::string show_bytes(std::span<const uint8_t> b) {
     return "hex:" + hex(b);
 }
 
+inline void append_utf8(std::string& out, unsigned cp) {
+    if (cp < 0x80) {
+        out += static_cast<char>(cp);
+    } else if (cp < 0x800) {
+        out += static_cast<char>(0xc0 | (cp >> 6));
+        out += static_cast<char>(0x80 | (cp & 0x3f));
+    } else if (cp < 0x10000) {
+        out += static_cast<char>(0xe0 | (cp >> 12));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3f));
+        out += static_cast<char>(0x80 | (cp & 0x3f));
+    } else {
+        out += static_cast<char>(0xf0 | (cp >> 18));
+        out += static_cast<char>(0x80 | ((cp >> 12) & 0x3f));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3f));
+        out += static_cast<char>(0x80 | (cp & 0x3f));
+    }
+}
+
+inline int hex_digit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/// Resolves the escape at line[i] (the character after the backslash)
+/// into cur and advances i past it: \uXXXX and \u{X...} are code points,
+/// \xNN is one raw byte, \n and \t are themselves, anything else keeps
+/// the character.
+inline void resolve_escape(std::string_view line, std::size_t& i, std::string& cur) {
+    const char c = line[i];
+    if (c == 'n') { cur += '\n'; return; }
+    if (c == 't') { cur += '\t'; return; }
+    if (c == 'x') {
+        if (i + 2 < line.size() && hex_digit(line[i + 1]) >= 0 && hex_digit(line[i + 2]) >= 0) {
+            cur += static_cast<char>(hex_digit(line[i + 1]) * 16 + hex_digit(line[i + 2]));
+            i += 2;
+            return;
+        }
+        cur += c;
+        return;
+    }
+    if (c != 'u') { cur += c; return; }
+    unsigned cp = 0;
+    std::size_t j = i + 1;
+    if (j < line.size() && line[j] == '{') {
+        ++j;
+        int digits = 0;
+        while (j < line.size() && line[j] != '}' && hex_digit(line[j]) >= 0 && digits < 6) {
+            cp = cp * 16 + static_cast<unsigned>(hex_digit(line[j]));
+            ++j;
+            ++digits;
+        }
+        if (j >= line.size() || line[j] != '}' || digits == 0) { cur += 'u'; return; }
+        i = j;
+    } else {
+        if (j + 4 > line.size()) { cur += 'u'; return; }
+        for (std::size_t k = 0; k < 4; ++k) {
+            const int d = hex_digit(line[j + k]);
+            if (d < 0) { cur += 'u'; return; }
+            cp = cp * 16 + static_cast<unsigned>(d);
+        }
+        i = j + 3;
+    }
+    if (cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) cp = 0xfffd;
+    append_utf8(cur, cp);
+}
+
 inline Args split(std::string_view line) {
     Args out;
     std::string cur;
@@ -102,7 +172,8 @@ inline Args split(std::string_view line) {
         const char c = line[i];
         if (quoted) {
             if (c == '\\' && i + 1 < line.size()) {
-                cur += line[++i];
+                ++i;
+                resolve_escape(line, i, cur);
                 continue;
             }
             if (c == '"') {
@@ -215,7 +286,8 @@ inline void describe_public(Session& s, const std::string& name, const cb2::Publ
 
 inline void help(Session& s) {
     emit(s,
-        "commands (quote arguments that contain spaces; $ is the last token)\n"
+        "commands (quote arguments that contain spaces; $ is the last token;\n"
+        "inside quotes \\uXXXX, \\u{X..}, \\xNN, \\n, \\t, \\\" and \\\\ are resolved)\n"
         "  keygen local [name]            new 32-byte key, stored under name (default local)\n"
         "  keygen public [name]           new Ed25519 + ML-DSA-65 pair (default signer)\n"
         "  import <kcb2 string> [name]    kcb2.local, kcb2.secret or kcb2.public\n"
@@ -234,10 +306,63 @@ inline void help(Session& s) {
         "  tamper <token> [index]         flip one character (default: last of the body)\n"
         "  wrap <wrapping key> <key>      kcb2.local-wrap string\n"
         "  unwrap <wrapping key> <string> [name]\n"
+        "  text <string>                  bytes, code points and the identifier policy's verdict\n"
         "  time                           the clock the playground uses\n"
         "  assert <verdict>               scripts: fail unless the last verdict matches\n"
         "  echo <text>                    print text\n"
         "  help, quit");
+}
+
+inline std::string hex4(unsigned cp) {
+    static constexpr char DIGITS[] = "0123456789ABCDEF";
+    std::string h;
+    for (int shift = 20; shift >= 0; shift -= 4) {
+        const unsigned d = (cp >> shift) & 15;
+        if (!h.empty() || d != 0 || shift < 16) h += DIGITS[d];
+    }
+    return "U+" + h;
+}
+
+/// The code points of s, each marked with ! when the identifier policy
+/// refuses it; "not UTF-8" when s is malformed.
+inline std::string codepoints(std::string_view s) {
+    if (!cb2::text::valid_utf8(s)) return "not UTF-8";
+    std::string out;
+    std::size_t i = 0;
+    unsigned cp = 0;
+    while (i < s.size() && cb2::text::decode(s, i, cp)) {
+        if (!out.empty()) out += ' ';
+        out += hex4(cp);
+        if (!cb2::text::identifier_char(cp)) out += '!';
+    }
+    return out;
+}
+
+/// The first code point of s the identifier policy refuses, if any.
+inline std::optional<unsigned> first_refused(std::string_view s) {
+    if (!cb2::text::valid_utf8(s)) return std::nullopt;
+    std::size_t i = 0;
+    unsigned cp = 0;
+    while (i < s.size() && cb2::text::decode(s, i, cp)) {
+        if (!cb2::text::identifier_char(cp)) return cp;
+    }
+    return std::nullopt;
+}
+
+inline bool cmd_text(Session& s, const Args& a) {
+    if (a.size() < 2) return fail(s, "text <string>");
+    const std::string& t = a[1];
+    say(s, "text", "\"" + t + "\"");
+    say(s, "bytes", std::to_string(t.size()));
+    say(s, "codepoints", codepoints(t));
+    if (!cb2::text::valid_utf8(t)) {
+        say(s, "identifier", "refused: not UTF-8");
+    } else if (const auto bad = first_refused(t)) {
+        say(s, "identifier", "refused: " + hex4(*bad) + " is a control, invisible, noncharacter or private-use code point");
+    } else {
+        say(s, "identifier", "ok: every code point may appear in iss, sub, aud, jti, claim names and key ids");
+    }
+    return true;
 }
 
 inline bool cmd_keygen(Session& s, const Args& a) {
@@ -462,6 +587,16 @@ inline bool cmd_claims(Session& s, const Args& a) {
     }
     say(s, "payload", c.to_json());
     say(s, "text_ok", c.text_ok() ? "yes" : "no");
+    if (!c.text_ok()) {
+        const std::pair<const char*, const std::optional<std::string>*> named[] = {
+            {"iss", &c.iss}, {"sub", &c.sub}, {"aud", &c.aud}, {"jti", &c.jti}};
+        for (const auto& [field, value] : named) {
+            if (*value && !cb2::text::identifier_ok(**value)) say(s, "refused", std::string(field) + ": " + codepoints(**value));
+        }
+        for (const auto& [cname, cvalue] : c.custom()) {
+            if (!cb2::text::identifier_ok(cname)) say(s, "refused", "claim name " + cname + ": " + codepoints(cname));
+        }
+    }
     if (const cb2::LocalKey* k = find_local(s, a[1])) {
         auto t = cb2::Token::seal(*k, c, implicit);
         if (t.is_err()) {
@@ -662,6 +797,7 @@ inline bool run(Session& s, const std::string& line) {
         help(s);
         return true;
     }
+    if (c == "text") return cmd_text(s, a);
     if (c == "keygen") return cmd_keygen(s, a);
     if (c == "import") return cmd_import(s, a);
     if (c == "keys") return cmd_keys(s, a);

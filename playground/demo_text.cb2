@@ -1,0 +1,41 @@
+# cb2 playground demo: international text and the identifier policy
+# (docs/SPEC.md 8.4). The script is ASCII; \uXXXX inside quotes carries
+# a code point and \xNN a raw byte. Runs in every build; the asserts
+# make it a test.
+keygen local alice
+echo -- an identifier in any script is accepted and bound byte for byte
+text "\u5c71\u7530\u592a\u90ce"
+claims alice iss=https://issuer.example aud=api sub="\u5c71\u7530\u592a\u90ce" exp=+3600
+assert ok
+check alice $ iss=https://issuer.example aud=api sub="\u5c71\u7530\u592a\u90ce"
+assert ok
+echo -- a subject that renders as admin but carries a zero-width space is refused at the issuer
+text "admin\u200b"
+claims alice iss=https://issuer.example aud=api sub="admin\u200b" exp=+3600
+assert argument
+echo -- a bidi override in a custom value is allowed; the code points show what the eye cannot
+text "paid \u202eDIAPNU"
+claims alice iss=https://issuer.example aud=api sub=user-1 note="paid \u202eDIAPNU" exp=+3600
+assert ok
+echo -- a JSON escape cannot smuggle the invisible character past the verifier
+kid alice none
+seal alice "{\"iss\":\"https://issuer.example\",\"aud\":\"api\",\"sub\":\"admin\\u200b\",\"exp\":\"2099-01-01T00:00:00+00:00\"}"
+check alice $ iss=https://issuer.example aud=api
+assert claims_malformed
+echo -- composed and decomposed forms are different identifiers, by design
+text "caf\u00e9"
+text "cafe\u0301"
+claims alice iss=https://issuer.example aud=api sub="caf\u00e9" exp=+3600
+check alice $ iss=https://issuer.example aud=api sub="cafe\u0301"
+assert subject_mismatch
+check alice $ iss=https://issuer.example aud=api sub="caf\u00e9"
+assert ok
+echo -- a look-alike key id is refused when issuing, and a peek at a spoofed footer selects no key
+kid alice "prod\u200b"
+claims alice iss=https://issuer.example aud=api exp=+3600
+assert argument
+kid alice none
+seal alice "x" "{\"kid\":\"prod\u200b\"}"
+peek $
+echo -- an overlong encoding of the dot is not UTF-8 at all; a lenient decoder would read ../
+text "\xc0\xae"

@@ -15,7 +15,7 @@
     page. Nothing you type leaves the browser. Type a command below or
     press the buttons; <code>help</code> lists every command and
     <code>$</code> stands for the last token produced.
-    <a href="https://github.com/Crdzbird/pasetoV5">Source and specification</a>.
+    <a href="https://github.com/Crdzbird/cb2">Source and specification</a>.
   </p>
   <p id="status" class="status">loading the library</p>
 </header>
@@ -50,11 +50,24 @@
       <li><button type="button" data-cmd="claims issuer iss=https://issuer.example aud=api sub=user-1 exp=+3600" data-pq="1">claims signed under it</button></li>
       <li><button type="button" data-cmd="check issuer $ iss=https://issuer.example aud=api" data-pq="1">verify</button></li>
     </ol>
+    <h2>International text</h2>
+    <p>Identifiers are UTF-8 in any script, compared byte for byte, with no invisible characters. Inside quotes <code>\uXXXX</code> carries a code point.</p>
+    <ol id="text-steps">
+      <li><button type="button" data-cmd="text &quot;\u5c71\u7530\u592a\u90ce&quot;">a Japanese identifier</button></li>
+      <li><button type="button" data-cmd="claims alice iss=https://issuer.example aud=api sub=&quot;\u5c71\u7530\u592a\u90ce&quot; exp=+3600">claims with it</button></li>
+      <li><button type="button" data-cmd="check alice $ iss=https://issuer.example aud=api sub=&quot;\u5c71\u7530\u592a\u90ce&quot;">check for that subject</button></li>
+      <li><button type="button" data-cmd="text &quot;admin\u200b&quot;">admin with a zero-width space</button></li>
+      <li><button type="button" data-cmd="claims alice iss=https://issuer.example aud=api sub=&quot;admin\u200b&quot; exp=+3600">claims with that subject</button></li>
+      <li><button type="button" data-cmd="text &quot;paid \u202eDIAPNU&quot;">a bidi override</button></li>
+      <li><button type="button" data-cmd="text &quot;caf\u00e9&quot;">composed cafe</button></li>
+      <li><button type="button" data-cmd="text &quot;cafe\u0301&quot;">decomposed cafe</button></li>
+    </ol>
     <h2>Scripts</h2>
     <p>The same scripted sessions that CI runs as tests.</p>
     <p class="row">
       <button type="button" id="demo">run demo.cb2</button>
       <button type="button" id="demo-public" data-pq="1">run demo_public.cb2</button>
+      <button type="button" id="demo-text">run demo_text.cb2</button>
       <button type="button" id="help">help</button>
       <button type="button" id="clear">clear</button>
       <button type="button" id="reset">reset session</button>

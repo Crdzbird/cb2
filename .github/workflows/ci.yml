@@ -25,6 +25,7 @@ jobs:
           ./build/cb2_tests
           ./build/cb2_example_text
           ./build/cb2_playground playground/demo.cb2
+          ./build/cb2_playground playground/demo_text.cb2
           ./build/cb2_playground playground/demo_public.cb2
       - name: Tests under ASan/UBSan
         run: |
@@ -33,6 +34,7 @@ jobs:
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_tests
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_example_text
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_playground playground/demo.cb2
+          ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_playground playground/demo_text.cb2
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_playground playground/demo_public.cb2
       - name: Build without liboqs (cb2.local only)
         run: |
@@ -42,6 +44,7 @@ jobs:
           ./build-nopq/cb2_tests
           ./build-nopq/cb2_example_text
           ./build-nopq/cb2_playground playground/demo.cb2
+          ./build-nopq/cb2_playground playground/demo_text.cb2
       - name: Fuzz targets (time-boxed)
         env:
           CC: /opt/homebrew/opt/llvm/bin/clang
@@ -81,6 +84,7 @@ jobs:
           ./build/cb2_tests
           ./build/cb2_example_text
           ./build/cb2_playground playground/demo.cb2
+          ./build/cb2_playground playground/demo_text.cb2
           ./build/cb2_playground playground/demo_public.cb2
       - name: Tests under ASan/UBSan
         run: |
@@ -89,6 +93,7 @@ jobs:
           ./build-asan/cb2_tests
           ./build-asan/cb2_example_text
           ./build-asan/cb2_playground playground/demo.cb2
+          ./build-asan/cb2_playground playground/demo_text.cb2
           ./build-asan/cb2_playground playground/demo_public.cb2
       - name: Build without liboqs (cb2.local only)
         run: |
@@ -98,6 +103,7 @@ jobs:
           ./build-nopq/cb2_tests
           ./build-nopq/cb2_example_text
           ./build-nopq/cb2_playground playground/demo.cb2
+          ./build-nopq/cb2_playground playground/demo_text.cb2
 
   # The web playground: the same interpreter compiled to WebAssembly with
   # Emscripten against wasm32 builds of the pinned dependencies, then the
