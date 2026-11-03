@@ -65,6 +65,32 @@ before it is read.
 For v5.public, `SecretKey::generate()`, `Token::sign(sk, claims)` and
 `Token::verify(token, sk.public_key(), rules)`.
 
+## Examples
+
+`examples/international_text.cpp` builds as `paseto5_example_text` and
+answers one question: does the text policy make a token safer than the
+same token through a library without one? It seals eight tokens and
+looks at each twice, once with a legacy check (authenticate, parse the
+JSON, take every string as it comes) and once with `Token::open`. Same
+key, same cipher, same tag; only the text handling differs. The
+scenarios are a subject that renders as `admin` but carries a zero-width
+space, a bidi override that makes a log line read `useradmin`, a
+`\u200b` escape that a scan of the raw payload does not see, a key id
+that displays as `prod` and is not, overlong UTF-8 that a lenient
+decoder reads as `../`, the same issuer written raw and escaped (one
+identity) against its composed and decomposed forms (two), and a
+tampered token, which gets `invalid` and nothing more. In every spoof
+the legacy check accepts and paseto5 refuses on both the issuing side
+(`argument`) and the verifying side (`claims_malformed`), and the
+program asserts exactly that, exits non-zero otherwise, and runs in CI
+as a test. Run it and look at how the spoofed strings render:
+
+```
+./paseto5/build/paseto5_example_text
+```
+
+`PASETO5_BUILD_EXAMPLES` (default ON) controls the target.
+
 ## API
 
 Everything is in namespace `paseto5` and reached through
@@ -132,6 +158,7 @@ include/paseto5/json.hpp           strict JSON reader and writer
 include/paseto5/claims.hpp         Claims, ValidationRules, Token, Rfc3339
 include/paseto5/detail/            base64url, PAE, BLAKE3 and liboqs wrappers, the local core, secure memory
 tests/                             runner, cases, gen_vectors.cpp, vectors/*.json
+examples/international_text.cpp    the text policy against a legacy check, eight scenarios, self-checking
 fuzz/                              fuzz_local, fuzz_public, fuzz_claims
 bench/                             bench_main.cpp, bench_ref.cpp (cryptolib v4.local and cb1.local)
 docs/SPEC.md                       wire format, rationale, threat model
@@ -171,8 +198,8 @@ does not, since all three share it.
 ## What is covered and what is not
 
 Covered on this branch: v5.local, v5.public, the claims layer, key types
-and ids, k5.local-wrap, international text in claims, footers and key ids, the
-vector files, the official-v4 cross-check of
+and ids, k5.local-wrap, international text in claims, footers and key ids
+(with the self-checking example above), the vector files, the official-v4 cross-check of
 PAE and base64url, tests under ASan and UBSan, the three fuzz targets, a
 build without liboqs, and the benchmark above. The repository's CI runs
 the same matrix on every push and pull request: the `paseto5` job
@@ -202,6 +229,8 @@ All on this Mac on 2026-11-03, from the branch as committed.
   report at any point.
 - `-DPASETO5_PQ=OFF` (no liboqs): builds, 42 of 42 cases, v5.public
   absent as specified.
+- `paseto5_example_text`: zero warnings, all eight scenarios hold their
+  expectations in the release, the sanitizer and the no-liboqs builds.
 - Known-answer vectors under `tests/vectors`: 11 v5.local success
   vectors reproduced byte for byte and 15 failure vectors rejected, 99
   single-character tamper cases of a 99-character token all rejected;

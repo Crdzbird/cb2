@@ -100,7 +100,11 @@ implicit assertion.
    Default_Ignorable_Code_Point set (zero-width and bidi characters,
    variation selectors, tags), noncharacters and private-use code points,
    on the issuing side (argument) and on the verifying side
-   (claims_malformed). See docs/SPEC.md section 8.4.
+   (claims_malformed). See docs/SPEC.md section 8.4;
+   examples/international_text.cpp runs the spoofs the policy exists
+   for (invisible and bidi characters in identifiers, escaped
+   smuggling, a look-alike key id, overlong UTF-8) through a check
+   without the policy and through Token::open, side by side.
 
 ## Assumptions
 
