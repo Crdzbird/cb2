@@ -17,6 +17,7 @@
 #include "test_util.hpp"
 
 #include <algorithm>
+#include <initializer_list>
 #include <cstdio>
 #include <cstring>
 #include <optional>
@@ -217,19 +218,43 @@ void write_local(const std::string& dir) {
     }
     put(tamper, "cases", std::move(cases));
     put(root, "tamper", std::move(tamper));
+
+    Value weak = array();
+    for (uint8_t b : {uint8_t{0x00}, uint8_t{0x42}, uint8_t{0xff}}) {
+        Value w = object();
+        put(w, "key", str(tu::hex(Bytes(32, b))));
+        put(w, "expect", str("argument"));
+        put(w, "reason", str("every byte equal"));
+        weak.items.push_back(std::move(w));
+    }
+    put(root, "weak-keys", std::move(weak));
     if (!tu::write_file((dir + "/v5_local.json").c_str(), pretty(root))) std::exit(1);
 }
 
+/// strict: bit 1 keeps require-audience on without an audience, bit 2
+/// keeps require-issuer on without an issuer; otherwise a rule without an
+/// expectation allows any, which is what the vectors before 5-C-30 assume.
 Value rules(long long now, bool require_exp, long long skew, const char* issuer, const char* audience,
-            const char* subject, long long max_bytes) {
+            const char* subject, long long max_bytes, int strict = 0) {
     Value r = object();
     put(r, "now", number(now));
     put(r, "require-exp", boolean(require_exp));
+    put(r, "require-audience", boolean(audience != nullptr || (strict & 1) != 0));
+    put(r, "require-issuer", boolean(issuer != nullptr || (strict & 2) != 0));
     put(r, "clock-skew", number(skew));
     if (issuer != nullptr) put(r, "issuer", str(issuer));
     if (audience != nullptr) put(r, "audience", str(audience));
     if (subject != nullptr) put(r, "subject", str(subject));
     if (max_bytes > 0) put(r, "max-token-bytes", number(max_bytes));
+    return r;
+}
+
+/// Adds a replay check to rules: the jtis in seen are refused; with an
+/// empty list the check accepts everything and only requires a jti.
+Value with_replay(Value r, std::initializer_list<const char*> seen) {
+    Value list = array();
+    for (const char* j : seen) list.items.push_back(str(j));
+    put(r, "seen-jti", std::move(list));
     return r;
 }
 
@@ -339,6 +364,8 @@ void write_claims(const std::string& dir) {
     tests.items.push_back(claims_public("5-C-18", sk, good, "ctx", rules(NOW, true, 0, nullptr, "other", nullptr, 0), "audience_mismatch", nullptr));
     tests.items.push_back(claims_public("5-C-19", sk, good, "ctx", rules(NOW, true, 0, nullptr, nullptr, nullptr, 0), "invalid", "k5.pid.other"));
     tests.items.push_back(claims_public("5-C-20", sk, good, "ctx", rules(NOW, true, 0, nullptr, nullptr, nullptr, 4096), "too_large", nullptr));
+    tests.items.push_back(claims_public("5-C-39", sk, good, "ctx", rules(NOW, true, 0, nullptr, nullptr, nullptr, 0, 3), "rules_incomplete", nullptr));
+    tests.items.push_back(claims_public("5-C-40", sk, good, "ctx", with_replay(rules(NOW, true, 0, "https://issuer.example", "api", nullptr, 0), {"id-1"}), "replayed", nullptr));
 #endif
     const Claims intl = international_claims();
     tests.items.push_back(claims_local("5-C-21", k, intl, IMPLICIT_INTL, rules(NOW, true, 0, ISSUER_INTL, AUDIENCE_INTL, SUBJECT_INTL, 0), "ok", std::nullopt));
@@ -355,6 +382,18 @@ void write_claims(const std::string& dir) {
     intl_kid.set_key_id("llave-\xc3\xb1");
     tests.items.push_back(claims_local("5-C-28", intl_kid, intl, IMPLICIT_INTL, rules(NOW, true, 0, nullptr, nullptr, nullptr, 0), "ok", std::string("llave-\xc3\xb1")));
     tests.items.push_back(claims_local("5-C-29", intl_kid, intl, IMPLICIT_INTL, rules(NOW, true, 0, nullptr, nullptr, nullptr, 0), "invalid", std::string("llave-n\xcc\x83")));
+
+    tests.items.push_back(claims_local("5-C-30", k, good, "ctx", rules(NOW, true, 0, "https://issuer.example", nullptr, nullptr, 0, 1), "rules_incomplete", std::nullopt));
+    tests.items.push_back(claims_local("5-C-31", k, good, "ctx", rules(NOW, true, 0, nullptr, "api", nullptr, 0, 2), "rules_incomplete", std::nullopt));
+    tests.items.push_back(claims_local("5-C-32", k, good, "ctx", rules(NOW, true, 0, nullptr, nullptr, nullptr, 0, 3), "rules_incomplete", std::nullopt));
+    tests.items.push_back(claims_local("5-C-33", k, good, "ctx", rules(NOW + 7200, true, 0, nullptr, nullptr, nullptr, 0, 3), "rules_incomplete", std::nullopt));
+    tests.items.push_back(claims_local("5-C-34", k, good, "ctx", with_replay(rules(NOW, true, 0, "https://issuer.example", "api", nullptr, 0), {"id-1"}), "replayed", std::nullopt));
+    tests.items.push_back(claims_local("5-C-35", k, good, "ctx", with_replay(rules(NOW, true, 0, "https://issuer.example", "api", nullptr, 0), {"id-0", "id-2"}), "ok", std::nullopt));
+    tests.items.push_back(claims_local("5-C-36", k, good, "ctx", with_replay(rules(NOW + 7200, true, 0, "https://issuer.example", "api", nullptr, 0), {"id-1"}), "expired", std::nullopt));
+    Claims no_jti = base_claims();
+    no_jti.jti.reset();
+    tests.items.push_back(claims_local("5-C-37", k, no_jti, "ctx", with_replay(rules(NOW, true, 0, "https://issuer.example", "api", nullptr, 0), {}), "missing_jti", std::nullopt));
+    tests.items.push_back(claims_local("5-C-38", k, no_jti, "ctx", rules(NOW, true, 0, "https://issuer.example", "api", nullptr, 0), "ok", std::nullopt));
     put(root, "tests", std::move(tests));
     if (!tu::write_file((dir + "/claims.json").c_str(), pretty(root))) std::exit(1);
 }
@@ -455,6 +494,29 @@ void write_public_and_paserk(const std::string& dir, Value& paserk_root) {
     }
     put(tamper, "cases", std::move(cases));
     put(root, "tamper", std::move(tamper));
+
+    Value rejected = array();
+    const Bytes sk_raw = tu::unhex(sk_hex);
+    struct Corrupt { size_t at; const char* what; };
+    const Corrupt corrupt[] = {
+        {3, "Ed25519 seed"},
+        {40, "Ed25519 public key carried in the secret key"},
+        {paseto5::SecretKey::ED_BYTES + 100, "ML-DSA-65 tr"},
+        {paseto5::SecretKey::ED_BYTES + 200, "ML-DSA-65 s1"},
+        {paseto5::SecretKey::ED_BYTES + paseto5::SecretKey::ML_BYTES + 10, "ML-DSA-65 public key carried in the secret key"},
+    };
+    int n = 0;
+    for (const Corrupt& c : corrupt) {
+        Bytes bad = sk_raw;
+        bad[c.at] ^= 1;
+        Value v = object();
+        put(v, "name", str("5-K-" + std::to_string(++n)));
+        put(v, "secret-key", str(tu::hex(bad)));
+        put(v, "expect", str("argument"));
+        put(v, "reason", str(std::string("one bit of the ") + c.what + " flipped"));
+        rejected.items.push_back(std::move(v));
+    }
+    put(root, "rejected-secret-keys", std::move(rejected));
     if (!tu::write_file((dir + "/v5_public.json").c_str(), pretty(root))) std::exit(1);
 
     Value pub = object();

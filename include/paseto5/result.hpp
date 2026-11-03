@@ -21,13 +21,17 @@ namespace paseto5 {
 /// unverified token (header, encoding, footer, key id, tag or signature).
 /// too_large: the token exceeds the size limit, decided before parsing.
 /// argument: a caller error that does not depend on token content.
-/// internal: a backend call failed. unavailable: the operation needs a
-/// backend this build does not have. The remaining values are claim
-/// failures of an authenticated token.
+/// rules_incomplete: the verifier's rules name no expected audience or
+/// issuer and do not say that any is acceptable; decided before the
+/// token is read. internal: a backend call failed. unavailable: the
+/// operation needs a backend this build does not have. The remaining
+/// values are claim failures of an authenticated token; replayed and
+/// missing_jti come from the verifier's replay check.
 enum class Error : uint8_t {
     invalid,
     too_large,
     argument,
+    rules_incomplete,
     internal,
     unavailable,
     claims_malformed,
@@ -38,6 +42,8 @@ enum class Error : uint8_t {
     issuer_mismatch,
     audience_mismatch,
     subject_mismatch,
+    missing_jti,
+    replayed,
 };
 
 /// Stable name of an error, for logs.
@@ -46,6 +52,7 @@ enum class Error : uint8_t {
         case Error::invalid: return "invalid";
         case Error::too_large: return "too_large";
         case Error::argument: return "argument";
+        case Error::rules_incomplete: return "rules_incomplete";
         case Error::internal: return "internal";
         case Error::unavailable: return "unavailable";
         case Error::claims_malformed: return "claims_malformed";
@@ -56,6 +63,8 @@ enum class Error : uint8_t {
         case Error::issuer_mismatch: return "issuer_mismatch";
         case Error::audience_mismatch: return "audience_mismatch";
         case Error::subject_mismatch: return "subject_mismatch";
+        case Error::missing_jti: return "missing_jti";
+        case Error::replayed: return "replayed";
     }
     return "unknown";
 }

@@ -187,8 +187,31 @@ TEST_CASE("local/a one mebibyte message round trips") {
     const Bytes msg = tu::pattern(1u << 20, 0x42);
     auto tok = Local::seal(k, msg, {}, tu::bytes_of("ctx"));
     REQUIRE(tok.is_ok());
-    auto back = Local::open(tok.value(), k, {}, tu::bytes_of("ctx"));
+    auto refused = Local::open(tok.value(), k, {}, tu::bytes_of("ctx"));
+    CHECK(refused.is_err() && refused.error() == paseto5::Error::too_large);
+    auto back = Local::open(tok.value(), k, {}, tu::bytes_of("ctx"), tok.value().size());
     REQUIRE(back.is_ok());
     CHECK(back.value().size() == msg.size());
     CHECK(std::equal(msg.begin(), msg.end(), back.value().begin()));
+}
+
+TEST_CASE("local/the allocating open refuses an oversize token before reading it") {
+    const LocalKey k = key_a();
+    const std::string just_over = std::string(Local::HEADER) + std::string(paseto5::DEFAULT_RAW_MAX_TOKEN_BYTES, 'A');
+    auto r = Local::open(just_over, k);
+    CHECK(r.is_err() && r.error() == paseto5::Error::too_large);
+    auto raised = Local::open(just_over, k, {}, {}, just_over.size());
+    CHECK(raised.is_err() && raised.error() == paseto5::Error::invalid);
+    const std::string at_limit = std::string(Local::HEADER) + std::string(paseto5::DEFAULT_RAW_MAX_TOKEN_BYTES - Local::HEADER.size(), 'A');
+    auto limit = Local::open(at_limit, k);
+    CHECK(limit.is_err() && limit.error() == paseto5::Error::invalid);
+    const Bytes msg(paseto5::DEFAULT_RAW_MAX_TOKEN_BYTES, 0x5a);
+    auto big = Local::seal(k, msg);
+    REQUIRE(big.is_ok());
+    auto refused = Local::open(big.value(), k);
+    CHECK(refused.is_err() && refused.error() == paseto5::Error::too_large);
+    auto allowed = Local::open(big.value(), k, {}, {}, big.value().size());
+    REQUIRE(allowed.is_ok());
+    CHECK(allowed.value().size() == msg.size());
+    CHECK(paseto5::DEFAULT_RAW_MAX_TOKEN_BYTES == (std::size_t{1} << 20));
 }

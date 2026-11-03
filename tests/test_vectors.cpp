@@ -11,6 +11,7 @@
 #include "test_util.hpp"
 
 #include <string>
+#include <vector>
 
 using paseto5::Claims;
 using paseto5::Error;
@@ -45,6 +46,16 @@ ValidationRules rules_of(const Value& v) {
     if (o == nullptr) return r;
     r.at(tu::num(*o, "now"));
     if (!tu::flag(*o, "require-exp")) r.allow_missing_exp();
+    if (!tu::flag(*o, "require-audience")) r.allow_any_audience();
+    if (!tu::flag(*o, "require-issuer")) r.allow_any_issuer();
+    if (const Value* seen = o->get("seen-jti"); seen != nullptr) {
+        std::vector<std::string> list;
+        for (const Value& j : seen->items) list.push_back(j.text);
+        r.with_replay_check([list](std::string_view jti) {
+            for (const auto& s : list) if (s == jti) return false;
+            return true;
+        });
+    }
     r.with_clock_skew(tu::num(*o, "clock-skew"));
     if (o->get("max-token-bytes") != nullptr) r.with_max_token_bytes(static_cast<size_t>(tu::num(*o, "max-token-bytes")));
     if (o->get("issuer") != nullptr) r.expect_issuer(tu::str(*o, "issuer"));
@@ -90,6 +101,20 @@ TEST_CASE("vectors/v5.local vectors reproduce and open") {
         CHECK(Bytes(back.value().begin(), back.value().end()) == payload);
     }
     CHECK(seen >= 10);
+}
+
+TEST_CASE("vectors/v5.local weak keys are refused on import") {
+    Value root;
+    REQUIRE(load("v5_local.json", root));
+    const Value* weak = root.get("weak-keys");
+    REQUIRE(weak != nullptr && weak->kind == Value::Kind::array);
+    int seen = 0;
+    for (const Value& w : weak->items) {
+        ++seen;
+        auto r = LocalKey::from_bytes(tu::unhex(tu::str(w, "key")));
+        CHECK(r.is_err() && paseto5::error_name(r.error()) == tu::str(w, "expect"));
+    }
+    CHECK(seen == 3);
 }
 
 TEST_CASE("vectors/v5.local tamper vectors all fail") {
@@ -155,6 +180,23 @@ TEST_CASE("vectors/v5.public vectors verify and failure vectors fail") {
         auto r = paseto5::Public::verify(tu::str(c, "token"), pk.value(), tu::bytes_of(tu::str(*tamper, "footer")), tu::bytes_of(tu::str(*tamper, "implicit-assertion")));
         CHECK(r.is_err() && r.error() == Error::invalid);
     }
+}
+#endif
+
+#ifdef PASETO5_HAS_PQ
+TEST_CASE("vectors/v5.public rejected secret keys are refused on import") {
+    Value root;
+    REQUIRE(load("v5_public.json", root));
+    const Value* rejected = root.get("rejected-secret-keys");
+    REQUIRE(rejected != nullptr && rejected->kind == Value::Kind::array);
+    int seen = 0;
+    for (const Value& v : rejected->items) {
+        ++seen;
+        auto r = paseto5::SecretKey::from_bytes(tu::unhex(tu::str(v, "secret-key")));
+        if (!r.is_err()) std::printf("      %s should be refused\n", tu::str(v, "name").c_str());
+        CHECK(r.is_err() && paseto5::error_name(r.error()) == tu::str(v, "expect"));
+    }
+    CHECK(seen == 5);
 }
 #endif
 

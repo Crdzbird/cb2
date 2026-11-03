@@ -2,6 +2,7 @@
 #include "test_util.hpp"
 
 #include <string>
+#include <vector>
 
 using paseto5::Claims;
 using paseto5::Error;
@@ -146,35 +147,35 @@ TEST_CASE("claims/registered claims must be strings with valid timestamps") {
 
 TEST_CASE("claims/validator enforces exp, nbf, iat, skew and bindings") {
     const Claims c = good_claims();
-    CHECK(ValidationRules().at(NOW).check(c).is_ok());
-    auto e = ValidationRules().at(NOW + 3600).check(c);
+    CHECK(tu::lenient(NOW).check(c).is_ok());
+    auto e = tu::lenient(NOW + 3600).check(c);
     CHECK(e.is_err() && e.error() == Error::expired);
-    CHECK(ValidationRules().at(NOW + 3600 - 1).check(c).is_ok());
-    CHECK(ValidationRules().at(NOW + 3600 + 30).with_clock_skew(60).check(c).is_ok());
+    CHECK(tu::lenient(NOW + 3600 - 1).check(c).is_ok());
+    CHECK(tu::lenient(NOW + 3600 + 30).with_clock_skew(60).check(c).is_ok());
     Claims no_exp = good_claims();
     no_exp.exp.reset();
-    auto m = ValidationRules().at(NOW).check(no_exp);
+    auto m = tu::lenient(NOW).check(no_exp);
     CHECK(m.is_err() && m.error() == Error::missing_exp);
-    CHECK(ValidationRules().at(NOW).allow_missing_exp().check(no_exp).is_ok());
+    CHECK(tu::lenient(NOW).allow_missing_exp().check(no_exp).is_ok());
     Claims future = good_claims();
     future.nbf = NOW + 100;
-    auto n = ValidationRules().at(NOW).check(future);
+    auto n = tu::lenient(NOW).check(future);
     CHECK(n.is_err() && n.error() == Error::not_yet_valid);
-    CHECK(ValidationRules().at(NOW).with_clock_skew(100).check(future).is_ok());
+    CHECK(tu::lenient(NOW).with_clock_skew(100).check(future).is_ok());
     Claims iat = good_claims();
     iat.iat = NOW + 100;
-    auto i = ValidationRules().at(NOW).check(iat);
+    auto i = tu::lenient(NOW).check(iat);
     CHECK(i.is_err() && i.error() == Error::issued_in_future);
-    auto iss = ValidationRules().at(NOW).expect_issuer("other").check(c);
+    auto iss = tu::lenient(NOW).expect_issuer("other").check(c);
     CHECK(iss.is_err() && iss.error() == Error::issuer_mismatch);
-    auto aud = ValidationRules().at(NOW).expect_audience("other").check(c);
+    auto aud = tu::lenient(NOW).expect_audience("other").check(c);
     CHECK(aud.is_err() && aud.error() == Error::audience_mismatch);
-    auto sub = ValidationRules().at(NOW).expect_subject("other").check(c);
+    auto sub = tu::lenient(NOW).expect_subject("other").check(c);
     CHECK(sub.is_err() && sub.error() == Error::subject_mismatch);
-    CHECK(ValidationRules().at(NOW).expect_issuer("https://issuer.example").expect_audience("api").expect_subject("user-1").check(c).is_ok());
+    CHECK(tu::lenient(NOW).expect_issuer("https://issuer.example").expect_audience("api").expect_subject("user-1").check(c).is_ok());
     Claims no_aud = good_claims();
     no_aud.aud.reset();
-    CHECK(ValidationRules().at(NOW).expect_audience("api").check(no_aud).is_err());
+    CHECK(tu::lenient(NOW).expect_audience("api").check(no_aud).is_err());
 }
 
 TEST_CASE("claims/token layer binds the key id into the footer and validates after authenticating") {
@@ -186,31 +187,31 @@ TEST_CASE("claims/token layer binds the key id into the footer and validates aft
     auto peek = Token::peek_key_id(tok.value());
     REQUIRE(peek.has_value());
     CHECK(peek->value == k.paserk_id());
-    auto open = Token::open(tok.value(), k, ValidationRules().at(NOW).expect_audience("api"), "ctx");
+    auto open = Token::open(tok.value(), k, tu::lenient(NOW).expect_audience("api"), "ctx");
     REQUIRE(open.is_ok());
     CHECK(open.value().sub == c.sub);
     CHECK(open.value().get("role") == std::optional<std::string_view>("admin"));
 
     LocalKey renamed = k.clone();
     renamed.set_key_id("other");
-    auto r = Token::open(tok.value(), renamed, ValidationRules().at(NOW), "ctx");
+    auto r = Token::open(tok.value(), renamed, tu::lenient(NOW), "ctx");
     CHECK(r.is_err() && r.error() == Error::invalid);
     LocalKey anonymous = k.clone();
     anonymous.clear_key_id();
-    auto a = Token::open(tok.value(), anonymous, ValidationRules().at(NOW), "ctx");
+    auto a = Token::open(tok.value(), anonymous, tu::lenient(NOW), "ctx");
     CHECK(a.is_err() && a.error() == Error::invalid);
-    auto wrong_ctx = Token::open(tok.value(), k, ValidationRules().at(NOW), "ctz");
+    auto wrong_ctx = Token::open(tok.value(), k, tu::lenient(NOW), "ctz");
     CHECK(wrong_ctx.is_err() && wrong_ctx.error() == Error::invalid);
 
-    auto expired = Token::open(tok.value(), k, ValidationRules().at(NOW + 7200), "ctx");
+    auto expired = Token::open(tok.value(), k, tu::lenient(NOW + 7200), "ctx");
     CHECK(expired.is_err() && expired.error() == Error::expired);
-    auto aud = Token::open(tok.value(), k, ValidationRules().at(NOW).expect_audience("other"), "ctx");
+    auto aud = Token::open(tok.value(), k, tu::lenient(NOW).expect_audience("other"), "ctx");
     CHECK(aud.is_err() && aud.error() == Error::audience_mismatch);
 
-    auto big = Token::open(tok.value(), k, ValidationRules().at(NOW).with_max_token_bytes(tok.value().size() - 1), "ctx");
+    auto big = Token::open(tok.value(), k, tu::lenient(NOW).with_max_token_bytes(tok.value().size() - 1), "ctx");
     CHECK(big.is_err() && big.error() == Error::too_large);
     const std::string garbage(ValidationRules::DEFAULT_MAX_TOKEN_BYTES + 1, 'A');
-    auto g = Token::open(garbage, k, ValidationRules().at(NOW), "ctx");
+    auto g = Token::open(garbage, k, tu::lenient(NOW), "ctx");
     CHECK(g.is_err() && g.error() == Error::too_large);
     CHECK(!Token::peek_key_id(garbage).has_value());
 
@@ -218,8 +219,8 @@ TEST_CASE("claims/token layer binds the key id into the footer and validates aft
     REQUIRE(no_kid.is_ok());
     CHECK(no_kid.value().find('.', 9) == std::string::npos);
     CHECK(!Token::peek_key_id(no_kid.value()).has_value());
-    CHECK(Token::open(no_kid.value(), anonymous, ValidationRules().at(NOW)).is_ok());
-    CHECK(Token::open(no_kid.value(), k, ValidationRules().at(NOW)).is_err());
+    CHECK(Token::open(no_kid.value(), anonymous, tu::lenient(NOW)).is_ok());
+    CHECK(Token::open(no_kid.value(), k, tu::lenient(NOW)).is_err());
     CHECK(Token::footer_for(std::optional<std::string>("a\"b")) == "{\"kid\":\"a\\\"b\"}");
     CHECK(Token::footer_for(std::nullopt).empty());
 }
@@ -228,11 +229,11 @@ TEST_CASE("claims/a token whose payload is not a claims object is claims_malform
     const LocalKey k = key_a();
     auto tok = paseto5::Local::seal(k, tu::bytes_of("[1,2]"), paseto5::bytes(Token::footer_for(k.key_id())));
     REQUIRE(tok.is_ok());
-    auto r = Token::open(tok.value(), k, ValidationRules().at(NOW));
+    auto r = Token::open(tok.value(), k, tu::lenient(NOW));
     CHECK(r.is_err() && r.error() == Error::claims_malformed);
     auto tok2 = paseto5::Local::seal(k, tu::bytes_of("{\"exp\":123}"), paseto5::bytes(Token::footer_for(k.key_id())));
     REQUIRE(tok2.is_ok());
-    auto r2 = Token::open(tok2.value(), k, ValidationRules().at(NOW));
+    auto r2 = Token::open(tok2.value(), k, tu::lenient(NOW));
     CHECK(r2.is_err() && r2.error() == Error::claims_malformed);
 }
 
@@ -246,16 +247,79 @@ TEST_CASE("claims/public token layer binds the key id and validates") {
     auto peek = Token::peek_key_id(tok.value());
     REQUIRE(peek.has_value());
     CHECK(peek->value == pk.paserk_id());
-    auto v = Token::verify(tok.value(), pk, ValidationRules().at(NOW).expect_issuer("https://issuer.example"), "ctx");
+    auto v = Token::verify(tok.value(), pk, tu::lenient(NOW).expect_issuer("https://issuer.example"), "ctx");
     REQUIRE(v.is_ok());
     CHECK(v.value().jti == c.jti);
-    auto expired = Token::verify(tok.value(), pk, ValidationRules().at(NOW + 7200), "ctx");
+    auto expired = Token::verify(tok.value(), pk, tu::lenient(NOW + 7200), "ctx");
     CHECK(expired.is_err() && expired.error() == Error::expired);
     paseto5::PublicKey renamed = pk;
     renamed.set_key_id("other");
-    auto r = Token::verify(tok.value(), renamed, ValidationRules().at(NOW), "ctx");
+    auto r = Token::verify(tok.value(), renamed, tu::lenient(NOW), "ctx");
     CHECK(r.is_err() && r.error() == Error::invalid);
-    auto small = Token::verify(tok.value(), pk, ValidationRules().at(NOW).with_max_token_bytes(4096), "ctx");
+    auto small = Token::verify(tok.value(), pk, tu::lenient(NOW).with_max_token_bytes(4096), "ctx");
     CHECK(small.is_err() && small.error() == Error::too_large);
 }
 #endif
+
+TEST_CASE("claims/rules must name an audience and an issuer or allow any, before the token is read") {
+    const LocalKey k = key_a();
+    const Claims c = good_claims();
+    auto tok = Token::seal(k, c);
+    REQUIRE(tok.is_ok());
+    CHECK(!ValidationRules().complete());
+    CHECK(!ValidationRules().expect_audience("api").complete());
+    CHECK(!ValidationRules().expect_issuer("https://issuer.example").complete());
+    CHECK(ValidationRules().expect_audience("api").expect_issuer("https://issuer.example").complete());
+    CHECK(ValidationRules().expect_audience("api").allow_any_issuer().complete());
+    CHECK(ValidationRules().allow_any_audience().expect_issuer("x").complete());
+    CHECK(ValidationRules().allow_any_audience().allow_any_issuer().complete());
+    auto silent = ValidationRules().at(NOW).check(c);
+    CHECK(silent.is_err() && silent.error() == Error::rules_incomplete);
+    auto half = Token::open(tok.value(), k, ValidationRules().at(NOW).expect_audience("api"));
+    CHECK(half.is_err() && half.error() == Error::rules_incomplete);
+    auto garbage = Token::open(std::string(100000, 'A'), k, ValidationRules().at(NOW));
+    CHECK(garbage.is_err() && garbage.error() == Error::rules_incomplete);
+    LocalKey bad_kid = k.clone();
+    bad_kid.set_key_id("a\xe2\x80\x8b");
+    auto before_kid = Token::open(tok.value(), bad_kid, ValidationRules().at(NOW));
+    CHECK(before_kid.is_err() && before_kid.error() == Error::rules_incomplete);
+    CHECK(Token::open(tok.value(), k, ValidationRules().at(NOW).expect_audience("api").expect_issuer("https://issuer.example")).is_ok());
+    CHECK(Token::open(tok.value(), k, ValidationRules().at(NOW).expect_audience("api").allow_any_issuer()).is_ok());
+    CHECK(Token::open(tok.value(), k, tu::lenient(NOW)).is_ok());
+    auto other = Token::open(tok.value(), k, ValidationRules().at(NOW).expect_audience("other-service").allow_any_issuer());
+    CHECK(other.is_err() && other.error() == Error::audience_mismatch);
+}
+
+TEST_CASE("claims/the replay check runs last and sees the jti of tokens that passed everything else") {
+    const LocalKey k = key_a();
+    const Claims c = good_claims();
+    auto tok = Token::seal(k, c);
+    REQUIRE(tok.is_ok());
+    std::vector<std::string> seen;
+    auto remember = [&seen](std::string_view jti) {
+        for (const auto& s : seen) if (s == jti) return false;
+        seen.emplace_back(jti);
+        return true;
+    };
+    const auto rules = tu::lenient(NOW).with_replay_check(remember);
+    CHECK(rules.has_replay_check());
+    CHECK(Token::open(tok.value(), k, rules).is_ok());
+    auto again = Token::open(tok.value(), k, rules);
+    CHECK(again.is_err() && again.error() == Error::replayed);
+    CHECK(seen.size() == 1 && seen[0] == "id-1");
+    auto expired = Token::open(tok.value(), k, tu::lenient(NOW + 7200).with_replay_check([&seen](std::string_view) {
+        seen.emplace_back("should not be called");
+        return true;
+    }));
+    CHECK(expired.is_err() && expired.error() == Error::expired);
+    CHECK(seen.size() == 1);
+    Claims no_jti = good_claims();
+    no_jti.jti.reset();
+    auto anon = Token::seal(k, no_jti);
+    REQUIRE(anon.is_ok());
+    auto missing = Token::open(anon.value(), k, tu::lenient(NOW).with_replay_check([](std::string_view) { return true; }));
+    CHECK(missing.is_err() && missing.error() == Error::missing_jti);
+    CHECK(Token::open(anon.value(), k, tu::lenient(NOW)).is_ok());
+    auto thrown = Token::open(tok.value(), k, tu::lenient(NOW).with_replay_check([](std::string_view) -> bool { throw 1; }));
+    CHECK(thrown.is_err() && thrown.error() == Error::internal);
+}

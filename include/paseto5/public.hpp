@@ -5,14 +5,17 @@
  *
  *   h    = "v5.public."
  *   m2   = PAE(h, m, f, i)
- *   sig  = Ed25519-sign(sk_ed, m2) || ML-DSA-65-sign(sk_ml, m2), 3373 bytes
+ *   sig  = Ed25519-sign(sk_ed, m2) || ML-DSA-65-sign(sk_ml, m2, ctx = h), 3373 bytes
  *   body = m || sig
  *   token = h || base64url(body) [ || "." || base64url(f) ]
  *
  * A token verifies only when both halves verify under the matching halves
- * of the public key. The pre-authentication encoding is public, so it is
- * built in plain memory: inside the output buffer when it fits there (the
- * usual case), otherwise in one heap allocation.
+ * of the public key. The ML-DSA half carries the header as its FIPS 204
+ * context string, so the same key signing anything else, even these PAE
+ * bytes under another context, yields nothing a v5.public verifier
+ * accepts. The pre-authentication encoding is public, so it is built in
+ * plain memory: inside the output buffer when it fits there (the usual
+ * case), otherwise in one heap allocation.
  */
 
 #ifdef PASETO5_HAS_PQ
@@ -149,10 +152,14 @@ public:
         return Result<std::string>::ok(std::move(tok));
     }
 
-    /// Verifies token and returns the message. One allocation.
+    /// Verifies token and returns the message. One allocation. A token
+    /// longer than max_token_bytes is too_large before any of it is read;
+    /// the default keeps a garbage token from costing a 48 MiB buffer.
     [[nodiscard]] static Result<std::vector<uint8_t>>
     verify(std::string_view token, const PublicKey& key, std::span<const uint8_t> expected_footer = {},
-           std::span<const uint8_t> implicit = {}) {
+           std::span<const uint8_t> implicit = {},
+           std::size_t max_token_bytes = DEFAULT_RAW_MAX_TOKEN_BYTES) {
+        if (token.size() > max_token_bytes) return Result<std::vector<uint8_t>>::err(Error::too_large);
         const std::size_t cap = verify_capacity(token.size(), expected_footer.size(), implicit.size());
         if (cap == 0) return Result<std::vector<uint8_t>>::err(Error::invalid);
         std::vector<uint8_t> buf(cap);
@@ -170,7 +177,8 @@ private:
         if (crypto_sign_detached(sig, &ed_len, pae, plen, detail::KeyAccess::ed_secret(key)) != 0 ||
             ed_len != ED_SIG_BYTES)
             return false;
-        return detail::MlDsa65::sign(sig + ED_SIG_BYTES, pae, plen, detail::KeyAccess::ml_secret(key));
+        return detail::MlDsa65::sign(sig + ED_SIG_BYTES, pae, plen, bytes(HEADER),
+                                     detail::KeyAccess::ml_secret(key));
     }
 
     static Status verify_impl(std::span<uint8_t> work, std::size_t& out_len, std::string_view token,
@@ -195,7 +203,7 @@ private:
         detail::pae_stream(sink, {bytes(HEADER), {m, mlen}, expected_footer, implicit});
         const bool ed_ok = crypto_sign_verify_detached(sig, pae, plen, detail::KeyAccess::ed_public(key)) == 0;
         const bool ml_ok = detail::MlDsa65::verify(pae, plen, sig + ED_SIG_BYTES, ML_SIG_BYTES,
-                                                   detail::KeyAccess::ml_public(key));
+                                                   bytes(HEADER), detail::KeyAccess::ml_public(key));
         if (!ed_ok || !ml_ok) return Status::invalid;
         detail::wipe(work.data() + mlen, work.size() - mlen);
         out_len = mlen;

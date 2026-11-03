@@ -104,9 +104,14 @@ public:
     }
 
     /// Opens token and returns the message in wiped memory. One allocation.
+    /// A token longer than max_token_bytes is too_large before any of it
+    /// is read; the default keeps a garbage token from costing a 48 MiB
+    /// buffer and the hashing of it.
     [[nodiscard]] static Result<SecureBytes>
     open(std::string_view token, const LocalKey& key, std::span<const uint8_t> expected_footer = {},
-         std::span<const uint8_t> implicit = {}) {
+         std::span<const uint8_t> implicit = {},
+         std::size_t max_token_bytes = DEFAULT_RAW_MAX_TOKEN_BYTES) {
+        if (token.size() > max_token_bytes) return Result<SecureBytes>::err(Error::too_large);
         const std::size_t cap = open_capacity(token.size());
         if (cap == 0) return Result<SecureBytes>::err(Error::invalid);
         SecureBytes buf(cap);

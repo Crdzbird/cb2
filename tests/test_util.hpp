@@ -82,6 +82,12 @@ inline long long num(const paseto5::json::Value& v, std::string_view key) {
     return m != nullptr && m->kind == paseto5::json::Value::Kind::number ? std::stoll(m->text) : 0;
 }
 
+/// Rules at a fixed clock that accept any audience and issuer, for tests
+/// whose subject is something else.
+inline paseto5::ValidationRules lenient(paseto5::Seconds now) {
+    return paseto5::ValidationRules().at(now).allow_any_audience().allow_any_issuer();
+}
+
 inline std::string str_of(std::span<const uint8_t> b) {
     return std::string(reinterpret_cast<const char*>(b.data()), b.size());
 }

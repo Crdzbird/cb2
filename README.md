@@ -51,7 +51,8 @@ auto token = paseto5::Token::seal(key, claims, "request-context");
 
 auto rules = paseto5::ValidationRules()
     .expect_issuer("https://issuer.example")
-    .expect_audience("api");
+    .expect_audience("api")
+    .with_replay_check([&](std::string_view jti) { return seen.insert(jti); });
 auto opened = paseto5::Token::open(token.value(), key, rules, "request-context");
 if (opened.is_ok()) use(opened.value().sub);
 else log(paseto5::error_name(opened.error()));
@@ -59,8 +60,12 @@ else log(paseto5::error_name(opened.error()));
 
 The token carries the key's id in its footer; `Token::open` rebuilds that
 footer from the key and refuses any other. `exp` is required unless the
-rules say `allow_missing_exp()`. A token longer than 16 KiB is refused
-before it is read.
+rules say `allow_missing_exp()`; an expected audience and issuer are
+required unless the rules say `allow_any_audience()` and
+`allow_any_issuer()`, and rules that say neither are `rules_incomplete`
+before the token is read. The replay check is optional; installed, it
+receives the `jti` of every token that passed every other rule and may
+refuse it. A token longer than 16 KiB is refused before it is read.
 
 For v5.public, `SecretKey::generate()`, `Token::sign(sk, claims)` and
 `Token::verify(token, sk.public_key(), rules)`.
@@ -99,27 +104,32 @@ Everything is in namespace `paseto5` and reached through
 
 Keys (`keys.hpp`)
 
-- `LocalKey`: 32 bytes. `generate()`, `from_bytes(span)`,
+- `LocalKey`: 32 uniformly random bytes. `generate()`, `from_bytes(span)`,
   `from_paserk("k5.local...")`, `to_paserk()` (wiped string),
   `paserk_id()` (`k5.lid...`), `key_id()` / `set_key_id()` /
-  `clear_key_id()`, `clone()`. Move-only; no implicit copies.
+  `clear_key_id()`, `clone()`. Move-only; no implicit copies. The
+  importers refuse a key whose bytes are all equal.
 - `PublicKey` (1984 bytes) and `SecretKey` (6048 bytes), with liboqs:
-  `SecretKey::generate()`, `public_key()`, the same PASERK functions with
-  `k5.public`, `k5.secret` and `k5.pid`.
+  `SecretKey::generate()`, `public_key()`, `consistent()`, the same
+  PASERK functions with `k5.public`, `k5.secret` and `k5.pid`. Importing
+  a secret key checks that its public halves belong to its secret
+  halves.
 - `KeyWrap::wrap(wrapping, key)` / `unwrap(text, wrapping)`:
   `k5.local-wrap`.
 
 Tokens
 
 - `Local::seal(key, msg, footer, implicit)` returns the token text in one
-  allocation; `Local::open(token, key, expected_footer, implicit)` returns
-  the message in wiped memory in one allocation. `seal_into` and
-  `open_into` write into caller buffers sized by `token_len` and
-  `open_capacity` and allocate nothing.
-- `Public::sign` / `verify` and `sign_into` / `verify_into` likewise;
-  `verify_into` takes a buffer sized by `verify_capacity`, which includes
-  the scratch for the pre-authentication encoding, so it allocates
-  nothing either.
+  allocation; `Local::open(token, key, expected_footer, implicit,
+  max_token_bytes)` returns the message in wiped memory in one
+  allocation and refuses a token longer than `max_token_bytes` (default
+  1 MiB) before reading it. `seal_into` and `open_into` write into caller
+  buffers sized by `token_len` and `open_capacity` and allocate nothing.
+- `Public::sign` / `verify` and `sign_into` / `verify_into` likewise,
+  with the same default limit on `verify`; `verify_into` takes a buffer
+  sized by `verify_capacity`, which includes the scratch for the
+  pre-authentication encoding, so it allocates nothing either. The
+  ML-DSA half signs under the FIPS 204 context string `v5.public.`.
 
 Claims (`claims.hpp`)
 
@@ -128,8 +138,9 @@ Claims (`claims.hpp`)
   `set_json(name, json)`, `get(name)`, `get_json(name)`, `to_json()`,
   `from_json()`, `text_ok()`.
 - `ValidationRules`: `expect_issuer`, `expect_audience`,
-  `expect_subject`, `with_clock_skew`, `with_max_token_bytes`,
-  `allow_missing_exp`, `at(now)`; `check(claims)`.
+  `expect_subject`, `allow_any_issuer`, `allow_any_audience`,
+  `with_replay_check(fn)`, `with_clock_skew`, `with_max_token_bytes`,
+  `allow_missing_exp`, `at(now)`; `complete()`, `check(claims)`.
 - `Token::seal` / `open` / `sign` / `verify` / `peek_key_id` /
   `footer_for`.
 - `Rfc3339::parse` / `format`; `json::Reader` / `json::Writer`.
@@ -139,10 +150,11 @@ Claims (`claims.hpp`)
   characters, noncharacters or private use (docs/SPEC.md 8.4).
 
 Errors: `invalid` (anything token-dependent before authentication, one
-verdict), `too_large`, `argument`, `internal`, `unavailable`, and after
-authentication `claims_malformed`, `missing_exp`, `expired`,
-`not_yet_valid`, `issued_in_future`, `issuer_mismatch`,
-`audience_mismatch`, `subject_mismatch`.
+verdict), `too_large`, `argument`, `rules_incomplete`, `internal`,
+`unavailable`, and after authentication `claims_malformed`,
+`missing_exp`, `expired`, `not_yet_valid`, `issued_in_future`,
+`issuer_mismatch`, `audience_mismatch`, `subject_mismatch`,
+`missing_jti`, `replayed`.
 
 ## Layout
 
@@ -199,7 +211,10 @@ does not, since all three share it.
 
 Covered on this branch: v5.local, v5.public, the claims layer, key types
 and ids, k5.local-wrap, international text in claims, footers and key ids
-(with the self-checking example above), the vector files, the official-v4 cross-check of
+(with the self-checking example above), the hardening from the
+adversarial review (rules that must declare their audience and issuer,
+the raw-layer size limit, the replay check, the weak-key and secret-key
+import checks, the ML-DSA context string), the vector files, the official-v4 cross-check of
 PAE and base64url, tests under ASan and UBSan, the three fuzz targets, a
 build without liboqs, and the benchmark above. The repository's CI runs
 the same matrix on every push and pull request: the `paseto5` job
@@ -219,15 +234,15 @@ All on this Mac on 2026-11-03, from the branch as committed.
 
 - Release build (`cmake -S paseto5 -B paseto5/build -G Ninja`, Apple
   clang 21, `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
-  -Wshadow`): zero warnings. `paseto5_tests`: 51 cases, 51 passed,
+  -Wshadow`): zero warnings. `paseto5_tests`: 59 cases, 59 passed,
   about 24,600 checks (the exact count varies with the random lengths in
   the codec agreement test).
 - The same with `-DPASETO5_SANITIZE=ON` (AddressSanitizer + UBSan, no
-  recovery): 44 of 44, no reports. The sanitizer build caught one bug
+  recovery): 59 of 59, no reports. The sanitizer build caught one bug
   during development, an iterator pair taken from two temporaries in
   the vector generator, which is fixed; the library itself produced no
   report at any point.
-- `-DPASETO5_PQ=OFF` (no liboqs): builds, 42 of 42 cases, v5.public
+- `-DPASETO5_PQ=OFF` (no liboqs): builds, 47 of 47 cases, v5.public
   absent as specified.
 - `paseto5_example_text`: zero warnings, all eight scenarios hold their
   expectations in the release, the sanitizer and the no-liboqs builds.
@@ -236,7 +251,9 @@ All on this Mac on 2026-11-03, from the branch as committed.
   single-character tamper cases of a 99-character token all rejected;
   6 v5.public success vectors verified and 14 failure vectors rejected,
   38 sampled tamper cases rejected and every byte of a 4512-character
-  token swept live; 20 claims-layer vectors with the recorded verdicts;
+  token swept live; 40 claims-layer vectors with the recorded verdicts
+  (among them incomplete rules, replayed and missing token ids); 3 weak
+  local keys and 5 corrupted secret keys refused on import;
   the PASERK vectors reproduced.
 - Official PASETO v4 vectors (`tests/vectors/paseto/v4.json` in the
   repository): all 9 v4.local tokens reproduced byte for byte and all

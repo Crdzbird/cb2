@@ -105,7 +105,7 @@ TEST_CASE("text/international claims round trip and bind byte for byte") {
     auto peek = Token::peek_key_id(tok.value());
     REQUIRE(peek.has_value());
     CHECK(peek->value == cat("llave-", N_TILDE));
-    const auto rules = ValidationRules().at(NOW).expect_issuer(std::string(ISSUER))
+    const auto rules = tu::lenient(NOW).expect_issuer(std::string(ISSUER))
                            .expect_audience(std::string(ARABIC)).expect_subject(std::string(JAPANESE));
     auto open = Token::open(tok.value(), k, rules, cat("contexto-", EMOJI));
     REQUIRE(open.is_ok());
@@ -130,8 +130,8 @@ TEST_CASE("text/no normalisation: composed and decomposed forms are different id
     c.iss = cat("Espa", N_TILDE, "a");
     auto tok = Token::seal(k, c);
     REQUIRE(tok.is_ok());
-    CHECK(Token::open(tok.value(), k, ValidationRules().at(NOW).expect_issuer(cat("Espa", N_TILDE, "a"))).is_ok());
-    auto r = Token::open(tok.value(), k, ValidationRules().at(NOW).expect_issuer(cat("Espa", N_COMBINING, "a")));
+    CHECK(Token::open(tok.value(), k, tu::lenient(NOW).expect_issuer(cat("Espa", N_TILDE, "a"))).is_ok());
+    auto r = Token::open(tok.value(), k, tu::lenient(NOW).expect_issuer(cat("Espa", N_COMBINING, "a")));
     CHECK(r.is_err() && r.error() == Error::issuer_mismatch);
 }
 
@@ -157,7 +157,7 @@ TEST_CASE("text/the issuer side refuses identifiers that break the policy") {
     CHECK(!value_ok.set("note", "\xc3"));
     auto tok = Token::seal(k, value_ok);
     REQUIRE(tok.is_ok());
-    auto back = Token::open(tok.value(), k, ValidationRules().at(NOW));
+    auto back = Token::open(tok.value(), k, tu::lenient(NOW));
     REQUIRE(back.is_ok());
     CHECK(back.value().get("note") == std::optional<std::string_view>(cat("a", ZWSP, RLO, "b")));
 
@@ -165,7 +165,7 @@ TEST_CASE("text/the issuer side refuses identifiers that break the policy") {
     bad_kid.set_key_id(cat("kid", ZWSP));
     auto s = Token::seal(bad_kid, international());
     CHECK(s.is_err() && s.error() == Error::argument);
-    auto o = Token::open(tok.value(), bad_kid, ValidationRules().at(NOW));
+    auto o = Token::open(tok.value(), bad_kid, tu::lenient(NOW));
     CHECK(o.is_err() && o.error() == Error::argument);
     auto raw = paseto5::Local::seal(bad_kid, tu::bytes_of("{}"), paseto5::bytes(Token::footer_for(bad_kid.key_id())));
     REQUIRE(raw.is_ok());
@@ -175,20 +175,20 @@ TEST_CASE("text/the issuer side refuses identifiers that break the policy") {
 TEST_CASE("text/the verifier side refuses identifiers that break the policy after authenticating") {
     const LocalKey k = key_a();
     const std::string exp = "\"exp\":\"2023-11-14T23:13:20+00:00\"";
-    auto r1 = Token::open(raw_token(k, "{\"iss\":\"a\\u200bb\"," + exp + "}"), k, ValidationRules().at(NOW));
+    auto r1 = Token::open(raw_token(k, "{\"iss\":\"a\\u200bb\"," + exp + "}"), k, tu::lenient(NOW));
     CHECK(r1.is_err() && r1.error() == Error::claims_malformed);
-    auto r2 = Token::open(raw_token(k, "{\"sub\":\"a" + std::string(RLO) + "b\"," + exp + "}"), k, ValidationRules().at(NOW));
+    auto r2 = Token::open(raw_token(k, "{\"sub\":\"a" + std::string(RLO) + "b\"," + exp + "}"), k, tu::lenient(NOW));
     CHECK(r2.is_err() && r2.error() == Error::claims_malformed);
-    auto r3 = Token::open(raw_token(k, "{\"a\\ufeffb\":1," + exp + "}"), k, ValidationRules().at(NOW));
+    auto r3 = Token::open(raw_token(k, "{\"a\\ufeffb\":1," + exp + "}"), k, tu::lenient(NOW));
     CHECK(r3.is_err() && r3.error() == Error::claims_malformed);
-    auto r4 = Token::open(raw_token(k, "{\"jti\":\"\\ue000\"," + exp + "}"), k, ValidationRules().at(NOW));
+    auto r4 = Token::open(raw_token(k, "{\"jti\":\"\\ue000\"," + exp + "}"), k, tu::lenient(NOW));
     CHECK(r4.is_err() && r4.error() == Error::claims_malformed);
     auto ok = Token::open(raw_token(k, "{\"x\":\"a\\u200bb\",\"iss\":\"" + std::string(ISSUER) + "\"," + exp + "}"),
-                          k, ValidationRules().at(NOW).expect_issuer(std::string(ISSUER)));
+                          k, tu::lenient(NOW).expect_issuer(std::string(ISSUER)));
     REQUIRE(ok.is_ok());
     CHECK(ok.value().get("x") == std::optional<std::string_view>(cat("a", ZWSP, "b")));
     auto wrong_iss = Token::open(raw_token(k, "{\"iss\":\"a\\u200bb\"," + exp + "}"), k,
-                                 ValidationRules().at(NOW).expect_issuer("ab"));
+                                 tu::lenient(NOW).expect_issuer("ab"));
     CHECK(wrong_iss.is_err() && wrong_iss.error() == Error::claims_malformed);
 }
 

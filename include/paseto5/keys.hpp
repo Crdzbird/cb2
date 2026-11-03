@@ -19,8 +19,18 @@
  *
  * The secret key carries its public key so that signing can bind the key
  * id without a second object, and so that a stored k5.secret alone
- * restores the pair. PublicKey and SecretKey exist only under
+ * restores the pair. Importing a secret key checks that the two public
+ * halves it carries belong to the two secret halves, so a corrupted or
+ * tampered key file is refused at import rather than producing tokens
+ * nothing verifies. PublicKey and SecretKey exist only under
  * PASETO5_HAS_PQ.
+ *
+ * A local key must be uniformly random. Its default key id is a fast hash
+ * of the key bytes and travels in clear in every token footer, so a key
+ * with little entropy (a password, a password hash, a counter) can be
+ * tested against one token at the cost of one short hash per guess. The
+ * importers refuse the one weak key they can recognise, a key whose bytes
+ * are all equal; everything else is the caller's responsibility.
  */
 
 #include "detail/base64url.hpp"
@@ -64,6 +74,14 @@ template <class Str>
     std::size_t n = 0;
     return b64::decode(out, want, text.data() + header.size(), text.size() - header.size(), n) &&
            n == want;
+}
+
+/// Whether every byte of a key is the same byte: the one weak key an
+/// importer can recognise without knowing where the key came from.
+[[nodiscard]] inline bool constant_bytes(const uint8_t* p, std::size_t n) noexcept {
+    unsigned diff = 0;
+    for (std::size_t i = 1; i < n; ++i) diff |= static_cast<unsigned>(p[i] ^ p[0]);
+    return diff == 0;
 }
 
 [[nodiscard]] inline std::string paserk_id(std::string_view id_header, std::string_view paserk) {
@@ -111,19 +129,23 @@ public:
         return Result<LocalKey>::ok(std::move(k));
     }
 
-    /// Imports exactly 32 bytes.
+    /// Imports exactly 32 uniformly random bytes. A key whose bytes are
+    /// all equal is refused with argument; see the file comment on why
+    /// a key must not be derived from low-entropy material.
     [[nodiscard]] static Result<LocalKey> from_bytes(std::span<const uint8_t> bytes) {
-        if (bytes.size() != BYTES) return Result<LocalKey>::err(Error::argument);
+        if (bytes.size() != BYTES || detail::constant_bytes(bytes.data(), BYTES))
+            return Result<LocalKey>::err(Error::argument);
         LocalKey k;
         std::memcpy(k.k_, bytes.data(), BYTES);
         k.kid_ = k.paserk_id();
         return Result<LocalKey>::ok(std::move(k));
     }
 
-    /// Imports a k5.local PASERK string.
+    /// Imports a k5.local PASERK string, with the same weak-key check.
     [[nodiscard]] static Result<LocalKey> from_paserk(std::string_view text) {
         LocalKey k;
-        if (!detail::paserk_decode(PASERK_HEADER, text, k.k_, BYTES))
+        if (!detail::paserk_decode(PASERK_HEADER, text, k.k_, BYTES) ||
+            detail::constant_bytes(k.k_, BYTES))
             return Result<LocalKey>::err(Error::argument);
         k.kid_ = k.paserk_id();
         return Result<LocalKey>::ok(std::move(k));
@@ -240,22 +262,42 @@ public:
         return Result<SecretKey>::ok(std::move(k));
     }
 
-    /// Imports exactly 6048 bytes.
+    /// Imports exactly 6048 bytes and checks them: the Ed25519 public
+    /// half must be the one its seed derives and the ML-DSA public half
+    /// must verify a signature its secret half makes. A key that fails is
+    /// argument; a build whose liboqs cannot run the check is unavailable.
     [[nodiscard]] static Result<SecretKey> from_bytes(std::span<const uint8_t> bytes) {
         if (bytes.size() != BYTES) return Result<SecretKey>::err(Error::argument);
         SecretKey k;
         k.sk_.assign(bytes.begin(), bytes.end());
-        k.kid_ = k.public_key().paserk_id();
-        return Result<SecretKey>::ok(std::move(k));
+        return finish_import(std::move(k));
     }
 
+    /// Imports a k5.secret PASERK string with the same checks.
     [[nodiscard]] static Result<SecretKey> from_paserk(std::string_view text) {
         SecretKey k;
         k.sk_.resize(BYTES);
         if (!detail::paserk_decode(PASERK_HEADER, text, k.sk_.data(), BYTES))
             return Result<SecretKey>::err(Error::argument);
-        k.kid_ = k.public_key().paserk_id();
-        return Result<SecretKey>::ok(std::move(k));
+        return finish_import(std::move(k));
+    }
+
+    /// Whether the public halves this key carries belong to its secret
+    /// halves. Costs one Ed25519 key derivation and one ML-DSA sign and
+    /// verify; the importers call it, generate() does not need to.
+    [[nodiscard]] bool consistent() const noexcept {
+        if (!detail::ensure_sodium() || !detail::MlDsa65::available()) return false;
+        uint8_t ed_pk[crypto_sign_PUBLICKEYBYTES];
+        detail::SecureArray<crypto_sign_SECRETKEYBYTES> derived;
+        if (crypto_sign_seed_keypair(ed_pk, derived.v, sk_.data()) != 0) return false;
+        if (sodium_memcmp(ed_pk, sk_.data() + crypto_sign_SEEDBYTES, crypto_sign_PUBLICKEYBYTES) != 0)
+            return false;
+        static constexpr uint8_t PROBE[] = "paseto5 secret key self-test";
+        const std::span<const uint8_t> ctx = detail::as_bytes(SELF_TEST_CONTEXT);
+        uint8_t sig[detail::MlDsa65::SIG_BYTES];
+        if (!detail::MlDsa65::sign(sig, PROBE, sizeof PROBE, ctx, sk_.data() + ED_BYTES)) return false;
+        return detail::MlDsa65::verify(PROBE, sizeof PROBE, sig, sizeof sig, ctx,
+                                       sk_.data() + ED_BYTES + ML_BYTES);
     }
 
     /// The k5.secret form, in wiped memory.
@@ -287,6 +329,18 @@ public:
 private:
     friend struct detail::KeyAccess;
     SecretKey() = default;
+
+    /// The ML-DSA context of the self-test signature, so that it can never
+    /// be mistaken for a token signature.
+    static constexpr std::string_view SELF_TEST_CONTEXT = "k5.secret.self-test";
+
+    [[nodiscard]] static Result<SecretKey> finish_import(SecretKey k) {
+        if (!detail::MlDsa65::available()) return Result<SecretKey>::err(Error::unavailable);
+        if (!k.consistent()) return Result<SecretKey>::err(Error::argument);
+        k.kid_ = k.public_key().paserk_id();
+        return Result<SecretKey>::ok(std::move(k));
+    }
+
     SecureBytes sk_;
     std::optional<std::string> kid_;
 };

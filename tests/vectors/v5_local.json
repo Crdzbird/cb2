@@ -136,5 +136,10 @@
       {"position":97,"token":"v5.local.JvdVM1RIKh2R1HhGJ4VLjaa4BCp5ZlI8K0BOjbvn9_Lm8pHfytu8Xu09Xb9s1JvckKi7fVNHye3g0RS05xOkPwk.ag"},
       {"position":98,"token":"v5.local.JvdVM1RIKh2R1HhGJ4VLjaa4BCp5ZlI8K0BOjbvn9_Lm8pHfytu8Xu09Xb9s1JvckKi7fVNHye3g0RS05xOkPwk.Zh"}
     ]
-  }
+  },
+  "weak-keys": [
+    {"key":"0000000000000000000000000000000000000000000000000000000000000000","expect":"argument","reason":"every byte equal"},
+    {"key":"4242424242424242424242424242424242424242424242424242424242424242","expect":"argument","reason":"every byte equal"},
+    {"key":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","expect":"argument","reason":"every byte equal"}
+  ]
 }

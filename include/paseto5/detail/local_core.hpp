@@ -43,6 +43,13 @@ enum class Status : uint8_t { ok, invalid, argument, internal };
 /// Largest message, footer or implicit assertion any function accepts.
 inline constexpr std::size_t MAX_INPUT_BYTES = std::size_t{1} << 26;
 
+/// Longest token the allocating open and verify functions accept unless
+/// the caller raises the limit: 1 MiB. Decided on the length alone, so a
+/// flood of oversize garbage costs nothing but the comparison. The
+/// caller-buffer functions have no such limit; there the caller sized the
+/// buffer and has already paid.
+inline constexpr std::size_t DEFAULT_RAW_MAX_TOKEN_BYTES = std::size_t{1} << 20;
+
 namespace detail {
 
 inline constexpr std::size_t LOCAL_KEY_BYTES = 32;

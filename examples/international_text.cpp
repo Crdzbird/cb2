@@ -112,6 +112,12 @@ Claims base_claims() {
     return c;
 }
 
+/// Rules that accept any audience and issuer: this example is about the
+/// text, so it says so explicitly, as a verifier must.
+ValidationRules lenient_rules() {
+    return ValidationRules().at(NOW).allow_any_audience().allow_any_issuer();
+}
+
 /// The legacy check: authentic or not, and the strings as the JSON holds
 /// them, with no policy applied.
 struct LegacyView {
@@ -186,7 +192,7 @@ void scenario_round_trip() {
     std::printf("    %-16s %zu characters, all ASCII: %s\n", "token", tok.value().size(),
                 all_ascii(tok.value()) ? "yes" : "no");
     expect(all_ascii(tok.value()), "the token text is ASCII whatever the claims hold");
-    const auto rules = ValidationRules().at(NOW).expect_issuer(std::string(COMPANY))
+    const auto rules = lenient_rules().expect_issuer(std::string(COMPANY))
                            .expect_audience(std::string(ARABIC)).expect_subject(std::string(JAPANESE));
     auto open = Token::open(tok.value(), k, rules);
     const LegacyView lv = legacy_open(tok.value(), k);
@@ -212,7 +218,7 @@ void scenario_invisible_subject() {
     Claims c = base_claims();
     c.sub = spoof;
     auto issue = Token::seal(k, c);
-    auto open = Token::open(tok, k, ValidationRules().at(NOW));
+    auto open = Token::open(tok, k, lenient_rules());
     line("paseto5 issue", verdict(issue));
     line("paseto5 open", verdict(open));
     expect(issue.is_err() && issue.error() == Error::argument, "paseto5 refuses to issue it");
@@ -235,7 +241,7 @@ void scenario_bidi_log() {
     Claims c = base_claims();
     c.sub = spoof;
     auto issue = Token::seal(k, c);
-    auto open = Token::open(tok, k, ValidationRules().at(NOW));
+    auto open = Token::open(tok, k, lenient_rules());
     line("paseto5 issue", verdict(issue));
     line("paseto5 open", verdict(open));
     expect(issue.is_err() && issue.error() == Error::argument, "paseto5 refuses to issue a bidi subject");
@@ -257,7 +263,7 @@ void scenario_escape_smuggling() {
     show("legacy sees iss", lv.iss);
     line("legacy check", lv.authentic ? "accepted" : "rejected");
     expect(lv.authentic && lv.iss == cat("acme", ZWSP), "the legacy check decodes the escape and keeps it");
-    auto open = Token::open(tok, k, ValidationRules().at(NOW).expect_issuer("acme"));
+    auto open = Token::open(tok, k, lenient_rules().expect_issuer("acme"));
     line("paseto5 open", verdict(open));
     expect(open.is_err() && open.error() == Error::claims_malformed,
            "paseto5 applies the policy after decoding escapes");
@@ -275,8 +281,8 @@ void scenario_key_id() {
     line("legacy check", "the footer names a key that a keyring keyed by what it displays confuses with prod");
     auto peek = Token::peek_key_id(tok);
     auto issue = Token::seal(spoofed, base_claims());
-    auto open_spoofed = Token::open(tok, spoofed, ValidationRules().at(NOW));
-    auto open_prod = Token::open(tok, prod, ValidationRules().at(NOW));
+    auto open_spoofed = Token::open(tok, spoofed, lenient_rules());
+    auto open_prod = Token::open(tok, prod, lenient_rules());
     line("paseto5 peek", peek ? "returned a key id" : "returned nothing: no key is selected");
     line("paseto5 issue", verdict(issue));
     line("paseto5 open", verdict(open_spoofed) + " with the spoofed key, " + verdict(open_prod) + " with prod");
@@ -301,7 +307,7 @@ void scenario_overlong() {
     const bool set_ok = c.set("path", OVERLONG_DOTS);
     c.iss = OVERLONG_DOTS;
     auto issue = Token::seal(k, c);
-    auto open = Token::open(tok, k, ValidationRules().at(NOW));
+    auto open = Token::open(tok, k, lenient_rules());
     line("paseto5 set", set_ok ? "accepted" : "refused: not UTF-8");
     line("paseto5 issue", verdict(issue));
     line("paseto5 open", verdict(open));
@@ -321,7 +327,7 @@ void scenario_identity() {
     line("escaped payload", escaped);
     line("legacy check", "a check on the JSON text itself calls these two different issuers");
     expect(raw != escaped, "the two payloads differ as text");
-    const auto rules = ValidationRules().at(NOW).expect_issuer(std::string(COMPANY));
+    const auto rules = lenient_rules().expect_issuer(std::string(COMPANY));
     auto open_raw = Token::open(legacy_seal(k, raw), k, rules);
     auto open_escaped = Token::open(legacy_seal(k, escaped), k, rules);
     line("paseto5 open", verdict(open_raw) + " raw, " + verdict(open_escaped) + " escaped");
@@ -329,7 +335,7 @@ void scenario_identity() {
     show("composed", COMPANY);
     show("decomposed", COMPANY_DECOMPOSED);
     auto open_decomposed = Token::open(legacy_seal(k, raw), k,
-                                      ValidationRules().at(NOW).expect_issuer(std::string(COMPANY_DECOMPOSED)));
+                                      lenient_rules().expect_issuer(std::string(COMPANY_DECOMPOSED)));
     line("paseto5 open", verdict(open_decomposed) + " when the verifier expects the decomposed form");
     expect(open_decomposed.is_err() && open_decomposed.error() == Error::issuer_mismatch,
            "no normalisation: the comparison is byte for byte");
@@ -342,7 +348,7 @@ void scenario_no_oracle() {
     std::string tok = legacy_seal(k, cat("{\"iss\":\"acme\\u200b\",", EXP, "}"));
     const std::size_t at = paseto5::Local::HEADER.size() + 40;
     tok[at] = tok[at] == 'A' ? 'B' : 'A';
-    auto open = Token::open(tok, k, ValidationRules().at(NOW));
+    auto open = Token::open(tok, k, lenient_rules());
     const LegacyView lv = legacy_open(tok, k);
     line("legacy check", lv.authentic ? "accepted" : "rejected");
     line("paseto5 open", verdict(open));

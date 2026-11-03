@@ -43,8 +43,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         auto back = paseto5::Claims::from_json(j);
         require(back.is_ok());
         require(back.value().to_json() == j);
-        (void)paseto5::ValidationRules().at(1700000000).expect_audience("api").check(claims.value());
-        (void)paseto5::ValidationRules().allow_missing_exp().with_clock_skew(60).check(claims.value());
+        (void)paseto5::ValidationRules().at(1700000000).expect_audience("api").allow_any_issuer().check(claims.value());
+        (void)paseto5::ValidationRules().allow_missing_exp().with_clock_skew(60).allow_any_audience()
+            .allow_any_issuer().with_replay_check([](std::string_view) { return false; }).check(claims.value());
+        (void)paseto5::ValidationRules().check(claims.value());
     }
 
     paseto5::Seconds t = 0;

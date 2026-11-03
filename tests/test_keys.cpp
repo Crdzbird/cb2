@@ -79,3 +79,21 @@ TEST_CASE("keys/wrapped keys are not v5.local tokens of the key and vice versa")
     as_wrap.replace(0, 9, "k5.local-wrap.");
     CHECK(KeyWrap::unwrap(as_wrap, wrapping).is_err());
 }
+
+TEST_CASE("keys/a key whose bytes are all equal is refused on import") {
+    for (uint8_t b : {uint8_t{0x00}, uint8_t{0x42}, uint8_t{0xff}}) {
+        const Bytes k(32, b);
+        auto r = LocalKey::from_bytes(k);
+        CHECK(r.is_err() && r.error() == paseto5::Error::argument);
+        std::string text = "k5.local.";
+        std::string body(paseto5::detail::b64::encoded_len(k.size()), '\0');
+        paseto5::detail::b64::encode(body.data(), k.data(), k.size());
+        auto p = LocalKey::from_paserk(text + body);
+        CHECK(p.is_err() && p.error() == paseto5::Error::argument);
+    }
+    Bytes almost(32, 0x42);
+    almost[31] = 0x43;
+    CHECK(LocalKey::from_bytes(almost).is_ok());
+    CHECK(LocalKey::from_bytes(tu::pattern(32, 0x00)).is_ok());
+    CHECK(paseto5::detail::constant_bytes(almost.data(), 31) && !paseto5::detail::constant_bytes(almost.data(), 32));
+}

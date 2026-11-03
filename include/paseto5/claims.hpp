@@ -9,7 +9,12 @@
  * validator requires exp unless the caller opts out explicitly, checks nbf
  * and iat against a clock with a configurable skew, binds issuer, audience
  * and subject when expected, and refuses tokens over a size limit before
- * looking at a single byte of them.
+ * looking at a single byte of them. A verifier must say which audience
+ * and which issuer it accepts, or say explicitly that any will do; rules
+ * that say neither are refused before the token is read, so a token
+ * minted for one service is never accepted by another through silence.
+ * An optional replay check receives the jti of every token that passed
+ * every other rule and may refuse it.
  *
  * Token composes the key types, the claims and the token classes: it binds
  * the key id into the footer as {"kid":"..."}, authenticates before it
@@ -36,6 +41,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -293,13 +299,28 @@ private:
 };
 
 /// What a verifier requires of a token. exp is required unless
-/// allow_missing_exp() is called; the size limit is enforced before any
-/// parsing; every string comparison is constant time.
+/// allow_missing_exp() is called; an expected audience and issuer are
+/// required unless allow_any_audience() and allow_any_issuer() are
+/// called, and rules that name neither are rules_incomplete before the
+/// token is read; the size limit is enforced before any parsing; every
+/// string comparison is constant time. A replay check, when installed,
+/// runs last: it receives the jti of a token that passed every other
+/// rule and returns true to accept it, so a denylist never records a
+/// token that was refused for another reason.
 class ValidationRules {
 public:
     static constexpr std::size_t DEFAULT_MAX_TOKEN_BYTES = 16384;
 
+    /// Receives a jti; true accepts the token, false reports replayed.
+    using ReplayCheck = std::function<bool(std::string_view jti)>;
+
     ValidationRules& allow_missing_exp() noexcept { require_exp_ = false; return *this; }
+    /// Accepts tokens of any audience. Say so on purpose.
+    ValidationRules& allow_any_audience() noexcept { require_audience_ = false; return *this; }
+    /// Accepts tokens of any issuer. Say so on purpose.
+    ValidationRules& allow_any_issuer() noexcept { require_issuer_ = false; return *this; }
+    /// Installs the replay check; a token without a jti is then missing_jti.
+    ValidationRules& with_replay_check(ReplayCheck check) { replay_ = std::move(check); return *this; }
     ValidationRules& with_clock_skew(Seconds s) noexcept { skew_ = s < 0 ? 0 : s; return *this; }
     ValidationRules& with_max_token_bytes(std::size_t n) noexcept { max_token_ = n; return *this; }
     ValidationRules& expect_issuer(std::string s) { issuer_ = std::move(s); return *this; }
@@ -309,6 +330,16 @@ public:
     ValidationRules& at(Seconds now) noexcept { now_ = now; return *this; }
 
     [[nodiscard]] bool require_exp() const noexcept { return require_exp_; }
+    [[nodiscard]] bool require_audience() const noexcept { return require_audience_; }
+    [[nodiscard]] bool require_issuer() const noexcept { return require_issuer_; }
+    [[nodiscard]] bool has_replay_check() const noexcept { return static_cast<bool>(replay_); }
+
+    /// Whether the rules say what audience and issuer they accept, by
+    /// expectation or by explicit allowance. Incomplete rules are refused
+    /// before any token is read.
+    [[nodiscard]] bool complete() const noexcept {
+        return (audience_ || !require_audience_) && (issuer_ || !require_issuer_);
+    }
     [[nodiscard]] Seconds clock_skew() const noexcept { return skew_; }
     [[nodiscard]] std::size_t max_token_bytes() const noexcept { return max_token_; }
     [[nodiscard]] const std::optional<std::string>& issuer() const noexcept { return issuer_; }
@@ -324,6 +355,7 @@ public:
     /// Validates authenticated claims. Call only on claims that came out
     /// of Token::open or Token::verify, or that are otherwise trusted.
     [[nodiscard]] Result<void> check(const Claims& c) const noexcept {
+        if (!complete()) return Result<void>::err(Error::rules_incomplete);
         const Seconds t = now();
         if (require_exp_ && !c.exp) return Result<void>::err(Error::missing_exp);
         if (c.exp && *c.exp <= t - skew_) return Result<void>::err(Error::expired);
@@ -335,11 +367,24 @@ public:
             return Result<void>::err(Error::audience_mismatch);
         if (subject_ && (!c.sub || !detail::ct_equal(*c.sub, *subject_)))
             return Result<void>::err(Error::subject_mismatch);
+        if (replay_) {
+            if (!c.jti) return Result<void>::err(Error::missing_jti);
+            bool fresh = false;
+            try {
+                fresh = replay_(*c.jti);
+            } catch (...) {
+                return Result<void>::err(Error::internal);
+            }
+            if (!fresh) return Result<void>::err(Error::replayed);
+        }
         return Result<void>::ok();
     }
 
 private:
     bool require_exp_ = true;
+    bool require_audience_ = true;
+    bool require_issuer_ = true;
+    ReplayCheck replay_;
     Seconds skew_ = 0;
     std::size_t max_token_ = DEFAULT_MAX_TOKEN_BYTES;
     std::optional<std::string> issuer_;
@@ -407,16 +452,17 @@ public:
         }
     }
 
-    /// Opens a v5.local token: size limit, authentication, parsing,
-    /// validation, in that order.
+    /// Opens a v5.local token: rules and key checks, size limit,
+    /// authentication, parsing, validation, in that order.
     [[nodiscard]] static Result<Claims>
     open(std::string_view token, const LocalKey& key, const ValidationRules& rules,
          std::string_view implicit = {}) {
+        if (!rules.complete()) return Result<Claims>::err(Error::rules_incomplete);
         if (!key_id_ok(key.key_id())) return Result<Claims>::err(Error::argument);
         if (token.size() > rules.max_token_bytes()) return Result<Claims>::err(Error::too_large);
         try {
             const std::string footer = footer_for(key.key_id());
-            auto plain = Local::open(token, key, bytes(footer), bytes(implicit));
+            auto plain = Local::open(token, key, bytes(footer), bytes(implicit), rules.max_token_bytes());
             if (plain.is_err()) return Result<Claims>::err(plain.error());
             return finish(std::string_view(reinterpret_cast<const char*>(plain.value().data()),
                                            plain.value().size()), rules);
@@ -440,16 +486,17 @@ public:
         }
     }
 
-    /// Verifies a v5.public token: size limit, signature, parsing,
-    /// validation, in that order.
+    /// Verifies a v5.public token: rules and key checks, size limit,
+    /// signature, parsing, validation, in that order.
     [[nodiscard]] static Result<Claims>
     verify(std::string_view token, const PublicKey& key, const ValidationRules& rules,
            std::string_view implicit = {}) {
+        if (!rules.complete()) return Result<Claims>::err(Error::rules_incomplete);
         if (!key_id_ok(key.key_id())) return Result<Claims>::err(Error::argument);
         if (token.size() > rules.max_token_bytes()) return Result<Claims>::err(Error::too_large);
         try {
             const std::string footer = footer_for(key.key_id());
-            auto msg = Public::verify(token, key, bytes(footer), bytes(implicit));
+            auto msg = Public::verify(token, key, bytes(footer), bytes(implicit), rules.max_token_bytes());
             if (msg.is_err()) return Result<Claims>::err(msg.error());
             return finish(std::string_view(reinterpret_cast<const char*>(msg.value().data()),
                                            msg.value().size()), rules);

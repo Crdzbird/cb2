@@ -53,7 +53,10 @@ implicit assertion.
    if a lattice break defeats ML-DSA-65, Ed25519 holds.
 2. Binding. The header, footer and implicit assertion are signed, so a
    token cannot be moved to another purpose, another footer (another key
-   id) or another context.
+   id) or another context. The ML-DSA half also carries the header as
+   its FIPS 204 context string, so a signature the same key made for any
+   other purpose, even over these very bytes under another context, is
+   not a v5.public signature.
 3. No downgrade. There is no Ed25519-only mode. A build without liboqs has
    no v5.public purpose at all, and a token is never accepted on the
    strength of one half.
@@ -73,6 +76,19 @@ implicit assertion.
 3. k5.local-wrap. A local key wrapped under another local key is the
    v5.local construction with its own header, so a wrapped key is not a
    token and a token is not a wrapped key.
+4. Key entropy. A local key must be 32 uniformly random bytes. Its
+   default key id is a fast hash of the key that travels in clear in
+   every footer, so a key with little entropy can be tested against one
+   token at the cost of one short hash per guess, cheaper than the AEAD.
+   The importers refuse the one weak key they can recognise (every byte
+   equal); a key derived from a password or any other low-entropy source
+   is the caller's error, and such a key should at least carry an
+   explicit opaque key id instead of the default.
+5. Secret key import. A secret key imported from bytes or from its
+   k5.secret form is checked before use: its Ed25519 public half must be
+   the one its seed derives and its ML-DSA public half must verify a
+   signature its secret half makes. A corrupted or tampered key file is
+   refused with argument instead of producing tokens nothing verifies.
 
 ### Claims layer
 
@@ -106,6 +122,26 @@ implicit assertion.
    smuggling, a look-alike key id, overlong UTF-8) through a check
    without the policy and through Token::open, side by side.
 
+6. Audience and issuer by declaration. A verifier's rules must name the
+   audience and the issuer they accept, or say explicitly that any will
+   do (allow_any_audience, allow_any_issuer). Rules that say neither are
+   rules_incomplete before the token is read. This is the one bypass a
+   correctly built token offers, a verifier that never said which
+   service it is, and the default now refuses it.
+7. Replay. A valid token is valid until it expires; paseto5 tracks no
+   jti by itself. Three measures limit what a stolen token is worth:
+   a short exp; the implicit assertion bound to the request (a session
+   or channel id, a request hash), which makes the token worthless
+   outside that context; and the replay check of ValidationRules, which
+   receives the jti of every token that passed every other rule and may
+   refuse it against a store of seen ids. A token without a jti is
+   missing_jti once a check is installed.
+8. Raw-layer size. The allocating open and verify functions refuse any
+   token longer than 1 MiB before reading it, unless the caller raises
+   the limit; the claims layer applies its 16 KiB limit first. A flood
+   of oversize garbage therefore costs a length comparison, not a 48 MiB
+   buffer and the hashing of it.
+
 ## Assumptions
 
 - libsodium, BLAKE3 and liboqs are correct and their constant-time
@@ -121,8 +157,10 @@ implicit assertion.
 
 ## What is not claimed
 
-- Replay protection. A valid token is valid until it expires. Callers who
-  need single use must track jti themselves.
+- Replay protection by itself. A valid token is valid until it expires.
+  The replay check hands the caller every accepted jti at the right
+  moment; the store behind it, and its consistency across verifiers, is
+  the caller's.
 - Revocation. Tokens carry no revocation state. Use short lifetimes and
   key rotation (the key id makes rotation routine).
 - Forward secrecy. Compromise of a local key exposes every token made
@@ -140,14 +178,18 @@ implicit assertion.
 - Resistance to a hostile build. A build that defines PASETO5_TEST_NONCE
   exposes the deterministic-nonce functions; such a build must not ship.
 - Protection of the SecretKey's ML-DSA half against fault attacks or
-  against a compromised liboqs.
+  against a compromised liboqs. The import check catches a key whose
+  public halves do not match its secret halves; it does not claim to
+  detect every change to the secret halves.
 
 ## Limits
 
 | Quantity | Limit |
 |---|---|
 | message, footer, implicit assertion | each at most 2^26 bytes (67,108,864) |
+| token accepted by the allocating raw open and verify | max_token_bytes, default 1,048,576 (1 MiB), raisable to the ceiling |
 | token accepted by the claims layer | max_token_bytes, default 16,384 |
+| ML-DSA context string | the 10-byte header; FIPS 204 allows up to 255 |
 | JSON nesting | 16 levels |
 | local key | exactly 32 bytes |
 | public key | exactly 1,984 bytes |

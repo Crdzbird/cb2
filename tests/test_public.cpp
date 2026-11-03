@@ -2,10 +2,16 @@
 #include "test_util.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #ifdef PASETO5_HAS_PQ
+
+#include <oqs/oqs.h>
+
+using paseto5::Error;
 
 using paseto5::Public;
 using paseto5::PublicKey;
@@ -189,6 +195,63 @@ TEST_CASE("public/keys survive the PASERK round trip and derive the same public 
     CHECK(PublicKey::from_bytes(tu::pattern(1983, 0)).is_err());
     CHECK(SecretKey::from_bytes(tu::pattern(6047, 0)).is_err());
     CHECK(PublicKey::from_paserk("k5.local.AAAA").is_err());
+}
+
+TEST_CASE("public/the ML-DSA half is bound to the header by its FIPS 204 context string") {
+    const SecretKey& sk = signer();
+    const PublicKey pk = sk.public_key();
+    auto tok = Public::sign(sk, tu::bytes_of("m"));
+    REQUIRE(tok.is_ok());
+    Bytes raw = decode_body(tok.value());
+    REQUIRE(raw.size() == 1 + Public::SIG_BYTES);
+    const Bytes m = tu::bytes_of("m");
+    std::vector<uint8_t> pae(paseto5::detail::pae_len({Public::HEADER.size(), m.size(), 0, 0}));
+    paseto5::detail::SpanSink sink{pae.data()};
+    paseto5::detail::pae_stream(sink, {paseto5::bytes(Public::HEADER), m, {}, {}});
+    OQS_SIG* s = OQS_SIG_new(OQS_SIG_alg_ml_dsa_65);
+    REQUIRE(s != nullptr);
+    uint8_t* ml = raw.data() + 1 + Public::ED_SIG_BYTES;
+    size_t len = 0;
+    REQUIRE(OQS_SIG_sign(s, ml, &len, pae.data(), pae.size(), paseto5::detail::KeyAccess::ml_secret(sk)) == OQS_SUCCESS);
+    CHECK(len == Public::ML_SIG_BYTES);
+    auto no_ctx = Public::verify(reencode(tok.value(), raw), pk);
+    CHECK(no_ctx.is_err() && no_ctx.error() == Error::invalid);
+    const std::string other = "v4.public.";
+    REQUIRE(OQS_SIG_sign_with_ctx_str(s, ml, &len, pae.data(), pae.size(), reinterpret_cast<const uint8_t*>(other.data()), other.size(), paseto5::detail::KeyAccess::ml_secret(sk)) == OQS_SUCCESS);
+    auto other_ctx = Public::verify(reencode(tok.value(), raw), pk);
+    CHECK(other_ctx.is_err() && other_ctx.error() == Error::invalid);
+    REQUIRE(OQS_SIG_sign_with_ctx_str(s, ml, &len, pae.data(), pae.size(), reinterpret_cast<const uint8_t*>(Public::HEADER.data()), Public::HEADER.size(), paseto5::detail::KeyAccess::ml_secret(sk)) == OQS_SUCCESS);
+    OQS_SIG_free(s);
+    CHECK(Public::verify(reencode(tok.value(), raw), pk).is_ok());
+}
+
+TEST_CASE("public/importing a secret key checks that its public halves belong to its secret halves") {
+    const SecretKey& sk = signer();
+    CHECK(sk.consistent());
+    Bytes raw(SecretKey::BYTES);
+    const paseto5::SecureString text = sk.to_paserk();
+    REQUIRE(paseto5::detail::paserk_decode(SecretKey::PASERK_HEADER, std::string_view(text.data(), text.size()), raw.data(), raw.size()));
+    CHECK(SecretKey::from_bytes(raw).is_ok());
+    struct Case { size_t at; const char* what; };
+    const Case cases[] = {
+        {3, "Ed25519 seed"},
+        {40, "Ed25519 public key carried in the secret key"},
+        {SecretKey::ED_BYTES + 100, "ML-DSA tr, the hash of the public key"},
+        {SecretKey::ED_BYTES + 200, "ML-DSA s1"},
+        {SecretKey::ED_BYTES + SecretKey::ML_BYTES + 10, "ML-DSA public key carried in the secret key"},
+    };
+    for (const Case& c : cases) {
+        Bytes bad = raw;
+        bad[c.at] ^= 1;
+        auto r = SecretKey::from_bytes(bad);
+        if (!r.is_err()) std::printf("      corrupting %s was not noticed\n", c.what);
+        CHECK(r.is_err() && r.error() == Error::argument);
+        std::string pas = "k5.secret.";
+        std::string body(paseto5::detail::b64::encoded_len(bad.size()), '\0');
+        paseto5::detail::b64::encode(body.data(), bad.data(), bad.size());
+        auto p = SecretKey::from_paserk(pas + body);
+        CHECK(p.is_err() && p.error() == Error::argument);
+    }
 }
 
 #else

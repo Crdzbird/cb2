@@ -96,6 +96,16 @@ The message, the footer and the implicit assertion are each at most 2^26
 bytes. A token whose text implies an input beyond that is invalid by its
 length alone, before decoding.
 
+The allocating `open` and `verify` functions also refuse, with
+`too_large` and before reading a byte, any token longer than
+`max_token_bytes`, which defaults to 2^20 (1 MiB) and which the caller
+may raise up to the 2^26 ceiling. Without it a token of 2^26 characters
+of garbage costs the verifier a 48 MiB buffer and the decoding and
+hashing of it before the verdict; with it the cost is one comparison.
+The caller-buffer functions have no such limit, because there the caller
+sized the buffer and has already paid. The claims layer applies its own,
+smaller limit first (8.3).
+
 ### 3.6 One verdict
 
 Every failure that depends on the bytes of an unverified token is the
@@ -209,17 +219,36 @@ secret key sk = ed_sk (64) || ml_sk (4032) || ml_pk (1952)       = 6048 bytes
 carries the ML-DSA public key so that a stored secret key restores the
 pair and so that signing knows the key id it binds. The sizes are pinned;
 at first use the library checks that liboqs reports exactly these sizes
-for ML-DSA-65 and refuses to operate otherwise.
+for ML-DSA-65, and that it supports the FIPS 204 context string, and
+refuses to operate otherwise.
+
+Importing a secret key (`from_bytes`, `from_paserk`) checks that the
+public halves it carries belong to its secret halves: `ed_pk` must equal
+the public key derived from the seed, and `ml_pk` must verify a signature
+made with `ml_sk` over a fixed probe under the context string
+`k5.secret.self-test`, which no token uses. A key that fails either check
+is `argument`. The check catches a corrupted or tampered key file and any
+corruption of the ML-DSA secret half that changes what it signs; it does
+not claim to detect every possible change to the secret halves.
 
 ### 5.2 Sign
 
 ```
-h     = "v5.public."                                            (10 bytes)
+h     = "v5.public."                                                   (10 bytes)
 m2    = PAE(h, m, f, i)
-sig   = Ed25519-sign(ed_sk, m2) || ML-DSA-65-sign(ml_sk, m2)    (64 + 3309 = 3373 bytes)
+sig   = Ed25519-sign(ed_sk, m2) || ML-DSA-65-sign(ml_sk, m2, ctx = h)  (64 + 3309 = 3373 bytes)
 body  = m || sig
 token = h || b64(body) [ || "." || b64(f) ]
 ```
+
+The ML-DSA half is the FIPS 204 signature with the header as its context
+string (ML-DSA.Sign(sk, M, ctx) with ctx = "v5.public.", 10 bytes; the
+ctx of the pure signing interface, so the signed message is
+`0 || 10 || ctx || m2` inside the algorithm). A signature the same key
+made over the same m2 for any other purpose, under an empty or another
+context, is not a v5.public signature. Ed25519 as libsodium provides it
+has no context parameter; its half is separated by the header inside m2
+only, and the hybrid requires both halves.
 
 Body layout:
 
@@ -238,8 +267,8 @@ The PAE, byte for byte: `LE64(4) || LE64(10) || "v5.public." || LE64(len(m)) || 
 2. m is the body less its last 3373 bytes; sig is those bytes.
 3. Rebuild m2 = PAE(h, m, f, i) with the expected f and the caller's i.
 4. Ed25519-verify(ed_pk, m2, sig[0..64)) and ML-DSA-65-verify(ml_pk, m2,
-   sig[64..3373)); both are evaluated and both must succeed. One failure
-   is invalid.
+   sig[64..3373), ctx = h); both are evaluated and both must succeed.
+   One failure is invalid.
 
 ML-DSA-65 signing is randomised (FIPS 204 hedged signing as liboqs
 implements it), so a v5.public token is not reproducible byte for byte;
@@ -336,10 +365,15 @@ claim that is not valid RFC 3339, makes the payload `claims_malformed`.
 `Token::open` and `Token::verify` perform, in this order and stopping at
 the first failure:
 
-0. The verifier's own key id, if any, must satisfy the identifier policy
-   of 8.4; else `argument`. This depends on the key alone.
+0. The rules must be complete: they name an expected audience or allow
+   any audience explicitly, and the same for the issuer; else
+   `rules_incomplete`. Then the verifier's own key id, if any, must
+   satisfy the identifier policy of 8.4; else `argument`. Both depend on
+   the verifier alone, so a token minted for one service is never
+   accepted by another through a verifier that forgot to say which
+   audience it serves.
 1. Length: `len(token) > max_token_bytes` is `too_large`. Nothing in the
-   token has been read.
+   token has been read. The same limit is passed down to the raw layer.
 2. Authentication: section 4.3 or 5.3 with the footer rebuilt from the
    key id. Any failure is `invalid`.
 3. Parsing: 8.2, then the identifier policy of 8.4 on iss, sub, aud, jti
@@ -351,9 +385,17 @@ the first failure:
    - `iat > now + skew`: `issued_in_future`
    - expected issuer, audience or subject absent or different (constant
      time): `issuer_mismatch`, `audience_mismatch`, `subject_mismatch`
+   - with a replay check installed: `jti` absent is `missing_jti`; the
+     check receives `jti` and refuses it: `replayed`. The check runs last,
+     so it only ever sees tokens that passed every other rule and a
+     denylist behind it never records a token refused for another
+     reason. An exception out of the check is `internal`.
 5. Only then are the claims returned.
 
-`skew` defaults to 0. `max_token_bytes` defaults to 16384.
+`skew` defaults to 0. `max_token_bytes` defaults to 16384. The audience
+and issuer expectations are required unless `allow_any_audience()` and
+`allow_any_issuer()` say otherwise; `exp` is required unless
+`allow_missing_exp()`.
 
 ### 8.4 Text
 
@@ -490,11 +532,10 @@ and generator executables only, never for the library interface.
    continuing cb1) or a registration request with the PASETO developers.
 2. Whether paseto5 should replace cb1 in the repository, sit beside it, or
    move to its own repository with its own release cadence.
-3. Whether the ML-DSA half should use the FIPS 204 context string (liboqs
-   `OQS_SIG_sign_with_ctx_str`) with a fixed context such as
-   `paseto5.v5.public`, which would separate the token signatures from
-   any other use of the same key at the cost of a liboqs-version
-   dependency.
+3. Resolved: the ML-DSA half uses the FIPS 204 context string with the
+   header `v5.public.` as the context (section 5.2), through liboqs
+   `OQS_SIG_sign_with_ctx_str`, which requires a liboqs that reports
+   `sig_with_ctx_support` for ML-DSA-65 (0.12 and later).
 4. Whether a `k5.seal` (local key sealed to a public key) should be added
    on top of the existing hybrid KEM of the repository.
 5. Whether to batch nonces per thread as cb1 does. The benchmark shows
