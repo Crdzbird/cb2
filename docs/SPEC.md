@@ -336,11 +336,14 @@ claim that is not valid RFC 3339, makes the payload `claims_malformed`.
 `Token::open` and `Token::verify` perform, in this order and stopping at
 the first failure:
 
+0. The verifier's own key id, if any, must satisfy the identifier policy
+   of 8.4; else `argument`. This depends on the key alone.
 1. Length: `len(token) > max_token_bytes` is `too_large`. Nothing in the
    token has been read.
 2. Authentication: section 4.3 or 5.3 with the footer rebuilt from the
    key id. Any failure is `invalid`.
-3. Parsing: 8.2. Failure is `claims_malformed`.
+3. Parsing: 8.2, then the identifier policy of 8.4 on iss, sub, aud, jti
+   and every custom claim name. Failure is `claims_malformed`.
 4. Validation with the verifier's rules and clock `now`:
    - `exp` absent and `require_exp` (the default): `missing_exp`
    - `exp <= now - skew`: `expired`
@@ -351,6 +354,52 @@ the first failure:
 5. Only then are the claims returned.
 
 `skew` defaults to 0. `max_token_bytes` defaults to 16384.
+
+### 8.4 Text
+
+Every string in a token is UTF-8. The claims writer emits it raw and
+escapes only `"`, `\` and the control characters, so a payload reads as
+written in any script: Latin with diacritics, Cyrillic, Greek, Arabic,
+Hebrew, the CJK scripts, emoji, anything Unicode encodes. The reader
+resolves escapes before anything is compared, so `"Pe\u00f1a"` and the
+raw two-byte form of U+00F1 are the same claim. The token text itself
+stays ASCII: the body and the footer are base64url, which survives HTTP
+headers, cookies, URLs and every transport that would otherwise
+normalise, re-encode or reject non-ASCII bytes and so break the tag.
+
+Comparison is byte for byte, in constant time, with no normalisation.
+U+00F1 (one code point) and U+006E U+0303 (n plus a combining tilde) are
+different identifiers. An issuer must emit one form consistently; NFC is
+the usual choice. The library does not normalise because a normaliser is
+a large table that would have to be identical on both ends, and because
+folding two spellings into one is exactly what an impersonation needs.
+
+Identifiers are the claims that are compared for equality (iss, sub, aud,
+jti), custom claim names, and key ids. An identifier must be well-formed
+UTF-8 and must contain none of:
+
+| class | code points |
+|---|---|
+| C0 and C1 controls | U+0000..U+001F, U+007F..U+009F |
+| Default_Ignorable_Code_Point (Unicode 15.1) | U+00AD, U+034F, U+061C, U+115F..U+1160, U+17B4..U+17B5, U+180B..U+180F, U+200B..U+200F, U+202A..U+202E, U+2060..U+206F, U+3164, U+FE00..U+FE0F, U+FEFF, U+FFA0, U+FFF0..U+FFF8, U+1BCA0..U+1BCA3, U+1D173..U+1D17A, U+E0000..U+E0FFF |
+| noncharacters | U+FDD0..U+FDEF and U+xxFFFE, U+xxFFFF in every plane |
+| private use | U+E000..U+F8FF, U+F0000..U+10FFFF |
+
+These are the characters that are invisible or that change how their
+neighbours are displayed (zero-width spaces and joiners, bidi overrides,
+soft hyphens, variation selectors, tags) or that have no agreed meaning
+(noncharacters, private use). Two issuer strings that differ only by one
+of them look identical to a reviewer and compare different, or the other
+way round after a careless cleanup; a bidi override can make a subject
+display reversed in a log. Every letter, digit, mark and symbol of every
+script is accepted, including combining sequences. The policy is
+checked on both sides: `Token::seal` and `Token::sign` return `argument`
+for claims or a key id that break it, before anything is encrypted or
+signed, and `Claims::from_json` returns `claims_malformed` after
+authentication. `peek_key_id` returns nothing for such a key id. Custom
+claim values are data, not identifiers, and may hold any valid UTF-8.
+
+Lengths and limits count bytes, not characters.
 
 ## 9. Rationale: what changes from v4 and from cb1, and the attack each closes
 
@@ -369,6 +418,7 @@ the first failure:
 | claims | none in the token layer | none | typed claims with a validator that requires exp by default | missing-expiry and missing-audience bugs, the most common real token failures |
 | size limit | caller's problem | caller's problem | before any parsing | decompression-style and parser-cost denial of service |
 | JSON | caller's problem | caller's problem | strict reader, numbers never converted | duplicate-key and coercion ambiguities between issuer and verifier |
+| international text | UTF-8 accepted by the JSON grammar, nothing more | same | UTF-8 raw on the wire, escapes resolved before comparison, an identifier policy on both sides, no normalisation | identifiers that differ by an invisible or bidi character; tokens minted with text the verifier will refuse |
 | nonce source | batched per-thread CSPRNG | same | `randombytes_buf` per token, no batch | the batch is a public buffer held for a long time; one call per token keeps no nonce state at all. Measured cost on this Mac: about 1.4 us per seal (README benchmark), which is the whole difference between paseto5 and cb1 at seal time; open is at parity or faster |
 | PAE | materialised head of 73 bytes | streamed | streamed through a 128-byte buffered sink; never materialised for the MAC | nothing new in security; one or two hasher updates instead of eleven |
 | allocation | caller buffers | caller buffers | caller buffers plus convenience functions that allocate once | a convenience API that does not tempt callers into copying secrets |

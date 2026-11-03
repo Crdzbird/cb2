@@ -72,7 +72,8 @@ if(PASETO5_BUILD_TESTS)
         tests/test_claims.cpp
         tests/test_keys.cpp
         tests/test_vectors.cpp
-        tests/test_v4_crosscheck.cpp)
+        tests/test_v4_crosscheck.cpp
+        tests/test_text.cpp)
     target_link_libraries(paseto5_tests PRIVATE paseto5::paseto5)
     target_compile_options(paseto5_tests PRIVATE ${PASETO5_WARNINGS} ${PASETO5_SANITIZE_FLAGS})
     target_link_options(paseto5_tests PRIVATE ${PASETO5_SANITIZE_FLAGS})

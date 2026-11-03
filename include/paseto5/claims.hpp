@@ -16,6 +16,12 @@
  * parses, and only then validates. There is no function that returns
  * claims from a token that has not been authenticated; peek_key_id returns
  * an UnverifiedKeyId whose name says what it is.
+ *
+ * Text is UTF-8 throughout and compared byte for byte. The identifier
+ * claims (iss, sub, aud, jti), custom claim names and key ids must satisfy
+ * text::identifier_ok on both sides: the issuer gets Error::argument
+ * before anything is sealed or signed, the verifier gets claims_malformed
+ * after authentication. See text.hpp for the policy.
  */
 
 #include "detail/secure.hpp"
@@ -24,6 +30,7 @@
 #include "local.hpp"
 #include "public.hpp"
 #include "result.hpp"
+#include "text.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -157,9 +164,11 @@ public:
         return false;
     }
 
-    /// Sets a custom string claim. Fails for a registered or empty name.
+    /// Sets a custom string claim. Fails for a registered or empty name,
+    /// a name that is not an identifier, or a value that is not UTF-8.
     [[nodiscard]] bool set(std::string_view name, std::string_view value) {
-        if (name.empty() || is_registered(name)) return false;
+        if (name.empty() || is_registered(name) || !text::identifier_ok(name)) return false;
+        if (!text::valid_utf8(value)) return false;
         json::Value v;
         v.kind = json::Value::Kind::string;
         v.text.assign(value);
@@ -169,7 +178,7 @@ public:
 
     /// Sets a custom claim from JSON text, which must be one valid value.
     [[nodiscard]] bool set_json(std::string_view name, std::string_view json_text) {
-        if (name.empty() || is_registered(name)) return false;
+        if (name.empty() || is_registered(name) || !text::identifier_ok(name)) return false;
         json::Value v;
         if (!json::Reader::parse(json_text, v)) return false;
         put(name, std::move(v));
@@ -201,6 +210,20 @@ public:
 
     [[nodiscard]] const std::vector<std::pair<std::string, json::Value>>& custom() const noexcept {
         return custom_;
+    }
+
+    /// Whether every identifier claim and custom claim name satisfies the
+    /// identifier policy. Token::seal and Token::sign refuse claims that
+    /// do not, with Error::argument; from_json refuses them with
+    /// claims_malformed.
+    [[nodiscard]] bool text_ok() const noexcept {
+        for (const auto& id : {&iss, &sub, &aud, &jti}) {
+            if (*id && !text::identifier_ok(**id)) return false;
+        }
+        for (const auto& [k, v] : custom_) {
+            if (!text::identifier_ok(k)) return false;
+        }
+        return true;
     }
 
     /// The JSON object: registered claims in the order iss, sub, aud, exp,
@@ -254,6 +277,7 @@ public:
             }
             c.custom_.emplace_back(std::move(k), std::move(v));
         }
+        if (!c.text_ok()) return Result<Claims>::err(Error::claims_malformed);
         return Result<Claims>::ok(std::move(c));
     }
 
@@ -360,14 +384,20 @@ public:
         json::Value v;
         if (!json::Reader::parse(footer, v) || !v.is_object()) return std::nullopt;
         const json::Value* kid = v.get("kid");
-        if (kid == nullptr || !kid->is_string()) return std::nullopt;
+        if (kid == nullptr || !kid->is_string() || !text::identifier_ok(kid->text)) return std::nullopt;
         return UnverifiedKeyId{kid->text};
+    }
+
+    /// Whether a key id, if any, satisfies the identifier policy.
+    [[nodiscard]] static bool key_id_ok(const std::optional<std::string>& kid) noexcept {
+        return !kid || text::identifier_ok(*kid);
     }
 
     /// Seals claims as a v5.local token; the key id, if any, goes into
     /// the footer.
     [[nodiscard]] static Result<std::string>
     seal(const LocalKey& key, const Claims& claims, std::string_view implicit = {}) {
+        if (!claims.text_ok() || !key_id_ok(key.key_id())) return Result<std::string>::err(Error::argument);
         try {
             const std::string payload = claims.to_json();
             const std::string footer = footer_for(key.key_id());
@@ -382,6 +412,7 @@ public:
     [[nodiscard]] static Result<Claims>
     open(std::string_view token, const LocalKey& key, const ValidationRules& rules,
          std::string_view implicit = {}) {
+        if (!key_id_ok(key.key_id())) return Result<Claims>::err(Error::argument);
         if (token.size() > rules.max_token_bytes()) return Result<Claims>::err(Error::too_large);
         try {
             const std::string footer = footer_for(key.key_id());
@@ -399,6 +430,7 @@ public:
     /// the footer.
     [[nodiscard]] static Result<std::string>
     sign(const SecretKey& key, const Claims& claims, std::string_view implicit = {}) {
+        if (!claims.text_ok() || !key_id_ok(key.key_id())) return Result<std::string>::err(Error::argument);
         try {
             const std::string payload = claims.to_json();
             const std::string footer = footer_for(key.key_id());
@@ -413,6 +445,7 @@ public:
     [[nodiscard]] static Result<Claims>
     verify(std::string_view token, const PublicKey& key, const ValidationRules& rules,
            std::string_view implicit = {}) {
+        if (!key_id_ok(key.key_id())) return Result<Claims>::err(Error::argument);
         if (token.size() > rules.max_token_bytes()) return Result<Claims>::err(Error::too_large);
         try {
             const std::string footer = footer_for(key.key_id());

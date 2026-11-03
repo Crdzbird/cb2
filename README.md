@@ -100,13 +100,17 @@ Claims (`claims.hpp`)
 - `Claims`: `iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti` as optionals
   (times as Unix seconds, written as RFC 3339), `set(name, string)`,
   `set_json(name, json)`, `get(name)`, `get_json(name)`, `to_json()`,
-  `from_json()`.
+  `from_json()`, `text_ok()`.
 - `ValidationRules`: `expect_issuer`, `expect_audience`,
   `expect_subject`, `with_clock_skew`, `with_max_token_bytes`,
   `allow_missing_exp`, `at(now)`; `check(claims)`.
 - `Token::seal` / `open` / `sign` / `verify` / `peek_key_id` /
   `footer_for`.
 - `Rfc3339::parse` / `format`; `json::Reader` / `json::Writer`.
+- `text::valid_utf8`, `text::identifier_ok`: strings are UTF-8 in any
+  script and compared byte for byte; identifiers (iss, sub, aud, jti,
+  custom claim names, key ids) may not carry controls, invisible or bidi
+  characters, noncharacters or private use (docs/SPEC.md 8.4).
 
 Errors: `invalid` (anything token-dependent before authentication, one
 verdict), `too_large`, `argument`, `internal`, `unavailable`, and after
@@ -123,6 +127,7 @@ include/paseto5/keys.hpp           LocalKey, PublicKey, SecretKey, PASERK forms 
 include/paseto5/local.hpp          v5.local
 include/paseto5/public.hpp         v5.public (PASETO5_HAS_PQ)
 include/paseto5/keywrap.hpp        k5.local-wrap
+include/paseto5/text.hpp           strict UTF-8 decoder and the identifier policy
 include/paseto5/json.hpp           strict JSON reader and writer
 include/paseto5/claims.hpp         Claims, ValidationRules, Token, Rfc3339
 include/paseto5/detail/            base64url, PAE, BLAKE3 and liboqs wrappers, the local core, secure memory
@@ -166,7 +171,8 @@ does not, since all three share it.
 ## What is covered and what is not
 
 Covered on this branch: v5.local, v5.public, the claims layer, key types
-and ids, k5.local-wrap, the vector files, the official-v4 cross-check of
+and ids, k5.local-wrap, international text in claims, footers and key ids, the
+vector files, the official-v4 cross-check of
 PAE and base64url, tests under ASan and UBSan, the three fuzz targets, a
 build without liboqs, and the benchmark above. The repository's CI runs
 the same matrix on every push and pull request: the `paseto5` job
@@ -186,15 +192,15 @@ All on this Mac on 2026-11-03, from the branch as committed.
 
 - Release build (`cmake -S paseto5 -B paseto5/build -G Ninja`, Apple
   clang 21, `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
-  -Wshadow`): zero warnings. `paseto5_tests`: 44 cases, 44 passed,
-  about 23,900 checks (the exact count varies with the random lengths in
+  -Wshadow`): zero warnings. `paseto5_tests`: 51 cases, 51 passed,
+  about 24,600 checks (the exact count varies with the random lengths in
   the codec agreement test).
 - The same with `-DPASETO5_SANITIZE=ON` (AddressSanitizer + UBSan, no
   recovery): 44 of 44, no reports. The sanitizer build caught one bug
   during development, an iterator pair taken from two temporaries in
   the vector generator, which is fixed; the library itself produced no
   report at any point.
-- `-DPASETO5_PQ=OFF` (no liboqs): builds, 35 of 35 cases, v5.public
+- `-DPASETO5_PQ=OFF` (no liboqs): builds, 42 of 42 cases, v5.public
   absent as specified.
 - Known-answer vectors under `tests/vectors`: 11 v5.local success
   vectors reproduced byte for byte and 15 failure vectors rejected, 99

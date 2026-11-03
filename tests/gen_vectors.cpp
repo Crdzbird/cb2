@@ -45,6 +45,13 @@ const char* const PAYLOAD_B = "{\"data\":\"this is a hidden message\",\"exp\":\"
 const char* const FOOTER_KID = "{\"kid\":\"k5.lid.example\"}";
 const char* const FOOTER_RAW = "arbitrary-string-that-isn't-json";
 const char* const IMPLICIT_A = "{\"test-vector\":\"5-E-7\"}";
+const char* const PAYLOAD_INTL = "{\"data\":\"Compa\xc3\xb1\xc3\xad" "a \xe6\x97\xa5\xe6\x9c\xac \xd8\xb9\xd8\xb1\xd8\xa8\xd9\x8a \xf0\x9f\x98\x80\",\"exp\":\"2022-01-01T00:00:00+00:00\"}";
+const char* const FOOTER_INTL = "{\"kid\":\"llave-\xc3\xb1\"}";
+const char* const IMPLICIT_INTL = "contexto-\xce\xb1\xce\xb2\xce\xb3";
+const char* const ISSUER_INTL = "Compa\xc3\xb1\xc3\xad" "a";
+const char* const ISSUER_DECOMPOSED = "Compan\xcc\x83i\xcc\x81" "a";
+const char* const SUBJECT_INTL = "\xe6\x97\xa5\xe6\x9c\xac";
+const char* const AUDIENCE_INTL = "\xd8\xb9\xd8\xb1\xd8\xa8\xd9\x8a";
 
 Value str(std::string_view s) { Value v; v.kind = Value::Kind::string; v.text.assign(s); return v; }
 Value boolean(bool b) { Value v; v.kind = Value::Kind::boolean; v.b = b; return v; }
@@ -169,6 +176,7 @@ void write_local(const std::string& dir) {
     tests.items.push_back(local_success("5-E-9", NONCE_B, PAYLOAD_A, FOOTER_RAW, "{\"test-vector\":\"5-E-9\"}", k));
     tests.items.push_back(local_success("5-E-10", NONCE_B, "", "", "", k));
     tests.items.push_back(local_success("5-E-11", NONCE_B, "x", "f", "i", k));
+    tests.items.push_back(local_success("5-E-12", NONCE_A, PAYLOAD_INTL, FOOTER_INTL, IMPLICIT_INTL, k));
     const std::string t7 = seal_local(k, NONCE_A, PAYLOAD_A, FOOTER_KID, IMPLICIT_A);
     const std::string t1 = seal_local(k, NONCE_ZERO, PAYLOAD_A, "", "");
     tests.items.push_back(local_failure("5-F-1", KEY2_HEX, t7, FOOTER_KID, IMPLICIT_A, "wrong key"));
@@ -238,9 +246,9 @@ Claims base_claims() {
     return c;
 }
 
-Value claims_local(std::string_view name, const LocalKey& k, const Claims& c, std::string_view implicit,
-                   Value r, std::string_view expect, std::optional<std::string> verifier_key_id) {
-    const std::string payload = c.to_json();
+Value claims_local_raw(std::string_view name, const LocalKey& k, std::string_view payload, std::string_view implicit,
+                       Value r, std::string_view expect, std::optional<std::string> verifier_key_id,
+                       std::optional<std::string> canonical = std::nullopt) {
     const std::string footer = Token::footer_for(k.key_id());
     Value v = object();
     put(v, "name", str(name));
@@ -249,12 +257,30 @@ Value claims_local(std::string_view name, const LocalKey& k, const Claims& c, st
     if (k.key_id() != std::optional<std::string>(k.paserk_id())) put(v, "key-id", str(*k.key_id()));
     put(v, "nonce", str(NONCE_A));
     put(v, "payload", str(payload));
+    if (canonical) put(v, "payload-canonical", str(*canonical));
     put(v, "implicit-assertion", str(implicit));
     put(v, "token", str(seal_local(k, NONCE_A, payload, footer, implicit)));
     if (verifier_key_id) put(v, "verifier-key-id", str(*verifier_key_id));
     put(v, "rules", std::move(r));
     put(v, "expect", str(expect));
     return v;
+}
+
+Value claims_local(std::string_view name, const LocalKey& k, const Claims& c, std::string_view implicit,
+                   Value r, std::string_view expect, std::optional<std::string> verifier_key_id) {
+    return claims_local_raw(name, k, c.to_json(), implicit, std::move(r), expect, std::move(verifier_key_id));
+}
+
+Claims international_claims() {
+    Claims c;
+    c.iss = ISSUER_INTL;
+    c.sub = SUBJECT_INTL;
+    c.aud = AUDIENCE_INTL;
+    c.exp = NOW + 3600;
+    c.jti = "\xce\xb1\xce\xb2\xce\xb3-\xf0\x9f\x98\x80";
+    (void)c.set("a\xc3\xb1o", "2026");
+    (void)c.set("ciudad", "Bogot\xc3\xa1");
+    return c;
 }
 
 #ifdef PASETO5_HAS_PQ
@@ -314,6 +340,21 @@ void write_claims(const std::string& dir) {
     tests.items.push_back(claims_public("5-C-19", sk, good, "ctx", rules(NOW, true, 0, nullptr, nullptr, nullptr, 0), "invalid", "k5.pid.other"));
     tests.items.push_back(claims_public("5-C-20", sk, good, "ctx", rules(NOW, true, 0, nullptr, nullptr, nullptr, 4096), "too_large", nullptr));
 #endif
+    const Claims intl = international_claims();
+    tests.items.push_back(claims_local("5-C-21", k, intl, IMPLICIT_INTL, rules(NOW, true, 0, ISSUER_INTL, AUDIENCE_INTL, SUBJECT_INTL, 0), "ok", std::nullopt));
+    tests.items.push_back(claims_local("5-C-22", k, intl, IMPLICIT_INTL, rules(NOW, true, 0, ISSUER_DECOMPOSED, nullptr, nullptr, 0), "issuer_mismatch", std::nullopt));
+    const std::string escaped = "{\"iss\":\"Compa\\u00f1\\u00eda\",\"sub\":\"\\u65e5\\u672c\",\"aud\":\"" + std::string(AUDIENCE_INTL) +
+                                "\",\"exp\":\"2023-11-14T23:13:20+00:00\",\"jti\":\"\xce\xb1\xce\xb2\xce\xb3-\\ud83d\\ude00\",\"a\\u00f1o\":\"2026\",\"ciudad\":\"Bogot\\u00e1\"}";
+    tests.items.push_back(claims_local_raw("5-C-23", k, escaped, IMPLICIT_INTL, rules(NOW, true, 0, ISSUER_INTL, AUDIENCE_INTL, SUBJECT_INTL, 0), "ok", std::nullopt, intl.to_json()));
+    const std::string exp_member = "\"exp\":\"2023-11-14T23:13:20+00:00\"";
+    tests.items.push_back(claims_local_raw("5-C-24", k, "{\"iss\":\"" + std::string(ISSUER_INTL) + "\\u200b\"," + exp_member + "}", IMPLICIT_INTL, rules(NOW, true, 0, nullptr, nullptr, nullptr, 0), "claims_malformed", std::nullopt));
+    tests.items.push_back(claims_local_raw("5-C-25", k, "{\"sub\":\"user\\u202e1\"," + exp_member + "}", IMPLICIT_INTL, rules(NOW, true, 0, nullptr, nullptr, nullptr, 0), "claims_malformed", std::nullopt));
+    tests.items.push_back(claims_local_raw("5-C-26", k, "{\"ro\\ufeffle\":\"admin\"," + exp_member + "}", IMPLICIT_INTL, rules(NOW, true, 0, nullptr, nullptr, nullptr, 0), "claims_malformed", std::nullopt));
+    tests.items.push_back(claims_local_raw("5-C-27", k, "{\"note\":\"a\\u200bb\"," + exp_member + "}", IMPLICIT_INTL, rules(NOW, true, 0, nullptr, nullptr, nullptr, 0), "ok", std::nullopt, "{\"exp\":\"2023-11-14T23:13:20+00:00\",\"note\":\"a\xe2\x80\x8b" "b\"}"));
+    LocalKey intl_kid = k.clone();
+    intl_kid.set_key_id("llave-\xc3\xb1");
+    tests.items.push_back(claims_local("5-C-28", intl_kid, intl, IMPLICIT_INTL, rules(NOW, true, 0, nullptr, nullptr, nullptr, 0), "ok", std::string("llave-\xc3\xb1")));
+    tests.items.push_back(claims_local("5-C-29", intl_kid, intl, IMPLICIT_INTL, rules(NOW, true, 0, nullptr, nullptr, nullptr, 0), "invalid", std::string("llave-n\xcc\x83")));
     put(root, "tests", std::move(tests));
     if (!tu::write_file((dir + "/claims.json").c_str(), pretty(root))) std::exit(1);
 }

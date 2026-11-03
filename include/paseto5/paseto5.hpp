@@ -18,6 +18,7 @@
 #include "local.hpp"
 #include "public.hpp"
 #include "keywrap.hpp"
+#include "text.hpp"
 #include "json.hpp"
 #include "claims.hpp"
 

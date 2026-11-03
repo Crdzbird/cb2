@@ -11,6 +11,8 @@
  * text; the claims layer only ever needs strings.
  */
 
+#include "text.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -196,23 +198,10 @@ private:
     }
 
     [[nodiscard]] bool utf8_sequence(std::string& o) {
-        const auto c0 = static_cast<unsigned char>(in[i]);
-        std::size_t len = 0;
+        const std::size_t start = i;
         unsigned cp = 0;
-        if (c0 >= 0xC2 && c0 <= 0xDF) { len = 2; cp = c0 & 0x1F; }
-        if (c0 >= 0xE0 && c0 <= 0xEF) { len = 3; cp = c0 & 0x0F; }
-        if (c0 >= 0xF0 && c0 <= 0xF4) { len = 4; cp = c0 & 0x07; }
-        if (len == 0 || i + len > in.size()) return false;
-        for (std::size_t k = 1; k < len; ++k) {
-            const auto c = static_cast<unsigned char>(in[i + k]);
-            if ((c & 0xC0) != 0x80) return false;
-            cp = cp << 6 | (c & 0x3F);
-        }
-        if ((len == 3 && cp < 0x800) || (len == 4 && (cp < 0x10000 || cp > 0x10FFFF)) ||
-            (cp >= 0xD800 && cp <= 0xDFFF))
-            return false;
-        o.append(in.data() + i, len);
-        i += len;
+        if (!text::decode(in, i, cp)) return false;
+        o.append(in.data() + start, i - start);
         return true;
     }
 

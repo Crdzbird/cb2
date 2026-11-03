@@ -189,7 +189,8 @@ TEST_CASE("vectors/claims vectors yield the recorded verdicts") {
             if (v.get("verifier-key-id") != nullptr) vk.set_key_id(tu::str(v, "verifier-key-id"));
             auto r = Token::open(token, vk, rules, implicit);
             verdict = verdict_name(r.is_ok(), r.is_ok() ? Error::internal : r.error());
-            if (r.is_ok()) CHECK(r.value().to_json() == tu::str(v, "payload"));
+            const std::string canonical = v.get("payload-canonical") != nullptr ? tu::str(v, "payload-canonical") : tu::str(v, "payload");
+            if (r.is_ok()) CHECK(r.value().to_json() == canonical);
         }
 #ifdef PASETO5_HAS_PQ
         if (purpose == "public") {

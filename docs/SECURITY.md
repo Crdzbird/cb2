@@ -92,6 +92,15 @@ implicit assertion.
    are all rejected. Numbers are never converted, so there is no
    coercion; registered claims must be strings and the three time claims
    must be RFC 3339.
+5. International text, byte for byte. Every string is UTF-8 and may hold
+   any script; escapes are resolved before comparison and nothing is
+   normalised, so composed and decomposed spellings are different
+   identifiers. The identifier claims, custom claim names and key ids are
+   checked against a policy that refuses controls, the Unicode
+   Default_Ignorable_Code_Point set (zero-width and bidi characters,
+   variation selectors, tags), noncharacters and private-use code points,
+   on the issuing side (argument) and on the verifying side
+   (claims_malformed). See docs/SPEC.md section 8.4.
 
 ## Assumptions
 
