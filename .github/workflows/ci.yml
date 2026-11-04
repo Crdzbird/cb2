@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install deps (LLVM clang for libFuzzer)
-        run: brew install cmake ninja libsodium liboqs blake3 openssl@3 llvm lld
+        run: brew install cmake ninja libsodium liboqs blake3 openssl@3 llvm lld go
       - name: Release build with cb2.public, tests, the example, the v4 cross-check and the benchmark binary
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCB2_BUILD_BENCH=ON
