@@ -4,12 +4,18 @@
  * and must reproduce the token byte for byte; every public vector must
  * verify (ML-DSA signing is randomised, so public tokens are checked, not
  * reproduced); every failure vector must fail; every claims vector must
- * yield the recorded verdict.
+ * yield the recorded verdict. The intermediate values a success vector
+ * records (derived keys, PAE, ciphertext, tag, the Ed25519 half of a
+ * signature) are recomputed from the primitives and must match, so that
+ * what docs/PROTOCOL.md publishes for other implementations is what this
+ * one does.
  */
 
 #include "test_runner.hpp"
 #include "test_util.hpp"
 
+#include <initializer_list>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -66,6 +72,77 @@ ValidationRules rules_of(const Value& v) {
 
 std::string verdict_name(bool ok, Error e) { return ok ? "ok" : cb2::error_name(e); }
 
+/// The decoded body of a token: the text between the header and the
+/// footer separator, through the strict decoder.
+Bytes body_of(const std::string& token, size_t header_len) {
+    const std::string_view rest = std::string_view(token).substr(header_len);
+    const size_t dot = rest.find('.');
+    const std::string_view text = dot == std::string_view::npos ? rest : rest.substr(0, dot);
+    Bytes out(text.size());
+    size_t n = 0;
+    if (!cb2::detail::b64::decode(out.data(), out.size(), text.data(), text.size(), n)) return {};
+    out.resize(n);
+    return out;
+}
+
+Bytes pae_of(std::initializer_list<std::span<const uint8_t>> pieces) {
+    size_t total = 8;
+    for (const auto& p : pieces) total += 8 + p.size();
+    Bytes out(total);
+    cb2::detail::SpanSink sink{out.data()};
+    cb2::detail::pae_stream(sink, pieces);
+    return out;
+}
+
+/// Recomputes a local vector's key split, ciphertext, PAE and tag from
+/// the primitives and checks that the token body is nonce, ciphertext
+/// and tag in that order.
+void check_local_intermediates(const Value& v, const Bytes& key, const Bytes& nonce, const Bytes& payload,
+                               const Bytes& footer, const Bytes& implicit, const std::string& token) {
+    const std::string_view h = Local::HEADER;
+    Bytes split(88);
+    cb2::detail::Blake3Keyed hk(key.data());
+    hk.update(cb2::bytes(h).data(), h.size());
+    hk.update(nonce.data(), nonce.size());
+    hk.finalize(split.data(), split.size());
+    CHECK(tu::hex(std::span<const uint8_t>(split.data(), 32)) == tu::str(v, "ek"));
+    CHECK(tu::hex(std::span<const uint8_t>(split.data() + 32, 24)) == tu::str(v, "n2"));
+    CHECK(tu::hex(std::span<const uint8_t>(split.data() + 56, 32)) == tu::str(v, "ak"));
+    Bytes c = payload;
+    if (!c.empty()) CHECK(crypto_stream_xchacha20_xor(c.data(), c.data(), c.size(), split.data() + 32, split.data()) == 0);
+    CHECK(tu::hex(c) == tu::str(v, "ciphertext"));
+    const Bytes pae = pae_of({cb2::bytes(h), nonce, c, footer, implicit});
+    CHECK(tu::hex(pae) == tu::str(v, "pae"));
+    Bytes tag(32);
+    cb2::detail::Blake3Keyed hm(split.data() + 56);
+    hm.update(pae.data(), pae.size());
+    hm.finalize(tag.data(), tag.size());
+    CHECK(tu::hex(tag) == tu::str(v, "tag"));
+    Bytes body = nonce;
+    body.insert(body.end(), c.begin(), c.end());
+    body.insert(body.end(), tag.begin(), tag.end());
+    CHECK(body_of(token, h.size()) == body);
+}
+
+#ifdef CB2_HAS_PQ
+/// Recomputes a public vector's PAE and checks that the recorded Ed25519
+/// half is the one in the token and verifies over that PAE.
+void check_public_intermediates(const Value& v, const cb2::PublicKey& pk, const Bytes& msg, const Bytes& footer,
+                                const Bytes& implicit, const std::string& token) {
+    const std::string_view h = cb2::Public::HEADER;
+    const Bytes pae = pae_of({cb2::bytes(h), msg, footer, implicit});
+    CHECK(tu::hex(pae) == tu::str(v, "pae"));
+    const Bytes ed = tu::unhex(tu::str(v, "ed25519-signature"));
+    CHECK(ed.size() == cb2::Public::ED_SIG_BYTES);
+    CHECK(crypto_sign_verify_detached(ed.data(), pae.data(), pae.size(), pk.bytes().data()) == 0);
+    const Bytes body = body_of(token, h.size());
+    CHECK(body.size() == msg.size() + cb2::Public::SIG_BYTES);
+    if (body.size() != msg.size() + cb2::Public::SIG_BYTES) return;
+    const auto at = body.begin() + static_cast<std::ptrdiff_t>(msg.size());
+    CHECK(Bytes(at, at + static_cast<std::ptrdiff_t>(cb2::Public::ED_SIG_BYTES)) == ed);
+}
+#endif
+
 }
 
 TEST_CASE("vectors/cb2.local vectors reproduce and open") {
@@ -96,6 +173,8 @@ TEST_CASE("vectors/cb2.local vectors reproduce and open") {
         CHECK(Local::seal_with_nonce_for_testing({reinterpret_cast<uint8_t*>(out.data()), out.size()}, n, k.value(), payload, footer, implicit, nonce) == Status::ok);
         if (out != token) std::printf("      %s token differs\n", name.c_str());
         CHECK(out == token);
+        REQUIRE(v.get("ek") != nullptr);
+        check_local_intermediates(v, key, nonce, payload, footer, implicit, token);
         auto back = Local::open(token, k.value(), footer, implicit);
         REQUIRE(back.is_ok());
         CHECK(Bytes(back.value().begin(), back.value().end()) == payload);
@@ -161,6 +240,8 @@ TEST_CASE("vectors/cb2.public vectors verify and failure vectors fail") {
         if (!r.is_ok()) std::printf("      %s should verify\n", name.c_str());
         REQUIRE(r.is_ok());
         CHECK(r.value() == tu::bytes_of(tu::str(v, "payload")));
+        REQUIRE(v.get("pae") != nullptr);
+        check_public_intermediates(v, pk.value(), r.value(), footer, implicit, token);
         auto sk = cb2::SecretKey::from_bytes(tu::unhex(tu::str(v, "secret-key")));
         REQUIRE(sk.is_ok());
         CHECK(std::equal(pk.value().bytes().begin(), pk.value().bytes().end(), sk.value().public_key().bytes().begin()));

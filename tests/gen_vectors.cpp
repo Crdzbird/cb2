@@ -12,6 +12,13 @@
  *   cb2_public.json  success, failure and sampled tamper vectors
  *   claims.json     the claims layer with rules and the expected verdict
  *   paserk.json     kcb2.local, kcb2.lid, kcb2.local-wrap, kcb2.public, kcb2.pid, kcb2.secret
+ *
+ * Every success vector also records its intermediate values (the derived
+ * keys, the pre-authentication encoding, the ciphertext, the tag, the
+ * Ed25519 half of a signature), computed here from the primitives
+ * directly rather than taken from the library, so that a second
+ * implementation can locate the first step at which it diverges. The
+ * file format is documented in docs/PROTOCOL.md, appendix A.
  */
 
 #include "test_util.hpp"
@@ -21,6 +28,7 @@
 #include <cstdio>
 #include <cstring>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -123,6 +131,70 @@ std::string seal_local(const LocalKey& k, std::string_view nonce_hex, std::strin
     return out;
 }
 
+/// Decodes the body of a token (the text between the header and the
+/// footer separator) with the strict decoder.
+Bytes body_of(std::string_view token, std::size_t header_len) {
+    const std::string_view rest = token.substr(header_len);
+    const std::size_t dot = rest.find('.');
+    const std::string_view body = dot == std::string_view::npos ? rest : rest.substr(0, dot);
+    Bytes out(body.size());
+    std::size_t n = 0;
+    if (!cb2::detail::b64::decode(out.data(), out.size(), body.data(), body.size(), n)) {
+        std::fprintf(stderr, "body decode failed\n");
+        std::exit(1);
+    }
+    out.resize(n);
+    return out;
+}
+
+Bytes pae_of(std::initializer_list<std::span<const uint8_t>> pieces) {
+    std::size_t total = 8;
+    for (const auto& p : pieces) total += 8 + p.size();
+    Bytes out(total);
+    cb2::detail::SpanSink sink{out.data()};
+    cb2::detail::pae_stream(sink, pieces);
+    return out;
+}
+
+/// The intermediate values of a cb2.local seal, computed from the
+/// primitives: the key split, the ciphertext, the PAE and the tag. The
+/// recorded token must be exactly nonce, ciphertext and tag.
+void local_intermediates(Value& v, std::string_view key_hex, std::string_view nonce_hex,
+                         std::string_view payload, std::string_view footer,
+                         std::string_view implicit, std::string_view token) {
+    const Bytes key = tu::unhex(key_hex);
+    const Bytes nonce = tu::unhex(nonce_hex);
+    const std::string_view h = Local::HEADER;
+    Bytes split(88);
+    cb2::detail::Blake3Keyed hk(key.data());
+    hk.update(reinterpret_cast<const uint8_t*>(h.data()), h.size());
+    hk.update(nonce.data(), nonce.size());
+    hk.finalize(split.data(), split.size());
+    const Bytes ek(split.begin(), split.begin() + 32);
+    const Bytes n2(split.begin() + 32, split.begin() + 56);
+    const Bytes ak(split.begin() + 56, split.end());
+    Bytes c(payload.begin(), payload.end());
+    if (!c.empty() && crypto_stream_xchacha20_xor(c.data(), c.data(), c.size(), n2.data(), ek.data()) != 0) std::exit(1);
+    const Bytes pae = pae_of({cb2::bytes(h), nonce, c, cb2::bytes(footer), cb2::bytes(implicit)});
+    Bytes tag(32);
+    cb2::detail::Blake3Keyed hm(ak.data());
+    hm.update(pae.data(), pae.size());
+    hm.finalize(tag.data(), tag.size());
+    Bytes body = nonce;
+    body.insert(body.end(), c.begin(), c.end());
+    body.insert(body.end(), tag.begin(), tag.end());
+    if (body != body_of(token, h.size())) {
+        std::fprintf(stderr, "local intermediates disagree with the token\n");
+        std::exit(1);
+    }
+    put(v, "ek", str(tu::hex(ek)));
+    put(v, "n2", str(tu::hex(n2)));
+    put(v, "ak", str(tu::hex(ak)));
+    put(v, "ciphertext", str(tu::hex(c)));
+    put(v, "pae", str(tu::hex(pae)));
+    put(v, "tag", str(tu::hex(tag)));
+}
+
 Value local_success(std::string_view name, std::string_view nonce_hex, std::string_view payload,
                     std::string_view footer, std::string_view implicit, const LocalKey& k) {
     Value v = object();
@@ -133,7 +205,9 @@ Value local_success(std::string_view name, std::string_view nonce_hex, std::stri
     put(v, "payload", str(payload));
     put(v, "footer", str(footer));
     put(v, "implicit-assertion", str(implicit));
-    put(v, "token", str(seal_local(k, nonce_hex, payload, footer, implicit)));
+    const std::string token = seal_local(k, nonce_hex, payload, footer, implicit);
+    put(v, "token", str(token));
+    local_intermediates(v, KEY_HEX, nonce_hex, payload, footer, implicit, token);
     return v;
 }
 
@@ -421,6 +495,16 @@ void write_public_and_paserk(const std::string& dir, Value& paserk_root) {
         put(v, "footer", str(footer));
         put(v, "implicit-assertion", str(implicit));
         put(v, "token", str(tok.value()));
+        const Bytes pae = pae_of({cb2::bytes(cb2::Public::HEADER), cb2::bytes(payload), cb2::bytes(footer), cb2::bytes(implicit)});
+        const Bytes body = body_of(tok.value(), cb2::Public::HEADER.size());
+        const Bytes ed_sig(body.begin() + static_cast<std::ptrdiff_t>(payload.size()),
+                           body.begin() + static_cast<std::ptrdiff_t>(payload.size() + cb2::Public::ED_SIG_BYTES));
+        if (crypto_sign_verify_detached(ed_sig.data(), pae.data(), pae.size(), pk.bytes().data()) != 0) {
+            std::fprintf(stderr, "Ed25519 half does not verify over the PAE\n");
+            std::exit(1);
+        }
+        put(v, "pae", str(tu::hex(pae)));
+        put(v, "ed25519-signature", str(tu::hex(ed_sig)));
         return v;
     };
     auto failure = [&](std::string_view name, const cb2::PublicKey& key, std::string_view token, std::string_view footer,

@@ -2,7 +2,12 @@
 
 Version 0.1.0. This document defines the cb2.local and cb2.public token
 formats, the kcb2 key strings and the claims layer, byte for byte, with the
-rationale for each decision and the threat model.
+rationale for each decision and the threat model. It describes this
+implementation and why it is the way it is. The normative statement of
+the formats for an implementer in any language, with the test vector
+file format and worked examples with every intermediate value, is
+docs/PROTOCOL.md; where the two differ, PROTOCOL.md is the one to fix
+or to follow.
 
 ## 1. Status: a CipherBird proposal, not a PASETO version
 
@@ -132,7 +137,7 @@ has been authenticated.
 ### 4.2 Seal
 
 ```
-h              = "cb2.local."                                   (9 bytes)
+h              = "cb2.local."                                   (10 bytes)
 Ek || n2 || Ak = BLAKE3-keyed(K, h || n, 88)
                  Ek = bytes 0..31, n2 = bytes 32..55, Ak = bytes 56..87
 c              = XChaCha20(Ek, n2, m)
@@ -149,14 +154,14 @@ Body layout, by offset:
 | 32 | len(m) | c, the ciphertext |
 | 32 + len(m) | 32 | t, the tag |
 
-Token text length: `9 + b64len(64 + len(m)) + (len(f) == 0 ? 0 : 1 + b64len(len(f)))`
+Token text length: `10 + b64len(64 + len(m)) + (len(f) == 0 ? 0 : 1 + b64len(len(f)))`
 where `b64len(x) = x / 3 * 4 + (x % 3 == 0 ? 0 : x % 3 + 1)`.
 
 The PAE fed to the tag is, byte for byte:
 
 ```
 LE64(5)
-LE64(9)       "cb2.local."
+LE64(10)      "cb2.local."
 LE64(32)      n
 LE64(len(c))  c
 LE64(len(f))  f
@@ -234,7 +239,7 @@ not claim to detect every possible change to the secret halves.
 ### 5.2 Sign
 
 ```
-h     = "cb2.public."                                                   (10 bytes)
+h     = "cb2.public."                                                   (11 bytes)
 m2    = PAE(h, m, f, i)
 sig   = Ed25519-sign(ed_sk, m2) || ML-DSA-65-sign(ml_sk, m2, ctx = h)  (64 + 3309 = 3373 bytes)
 body  = m || sig
@@ -242,9 +247,9 @@ token = h || b64(body) [ || "." || b64(f) ]
 ```
 
 The ML-DSA half is the FIPS 204 signature with the header as its context
-string (ML-DSA.Sign(sk, M, ctx) with ctx = "cb2.public.", 10 bytes; the
+string (ML-DSA.Sign(sk, M, ctx) with ctx = "cb2.public.", 11 bytes; the
 ctx of the pure signing interface, so the signed message is
-`0 || 10 || ctx || m2` inside the algorithm). A signature the same key
+`0 || 11 || ctx || m2` inside the algorithm). A signature the same key
 made over the same m2 for any other purpose, under an empty or another
 context, is not a cb2.public signature. Ed25519 as libsodium provides it
 has no context parameter; its half is separated by the header inside m2
@@ -258,7 +263,7 @@ Body layout:
 | len(m) | 64 | Ed25519 signature |
 | len(m) + 64 | 3309 | ML-DSA-65 signature |
 
-The PAE, byte for byte: `LE64(4) || LE64(10) || "cb2.public." || LE64(len(m)) || m || LE64(len(f)) || f || LE64(len(i)) || i`.
+The PAE, byte for byte: `LE64(4) || LE64(11) || "cb2.public." || LE64(len(m)) || m || LE64(len(f)) || f || LE64(len(i)) || i`.
 
 ### 5.3 Verify
 

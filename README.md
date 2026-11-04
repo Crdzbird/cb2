@@ -247,6 +247,7 @@ playground/                        cb2_playground and the two scripted, self-che
 web/                               the browser playground: page, C shim, Emscripten build, the built module, node smoke test
 fuzz/                              fuzz_local, fuzz_public, fuzz_claims
 bench/                             bench_main.cpp, bench_ref.cpp (CipherBird's v4.local and cb1.local)
+docs/PROTOCOL.md                   the normative format for implementers, the vector file format, worked examples
 docs/SPEC.md                       wire format, rationale, threat model
 docs/SECURITY.md                   claims and limits
 ```

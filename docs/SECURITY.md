@@ -189,7 +189,7 @@ implicit assertion.
 | message, footer, implicit assertion | each at most 2^26 bytes (67,108,864) |
 | token accepted by the allocating raw open and verify | max_token_bytes, default 1,048,576 (1 MiB), raisable to the ceiling |
 | token accepted by the claims layer | max_token_bytes, default 16,384 |
-| ML-DSA context string | the 10-byte header; FIPS 204 allows up to 255 |
+| ML-DSA context string | the 11-byte header; FIPS 204 allows up to 255 |
 | JSON nesting | 16 levels |
 | local key | exactly 32 bytes |
 | public key | exactly 1,984 bytes |
