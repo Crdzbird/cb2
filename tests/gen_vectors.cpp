@@ -12,6 +12,7 @@
  *   cb2_public.json  success, failure and sampled tamper vectors
  *   claims.json     the claims layer with rules and the expected verdict
  *   paserk.json     kcb2.local, kcb2.lid, kcb2.local-wrap, kcb2.public, kcb2.pid, kcb2.secret
+ *   proofs.json     sender-constrained tokens and their holder proofs, with the verdicts
  *
  * Every success vector also records its intermediate values (the derived
  * keys, the pre-authentication encoding, the ciphertext, the tag, the
@@ -617,6 +618,186 @@ void write_public_and_paserk(const std::string& dir, Value& paserk_root) {
 #endif
 }
 
+#ifdef CB2_HAS_PQ
+/// proofs.json: three access tokens (a local one and a public one bound to
+/// the client's key, and a bearer one), the proofs the client makes for
+/// them, and what a verifier says for each request and rule set.
+void write_holder(const std::string& dir) {
+    const LocalKey k = LocalKey::from_bytes(tu::unhex(KEY_HEX)).value();
+    const cb2::SecretKey issuer = cb2::SecretKey::generate().value();
+    const cb2::SecretKey client = cb2::SecretKey::generate().value();
+    const cb2::SecretKey stranger = cb2::SecretKey::generate().value();
+    const char* const ISSUER = "https://issuer.example";
+    const char* const TARGET = "https://api.example/v1/me";
+    Claims bound;
+    bound.iss = ISSUER;
+    bound.sub = "user-1";
+    bound.aud = "api";
+    bound.exp = NOW + 3600;
+    bound.cnf = client.public_key().to_paserk();
+    Claims bearer = bound;
+    bearer.cnf.reset();
+    const std::string local_footer = Token::footer_for(k.key_id());
+    const std::string local_token = seal_local(k, NONCE_A, bound.to_json(), local_footer, "");
+    const std::string bearer_token = seal_local(k, NONCE_A, bearer.to_json(), local_footer, "");
+    const std::string public_token = Token::sign(issuer, bound).value();
+
+    Value root = object();
+    put(root, "name", str("cb2 holder proof vectors"));
+    put(root, "generator", str("cb2_gen_vectors " + std::string(cb2::VERSION)));
+    put(root, "note", str("ML-DSA-65 signing is randomised; proofs verify under the client key but are not reproduced byte for byte"));
+    put(root, "issuer", str(ISSUER));
+    put(root, "audience", str("api"));
+    put(root, "client-public-key", str(tu::hex(client.public_key().bytes())));
+    put(root, "stranger-public-key", str(tu::hex(stranger.public_key().bytes())));
+    Value tokens = object();
+    auto local_entry = [&](const std::string& token, const Claims& c) {
+        Value v = object();
+        put(v, "purpose", str("local"));
+        put(v, "key", str(KEY_HEX));
+        put(v, "nonce", str(NONCE_A));
+        put(v, "payload", str(c.to_json()));
+        put(v, "token", str(token));
+        return v;
+    };
+    put(tokens, "local", local_entry(local_token, bound));
+    put(tokens, "bearer", local_entry(bearer_token, bearer));
+    Value pub = object();
+    put(pub, "purpose", str("public"));
+    put(pub, "issuer-public-key", str(tu::hex(issuer.public_key().bytes())));
+    put(pub, "payload", str(bound.to_json()));
+    put(pub, "token", str(public_token));
+    put(tokens, "public", std::move(pub));
+    put(root, "access-tokens", std::move(tokens));
+
+    auto request = [](const char* htm, const char* htu, const char* nonce) {
+        cb2::HolderRequest r;
+        r.method = htm;
+        r.target = htu;
+        if (nonce != nullptr) r.nonce = nonce;
+        return r;
+    };
+    auto make = [&](const cb2::SecretKey& who, const cb2::HolderRequest& r, const std::string& token,
+                    const char* jti, long long now, long long lifetime) {
+        auto p = cb2::HolderProof::make(who, r, token, jti, now, lifetime);
+        if (p.is_err()) { std::fprintf(stderr, "proof failed\n"); std::exit(1); }
+        return p.value();
+    };
+    const cb2::HolderRequest get_me = request("GET", TARGET, nullptr);
+    const std::string p1 = make(client, get_me, local_token, "p-1", NOW, 60);
+    const std::string p_long = make(client, get_me, local_token, "p-2", NOW, 600);
+    const std::string p_nonce = make(client, request("GET", TARGET, "n-1"), local_token, "p-3", NOW, 60);
+    const std::string p_stranger = make(stranger, get_me, local_token, "p-4", NOW, 60);
+    const std::string p_public = make(client, get_me, public_token, "p-5", NOW, 60);
+    std::string flipped = p1;
+    flipped[40] = flipped[40] == 'A' ? 'B' : 'A';
+    std::string as_public = p1;
+    as_public.replace(0, cb2::Holder::PUBLIC_HEADER.size(), "cb2.public.");
+    const std::string client_footer = Token::footer_for(client.public_key().paserk_id());
+    const std::string no_htm = "{\"exp\":\"2023-11-14T22:14:20+00:00\",\"iat\":\"2023-11-14T22:13:20+00:00\",\"jti\":\"p-6\",\"htu\":\"https://api.example/v1/me\"}";
+    const std::string p_malformed = cb2::detail::PublicCore::sign(cb2::Holder::PUBLIC_HEADER, client, cb2::bytes(no_htm), cb2::bytes(client_footer), cb2::bytes(local_token)).value();
+
+    Value tests = array();
+    auto add = [&](const char* name, const char* access, const std::string& proof, const cb2::HolderRequest& r,
+                   long long now, long long skew, long long lifetime, std::initializer_list<const char*> seen,
+                   const char* flag, const char* expect) {
+        Value v = object();
+        put(v, "name", str(name));
+        put(v, "access-token", str(access));
+        put(v, "proof", str(proof));
+        Value req = object();
+        put(req, "htm", str(r.method));
+        put(req, "htu", str(r.target));
+        if (r.nonce) put(req, "nonce", str(*r.nonce));
+        put(v, "request", std::move(req));
+        Value rules = object();
+        put(rules, "now", number(now));
+        put(rules, "clock-skew", number(skew));
+        put(rules, "proof-lifetime", number(lifetime));
+        Value list = array();
+        for (const char* j : seen) list.items.push_back(str(j));
+        put(rules, "seen-jti", std::move(list));
+        put(rules, "require-cnf", boolean(flag != nullptr && std::string_view(flag) == "require"));
+        put(rules, "ignore-cnf", boolean(flag != nullptr && std::string_view(flag) == "ignore"));
+        put(v, "rules", std::move(rules));
+        put(v, "expect", str(expect));
+        tests.items.push_back(std::move(v));
+    };
+    add("cb2-H-1", "local", p1, get_me, NOW, 0, 60, {}, nullptr, "ok");
+    add("cb2-H-2", "local", p1, get_me, NOW, 0, 60, {"p-1"}, nullptr, "proof_replayed");
+    add("cb2-H-3", "local", p1, request("POST", TARGET, nullptr), NOW, 0, 60, {}, nullptr, "proof_mismatch");
+    add("cb2-H-4", "local", p1, request("GET", "https://api.example/v1/you", nullptr), NOW, 0, 60, {}, nullptr, "proof_mismatch");
+    add("cb2-H-5", "local", p1, request("GET", "HTTPS://API.EXAMPLE:443/v1/me?page=2#top", nullptr), NOW, 0, 60, {}, nullptr, "ok");
+    add("cb2-H-6", "local", p1, get_me, NOW + 61, 0, 60, {}, nullptr, "proof_expired");
+    add("cb2-H-7", "local", p1, get_me, NOW + 61, 5, 60, {}, nullptr, "ok");
+    add("cb2-H-8", "local", p1, get_me, NOW - 1, 0, 60, {}, nullptr, "proof_expired");
+    add("cb2-H-9", "local", p_long, get_me, NOW, 0, 60, {}, nullptr, "proof_expired");
+    add("cb2-H-10", "local", p_long, get_me, NOW, 0, 600, {}, nullptr, "ok");
+    add("cb2-H-11", "local", p_nonce, request("GET", TARGET, "n-1"), NOW, 0, 60, {}, nullptr, "ok");
+    add("cb2-H-12", "local", p_nonce, request("GET", TARGET, "n-2"), NOW, 0, 60, {}, nullptr, "proof_mismatch");
+    add("cb2-H-13", "local", p_nonce, get_me, NOW, 0, 60, {}, nullptr, "ok");
+    add("cb2-H-14", "local", p1, request("GET", TARGET, "n-1"), NOW, 0, 60, {}, nullptr, "proof_mismatch");
+    add("cb2-H-15", "local", p_stranger, get_me, NOW, 0, 60, {}, nullptr, "proof_invalid");
+    add("cb2-H-16", "local", p_public, get_me, NOW, 0, 60, {}, nullptr, "proof_invalid");
+    add("cb2-H-17", "local", flipped, get_me, NOW, 0, 60, {}, nullptr, "proof_invalid");
+    add("cb2-H-18", "local", as_public, get_me, NOW, 0, 60, {}, nullptr, "proof_invalid");
+    add("cb2-H-19", "local", p_malformed, get_me, NOW, 0, 60, {}, nullptr, "proof_malformed");
+    add("cb2-H-20", "local", "", get_me, NOW, 0, 60, {}, nullptr, "missing_proof");
+    add("cb2-H-21", "local", "", get_me, NOW, 0, 60, {}, "ignore", "ok");
+    add("cb2-H-22", "bearer", "", get_me, NOW, 0, 60, {}, nullptr, "ok");
+    add("cb2-H-23", "bearer", "", get_me, NOW, 0, 60, {}, "require", "missing_cnf");
+    add("cb2-H-24", "public", p_public, get_me, NOW, 0, 60, {}, nullptr, "ok");
+    add("cb2-H-25", "public", p1, get_me, NOW, 0, 60, {}, nullptr, "proof_invalid");
+    add("cb2-H-26", "local", p1, get_me, NOW + 7200, 0, 60, {}, nullptr, "expired");
+    put(root, "tests", std::move(tests));
+
+    Value inter = object();
+    put(inter, "proof", str(p1));
+    put(inter, "claims", str(cb2::HolderProof::claims_for(get_me, "p-1", NOW, 60).value().to_json()));
+    put(inter, "footer", str(client_footer));
+    put(inter, "implicit-assertion", str(local_token));
+    const Bytes pae = pae_of({cb2::bytes(cb2::Holder::PUBLIC_HEADER), cb2::bytes(cb2::HolderProof::claims_for(get_me, "p-1", NOW, 60).value().to_json()),
+                              cb2::bytes(client_footer), cb2::bytes(local_token)});
+    const Bytes body = body_of(p1, cb2::Holder::PUBLIC_HEADER.size());
+    const std::size_t mlen = body.size() - cb2::Public::SIG_BYTES;
+    const Bytes ed_sig(body.begin() + static_cast<std::ptrdiff_t>(mlen), body.begin() + static_cast<std::ptrdiff_t>(mlen + cb2::Public::ED_SIG_BYTES));
+    if (crypto_sign_verify_detached(ed_sig.data(), pae.data(), pae.size(), client.public_key().bytes().data()) != 0) {
+        std::fprintf(stderr, "proof Ed25519 half does not verify over the PAE\n");
+        std::exit(1);
+    }
+    put(inter, "pae", str(tu::hex(pae)));
+    put(inter, "ed25519-signature", str(tu::hex(ed_sig)));
+    put(root, "intermediates", std::move(inter));
+
+    Value norm = array();
+    const char* const cases[][2] = {
+        {"https://API.Example/v1/me?x=1#frag", "https://api.example/v1/me"},
+        {"HTTPS://api.example:443/v1/me", "https://api.example/v1/me"},
+        {"http://api.example:80/", "http://api.example/"},
+        {"http://api.example:8080/a", "http://api.example:8080/a"},
+        {"https://api.example", "https://api.example/"},
+        {"https://api.example/A%2Fb/./c", "https://api.example/A%2Fb/./c"},
+        {"https://[::1]:443/x", "https://[::1]/x"},
+        {"ftp://Host:21/x", "ftp://host:21/x"},
+        {"api.example/v1", nullptr},
+        {"https://user@api.example/", nullptr},
+        {"https://api.example:4a3/", nullptr},
+        {"https:///x", nullptr},
+    };
+    for (const auto& c : cases) {
+        Value v = object();
+        put(v, "input", str(c[0]));
+        const auto got = cb2::Holder::normalize_target(c[0]);
+        if ((c[1] == nullptr) != !got || (c[1] != nullptr && *got != c[1])) { std::fprintf(stderr, "normalisation differs\n"); std::exit(1); }
+        if (c[1] == nullptr) { Value n; n.kind = Value::Kind::null; put(v, "output", std::move(n)); }
+        else put(v, "output", str(c[1]));
+        norm.items.push_back(std::move(v));
+    }
+    put(root, "normalisation", std::move(norm));
+    if (!tu::write_file((dir + "/proofs.json").c_str(), pretty(root))) std::exit(1);
+}
+#endif
+
 void write_paserk(const std::string& dir) {
     const LocalKey k = LocalKey::from_bytes(tu::unhex(KEY_HEX)).value();
     const LocalKey wk = LocalKey::from_bytes(tu::unhex(KEY2_HEX)).value();
@@ -649,6 +830,9 @@ int main(int argc, char** argv) {
     write_local(dir);
     write_claims(dir);
     write_paserk(dir);
+#ifdef CB2_HAS_PQ
+    write_holder(dir);
+#endif
     std::printf("vectors written to %s\n", dir.c_str());
     return 0;
 }

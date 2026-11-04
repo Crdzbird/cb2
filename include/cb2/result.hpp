@@ -45,6 +45,13 @@ enum class Error : uint8_t {
     subject_mismatch,
     missing_jti,
     replayed,
+    missing_cnf,
+    missing_proof,
+    proof_invalid,
+    proof_malformed,
+    proof_expired,
+    proof_mismatch,
+    proof_replayed,
 };
 
 /// Stable name of an error, for logs.
@@ -67,6 +74,13 @@ enum class Error : uint8_t {
         case Error::subject_mismatch: return "subject_mismatch";
         case Error::missing_jti: return "missing_jti";
         case Error::replayed: return "replayed";
+        case Error::missing_cnf: return "missing_cnf";
+        case Error::missing_proof: return "missing_proof";
+        case Error::proof_invalid: return "proof_invalid";
+        case Error::proof_malformed: return "proof_malformed";
+        case Error::proof_expired: return "proof_expired";
+        case Error::proof_mismatch: return "proof_mismatch";
+        case Error::proof_replayed: return "proof_replayed";
     }
     return "unknown";
 }

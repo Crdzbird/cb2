@@ -1,0 +1,54 @@
+# cb2 playground demo: a sender-constrained token and its holder proofs. Needs liboqs.
+echo -- the issuer's local key and the client's signing pair
+keygen local alice
+assert ok
+keygen public client
+assert ok
+echo -- a token bound to the client's key: cnf carries the whole public key
+claims alice iss=https://issuer.example aud=api sub=user-1 exp=+3600 cnf=client
+assert ok
+echo -- without a proof the token is refused
+check alice $ iss=https://issuer.example aud=api
+assert missing_proof
+echo -- a proof for one request, made by the client, checked with the request
+proof client $ htm=GET htu=https://api.example/v1/me
+assert ok
+check alice $ iss=https://issuer.example aud=api proof htm=GET htu=https://api.example/v1/me
+assert ok
+echo -- the same proof again is a replay
+check alice $ iss=https://issuer.example aud=api proof htm=GET htu=https://api.example/v1/me
+assert proof_replayed
+echo -- a fresh proof presented for another method or another target
+proof client $ htm=GET htu=https://api.example/v1/me
+assert ok
+check alice $ iss=https://issuer.example aud=api proof htm=POST htu=https://api.example/v1/me
+assert proof_mismatch
+check alice $ iss=https://issuer.example aud=api proof htm=GET htu=https://api.example/v1/you
+assert proof_mismatch
+echo -- the target is compared after normalisation: case, default port, query
+check alice $ iss=https://issuer.example aud=api proof htm=GET htu=HTTPS://API.EXAMPLE:443/v1/me?page=2
+assert ok
+echo -- a proof by another key pair
+keygen public stranger
+proof stranger $ htm=GET htu=https://api.example/v1/me
+assert ok
+check alice $ iss=https://issuer.example aud=api proof htm=GET htu=https://api.example/v1/me
+assert proof_invalid
+echo -- a proof that outlived its sixty seconds
+proof client $ htm=GET htu=https://api.example/v1/me now=1700000000
+assert ok
+check alice $ iss=https://issuer.example aud=api proof htm=GET htu=https://api.example/v1/me now=1700000061
+assert proof_expired
+echo -- a verifier that says it ignores the constraint, and one that requires it
+check alice $ iss=https://issuer.example aud=api ignore-cnf
+assert ok
+claims alice iss=https://issuer.example aud=api sub=user-1 exp=+3600
+assert ok
+check alice $ iss=https://issuer.example aud=api require-cnf
+assert missing_cnf
+echo -- a proof is not a cb2.public token
+proof client $ htm=GET htu=https://api.example/v1/me
+assert ok
+peek $proof
+verify client $proof
+assert invalid

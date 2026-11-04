@@ -158,6 +158,36 @@ implicit assertion.
    of oversize garbage therefore costs a length comparison, not a 48 MiB
    buffer and the hashing of it.
 
+### Sender-constrained tokens (holder proofs)
+
+1. A token that carries cnf is accepted only with a holder proof that
+   authenticates under the key cnf carries, for this very access token
+   (its text is the proof's implicit assertion), for this method and
+   target, within the proof lifetime, once per jti. A token read from a
+   log, a proxy, a cache, a crash dump or a capture is useless without
+   the client's secret key.
+2. A captured request, proof included, replays only against the same
+   method and target, with the same token, within the proof lifetime
+   (60 seconds by default), and only once past the proof replay check,
+   which is required whenever a proof is checked.
+3. The verifier trusts nothing the client presents about the key: cnf
+   carries the whole public key under the issuer's own tag or signature,
+   and the proof's footer binds that key's id. A proof under any other
+   key fails closed.
+4. Domain separation: the holder header is the ML-DSA context string
+   and the first PAE piece, so a signature the client made as a
+   cb2.public token is never a proof and a proof is never a cb2.public
+   token, under the same key.
+5. Safe by default: a token that carries cnf is refused without a proof
+   unless the verifier says ignore_sender_constraint() on purpose; a
+   verifier may also require cnf of every token.
+
+Not claimed: protection when the client's secret key is stolen together
+with the token (malware on the client), or when the verifier is
+compromised; a browser client cannot hold a post-quantum key
+non-extractably today. The symmetric holder mode designed for that case
+in docs/SENDER_CONSTRAINT.md is not yet implemented.
+
 ## Assumptions
 
 - libsodium, BLAKE3 and liboqs are correct and their constant-time

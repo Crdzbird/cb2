@@ -1,10 +1,12 @@
 # cb2 sender-constrained tokens
 
-Status: design draft, decided, not implemented. Nothing in this document
-is normative until it moves into PROTOCOL.md with vectors and the
-checker behind it. It is written in the same shape as PROTOCOL.md so
-that moving it is a copy, not a rewrite. The four questions the first
-draft left open are settled in section 8.
+Status: the public mode is implemented as of 2026-11-04 and its
+normative statement is PROTOCOL.md section 13, with vectors in
+tests/vectors/proofs.json; where this document and PROTOCOL.md differ,
+PROTOCOL.md is the one to follow. The local mode (section 2) is designed
+here and not yet implemented: a `kcb2.local` cnf is reserved and refused
+with `unavailable`. This document keeps the design rationale, the
+decisions of section 8 and the implementation plan.
 
 ## 1. The problem
 

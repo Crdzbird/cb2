@@ -459,6 +459,29 @@ claim values are data, not identifiers, and may hold any valid UTF-8.
 
 Lengths and limits count bytes, not characters.
 
+### 8.5 Sender constraint
+
+A token whose payload carries `cnf`, the client's whole kcb2.public key,
+is accepted only with a holder proof: a `cb2.holder-public.` token the
+client signs for one method, one target and this access token, checked
+as the last step of validation with its own verdicts. The construction
+is the cb2.public one of section 5 with the holder header as the domain
+string in the PAE, the ML-DSA context string and the text, so a proof is
+never a cb2.public token and a cb2.public token is never a proof under
+the same key; the footer binds the client key's kcb2.pid and the
+implicit assertion is the access token text, so a proof is worthless
+with any other token. The normative statement is PROTOCOL.md section
+13; the design, its decisions and the symmetric mode still to come are
+docs/SENDER_CONSTRAINT.md.
+
+The rationale for carrying the key rather than its id: the verifier
+then trusts nothing the client presents and needs no key store, since
+the key arrives under the issuer's own tag or signature, bound only
+after the client proved possession at issuance; the 2.6 KB it costs is
+accepted on purpose. The rationale for the single verdict before the
+proof authenticates and detailed verdicts after is the same as for the
+access token itself (3.6 and 8.3).
+
 ## 9. Rationale: what changes from v4 and from cb1, and the attack each closes
 
 | decision | v4.local / v4.public | cb1 | cb2 | closes |
@@ -474,6 +497,7 @@ Lengths and limits count bytes, not characters.
 | key types | raw byte spans | raw byte spans | LocalKey, PublicKey, SecretKey; no byte spans in the token API | algorithm and purpose confusion by passing one key to the other function |
 | key id | footer by convention | footer by convention | bound by the library into `{"kid":...}` and compared in constant time | tokens accepted under a rotated or mis-selected key; timing on the id comparison |
 | claims | none in the token layer | none | typed claims with a validator that requires exp by default | missing-expiry and missing-audience bugs, the most common real token failures |
+| sender constraint | none (bearer) | none | cnf carries the client key; a holder proof per request, bound to the access token by the implicit assertion | a stolen token used from anywhere; a captured proof replayed against another token, target or method |
 | size limit | caller's problem | caller's problem | before any parsing | decompression-style and parser-cost denial of service |
 | JSON | caller's problem | caller's problem | strict reader, numbers never converted | duplicate-key and coercion ambiguities between issuer and verifier |
 | international text | UTF-8 accepted by the JSON grammar, nothing more | same | UTF-8 raw on the wire, escapes resolved before comparison, an identifier policy on both sides, no normalisation | identifiers that differ by an invisible or bidi character; tokens minted with text the verifier will refuse |

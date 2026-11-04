@@ -75,7 +75,8 @@ if(CB2_BUILD_TESTS)
         tests/test_keys.cpp
         tests/test_vectors.cpp
         tests/test_v4_crosscheck.cpp
-        tests/test_text.cpp)
+        tests/test_text.cpp
+        tests/test_holder.cpp)
     target_link_libraries(cb2_tests PRIVATE cb2::cb2)
     target_compile_options(cb2_tests PRIVATE ${CB2_WARNINGS} ${CB2_SANITIZE_FLAGS})
     target_link_options(cb2_tests PRIVATE ${CB2_SANITIZE_FLAGS})
@@ -112,6 +113,7 @@ if(CB2_BUILD_PLAYGROUND)
         add_test(NAME cb2_playground_demo_text COMMAND cb2_playground "${CMAKE_CURRENT_SOURCE_DIR}/playground/demo_text.cb2")
         if(CB2_PQ)
             add_test(NAME cb2_playground_demo_public COMMAND cb2_playground "${CMAKE_CURRENT_SOURCE_DIR}/playground/demo_public.cb2")
+            add_test(NAME cb2_playground_demo_holder COMMAND cb2_playground "${CMAKE_CURRENT_SOURCE_DIR}/playground/demo_holder.cb2")
         endif()
     endif()
 endif()

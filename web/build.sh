@@ -21,7 +21,7 @@ else
     echo "==> cb2.public disabled: no liboqs under $PREFIX" >&2
 fi
 mkdir -p "$HERE/dist" "$HERE/demo"
-cp "$ROOT/playground/demo.cb2" "$ROOT/playground/demo_text.cb2" "$ROOT/playground/demo_public.cb2" "$HERE/demo/"
+cp "$ROOT/playground/demo.cb2" "$ROOT/playground/demo_text.cb2" "$ROOT/playground/demo_public.cb2" "$ROOT/playground/demo_holder.cb2" "$HERE/demo/"
 em++ -std=c++20 -O2 -fwasm-exceptions \
     -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow \
     "${PQ_FLAGS[@]}" -I "$ROOT/include" -I "$PREFIX/include" \

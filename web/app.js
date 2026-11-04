@@ -33,7 +33,14 @@
         audience_mismatch: "The token authenticated but its aud is not the expected audience.",
         subject_mismatch: "The token authenticated but its sub is not the expected subject.",
         missing_jti: "The replay check needs a jti and the token has none.",
-        replayed: "This jti was already seen by the replay check."
+        replayed: "This jti was already seen by the replay check.",
+        missing_cnf: "The rules require a sender-constrained token and this one carries no cnf claim.",
+        missing_proof: "The token is bound to a client key (cnf) and no holder proof was presented. A verifier that means to accept it as a bearer token must say so with ignore-cnf.",
+        proof_invalid: "The holder proof did not authenticate under the key the token's cnf carries, for this token: wrong key, another token, a changed character, or not a proof at all. One verdict, on purpose.",
+        proof_malformed: "The holder proof authenticated but its payload is not a proof claims object: jti, iat, exp, htm and htu are required.",
+        proof_expired: "The holder proof authenticated but its times are out of range: expired, issued in the future, or longer-lived than the verifier allows.",
+        proof_mismatch: "The holder proof authenticated but names another method, another target or another nonce than this request.",
+        proof_replayed: "This proof's jti was already seen by the proof replay check."
     };
 
     function ch() {
@@ -1004,6 +1011,16 @@
             $("verify-key").value = "verifier";
             setRules(RULES);
             verify();
+        }},
+        {label: "holder-bound token", pq: true, hint: "The token carries cnf, the client's whole public key, so it is accepted only with a holder proof: a small cb2.holder-public. token the client signs for one method, one target and this very token. Checked with the proof, ok; the same proof again, proof_replayed; without a proof, missing_proof. Make another proof and check it against a different method to see proof_mismatch.", go: function () {
+            scenarioStart();
+            ensureSigner("client");
+            setClaims(BASE);
+            exec(issueCommand() + " cnf=client");
+            exec("proof client $ htm=GET htu=https://api.example/v1/me");
+            exec("check alice $ iss=" + arg(RULES.iss) + " aud=" + arg(RULES.aud) + " proof htm=GET htu=https://api.example/v1/me");
+            exec("check alice $ iss=" + arg(RULES.iss) + " aud=" + arg(RULES.aud) + " proof htm=GET htu=https://api.example/v1/me");
+            exec("check alice $ iss=" + arg(RULES.iss) + " aud=" + arg(RULES.aud));
         }},
         {label: "signed token (Ed25519 + ML-DSA-65)", pq: true, hint: "A signing pair signs; its public half verifies. Both signatures must verify: a classical one and a post-quantum one. Step 3 can read the claims of a public token before verifying, since they travel in clear; it says so, and nothing there is trusted.", go: function () {
             ensureSigner("issuer");

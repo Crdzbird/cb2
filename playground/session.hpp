@@ -6,7 +6,8 @@
  * run() executes one line and appends its output to Session::out as
  * "name = value" lines; a verdict line reports ok or an error name, an
  * "error:" line reports a malformed command and counts a failure. The
- * token "$" in any argument stands for the last token produced. Inside
+ * token "$" in any argument stands for the last token produced and
+ * "$proof" for the last holder proof. Inside
  * double quotes, \" \\ \n \t, \uXXXX or \u{X...} (a code point) and
  * \xNN (a raw byte) are resolved, so an ASCII script can carry any text.
  */
@@ -38,7 +39,10 @@ struct Session {
     std::map<std::string, cb2::PublicKey> pub;
 #endif
     std::set<std::string> seen_jti;
+    std::set<std::string> seen_proof_jti;
     std::string last_token;
+    std::string last_proof;
+    int proof_count = 0;
     std::string last_verdict = "none";
     std::string out;
     int failures = 0;
@@ -298,11 +302,16 @@ inline void help(Session& s) {
         "  open <key> <token> [footer] [implicit]    message or verdict\n"
         "  sign <key> <msg> [footer] [implicit]      raw cb2.public token\n"
         "  verify <key> <token> [footer] [implicit]  message or verdict\n"
-        "  claims <key> [iss=] [aud=] [sub=] [jti=] [exp=] [nbf=] [iat=] [name=value]...\n"
-        "                                 [name:=json]... [implicit=]  seal (local key) or\n"
-        "                                 sign (secret key); times: +3600, Unix seconds or RFC 3339\n"
+        "  claims <key> [iss=] [aud=] [sub=] [jti=] [exp=] [nbf=] [iat=] [cnf=<key>]\n"
+        "                                 [name=value]... [name:=json]... [implicit=]  seal (local key)\n"
+        "                                 or sign (secret key); times: +3600, Unix seconds or RFC 3339;\n"
+        "                                 cnf names a stored signing pair or public key to bind\n"
+        "  proof <secret key> <token> htm= htu= [nonce=] [jti=] [now=] [lifetime=]\n"
+        "                                 holder proof for the token and request; $proof is the last one\n"
         "  check <key> <token> [iss=] [aud=] [sub=] [any-iss] [any-aud] [skew=] [now=]\n"
         "                                 [replay] [no-exp] [max=] [lifetime=] [implicit=]  open or verify\n"
+        "                                 [proof|proof=] [htm=] [htu=] [nonce=] [proof-lifetime=]\n"
+        "                                 [require-cnf] [ignore-cnf]  the holder proof and its request\n"
         "  peek <token>                   header, body size, footer and kid, nothing verified;\n"
         "                                 for cb2.public the message and claims, in clear, unverified\n"
         "  lookup <token>                 the stored keys whose id matches the footer's kid, unverified\n"
@@ -662,7 +671,7 @@ inline bool cmd_verify(Session& s, const Args& a) {
 }
 
 inline bool cmd_claims(Session& s, const Args& a) {
-    if (a.size() < 2) return fail(s, "claims <key> [iss=] [aud=] [sub=] [jti=] [exp=] [nbf=] [iat=] [name=value]... [name:=json]... [implicit=]");
+    if (a.size() < 2) return fail(s, "claims <key> [iss=] [aud=] [sub=] [jti=] [exp=] [nbf=] [iat=] [cnf=<key>] [name=value]... [name:=json]... [implicit=]");
     cb2::Claims c;
     std::string implicit;
     for (std::size_t i = 2; i < a.size(); ++i) {
@@ -679,6 +688,11 @@ inline bool cmd_claims(Session& s, const Args& a) {
             c.aud = value;
         } else if (name == "jti") {
             c.jti = value;
+        } else if (name == "cnf") {
+            c.cnf = value;
+#ifdef CB2_HAS_PQ
+            if (const auto pk = find_public(s, value)) c.cnf = pk->to_paserk();
+#endif
         } else if (name == "exp" || name == "nbf" || name == "iat") {
             cb2::Seconds t = 0;
             if (!parse_time(value, t)) return fail(s, "bad time " + value);
@@ -735,12 +749,27 @@ inline bool cmd_claims(Session& s, const Args& a) {
 }
 
 inline bool cmd_check(Session& s, const Args& a) {
-    if (a.size() < 3) return fail(s, "check <key> <token> [iss=] [aud=] [sub=] [any-iss] [any-aud] [skew=] [now=] [replay] [no-exp] [max=] [lifetime=] [implicit=]");
+    if (a.size() < 3) return fail(s, "check <key> <token> [iss=] [aud=] [sub=] [any-iss] [any-aud] [skew=] [now=] [replay] [no-exp] [max=] [lifetime=] [implicit=] [proof|proof=] [htm=] [htu=] [nonce=] [proof-lifetime=] [require-cnf] [ignore-cnf]");
     cb2::ValidationRules rules;
     std::string implicit;
+    std::string proof;
+    cb2::HolderRequest request;
     for (std::size_t i = 3; i < a.size(); ++i) {
         if (a[i] == "any-iss") {
             rules.allow_any_issuer();
+            continue;
+        }
+        if (a[i] == "proof") {
+            if (s.last_proof.empty()) return fail(s, "no proof made yet");
+            proof = s.last_proof;
+            continue;
+        }
+        if (a[i] == "require-cnf") {
+            rules.require_sender_constraint();
+            continue;
+        }
+        if (a[i] == "ignore-cnf") {
+            rules.ignore_sender_constraint();
             continue;
         }
         if (a[i] == "any-aud") {
@@ -772,6 +801,16 @@ inline bool cmd_check(Session& s, const Args& a) {
             rules.with_max_token_bytes(static_cast<std::size_t>(std::atoll(value.c_str())));
         } else if (name == "lifetime" && all_digits(value)) {
             rules.with_max_lifetime(std::atoll(value.c_str()));
+        } else if (name == "proof") {
+            proof = value;
+        } else if (name == "htm") {
+            request.method = value;
+        } else if (name == "htu") {
+            request.target = value;
+        } else if (name == "nonce") {
+            request.nonce = value;
+        } else if (name == "proof-lifetime" && all_digits(value)) {
+            rules.with_proof_lifetime(std::atoll(value.c_str()));
         } else if (name == "now") {
             cb2::Seconds t = 0;
             if (!parse_time(value, t)) return fail(s, "bad time " + value);
@@ -779,6 +818,12 @@ inline bool cmd_check(Session& s, const Args& a) {
         } else {
             return fail(s, "unknown option " + a[i]);
         }
+    }
+    if (!proof.empty()) {
+        if (request.method.empty() || request.target.empty()) return fail(s, "a proof needs htm= and htu=");
+        rules.with_holder_proof(proof, request).with_proof_replay_check([&s](std::string_view jti) {
+            return s.seen_proof_jti.insert(std::string(jti)).second;
+        });
     }
     say(s, "rules", std::string(rules.complete() ? "complete" : "incomplete") + ", now " + time_text(rules.now()));
     cb2::Result<cb2::Claims> r = cb2::Result<cb2::Claims>::err(Error::argument);
@@ -802,6 +847,57 @@ inline bool cmd_check(Session& s, const Args& a) {
     verdict(s, "ok");
     return true;
 }
+
+#ifdef CB2_HAS_PQ
+inline bool cmd_proof(Session& s, const Args& a) {
+    if (a.size() < 3) return fail(s, "proof <secret key> <token> htm= htu= [nonce=] [jti=] [now=] [lifetime=]");
+    const cb2::SecretKey* k = find_secret(s, a[1]);
+    if (k == nullptr) return fail(s, "no secret key named " + a[1]);
+    cb2::HolderRequest request;
+    std::string jti;
+    cb2::Seconds now = now_seconds();
+    cb2::Seconds lifetime = cb2::Holder::DEFAULT_LIFETIME;
+    for (std::size_t i = 3; i < a.size(); ++i) {
+        const auto kv = key_value(a[i]);
+        if (!kv) return fail(s, "expected name=value, got " + a[i]);
+        const auto& [name, value] = *kv;
+        if (name == "htm") {
+            request.method = value;
+        } else if (name == "htu") {
+            request.target = value;
+        } else if (name == "nonce") {
+            request.nonce = value;
+        } else if (name == "jti") {
+            jti = value;
+        } else if (name == "lifetime" && all_digits(value)) {
+            lifetime = std::atoll(value.c_str());
+        } else if (name == "now") {
+            if (!parse_time(value, now)) return fail(s, "bad time " + value);
+        } else {
+            return fail(s, "unknown option " + a[i]);
+        }
+    }
+    if (request.method.empty() || request.target.empty()) return fail(s, "proof needs htm= and htu=");
+    if (jti.empty()) jti = "p-" + std::to_string(++s.proof_count);
+    auto claims = cb2::HolderProof::claims_for(request, jti, now, lifetime);
+    if (claims.is_err()) {
+        verdict(s, claims.error());
+        return true;
+    }
+    auto p = cb2::HolderProof::make(*k, request, a[2], jti, now, lifetime);
+    if (p.is_err()) {
+        verdict(s, p.error());
+        return true;
+    }
+    say(s, "claims", claims.value().to_json());
+    say(s, "footer", cb2::Token::footer_for(k->public_key().paserk_id()));
+    s.last_proof = p.value();
+    say(s, "proof", p.value());
+    say(s, "length", std::to_string(p.value().size()));
+    verdict(s, "ok");
+    return true;
+}
+#endif
 
 /// The two signatures at the end of a cb2.public body: Ed25519 (64) and
 /// ML-DSA-65 (3309), so the message before them can be shown unverified.
@@ -840,6 +936,7 @@ inline bool cmd_peek(Session& s, const Args& a) {
     std::string_view header;
     if (t.rfind("cb2.local.", 0) == 0) header = "cb2.local.";
     if (t.rfind("cb2.public.", 0) == 0) header = "cb2.public.";
+    if (t.rfind("cb2.holder-public.", 0) == 0) header = "cb2.holder-public.";
     if (header.empty()) {
         say(s, "header", "not a cb2 token");
         verdict(s, Error::invalid);
@@ -853,7 +950,7 @@ inline bool cmd_peek(Session& s, const Args& a) {
     say(s, "body", std::to_string(body.size()) + " characters, " +
                     (body_bytes == static_cast<std::size_t>(-1) ? std::string("not a valid base64 length")
                                                                  : std::to_string(body_bytes) + " bytes"));
-    if (header == "cb2.public.") {
+    if (header == "cb2.public." || header == "cb2.holder-public.") {
         peek_public_body(s, body);
     } else {
         say(s, "payload", "ciphertext; readable only with the key");
@@ -978,6 +1075,7 @@ inline bool run(Session& s, const std::string& line) {
     if (a.empty() || a[0][0] == '#') return true;
     for (std::string& arg : a) {
         if (arg == "$") arg = s.last_token;
+        if (arg == "$proof") arg = s.last_proof;
     }
     const std::string& c = a[0];
     if (c == "help") {
@@ -997,6 +1095,9 @@ inline bool run(Session& s, const std::string& line) {
     if (c == "verify") return cmd_verify(s, a);
     if (c == "claims") return cmd_claims(s, a);
     if (c == "check") return cmd_check(s, a);
+#ifdef CB2_HAS_PQ
+    if (c == "proof") return cmd_proof(s, a);
+#endif
     if (c == "peek") return cmd_peek(s, a);
     if (c == "lookup") return cmd_lookup(s, a);
     if (c == "tamper") return cmd_tamper(s, a);

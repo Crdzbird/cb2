@@ -3,7 +3,8 @@
 Version 0.1.0. Status: a CipherBird proposal, not a standard.
 
 This document is the normative definition of the cb2.local and cb2.public
-token formats, the kcb2 key strings and the claims layer. It is written
+token formats, the kcb2 key strings, the claims layer and the holder
+proofs of sender-constrained tokens (section 13). It is written
 for an implementer in any language who has not read the reference
 implementation and does not intend to. Everything an implementation needs
 to produce tokens the reference accepts, and to accept the tokens it
@@ -99,13 +100,14 @@ encoding.
 
 ```
 token   = header body-text [ "." footer-text ]
-header  = "cb2.local." | "cb2.public."
+header  = "cb2.local." | "cb2.public." | "cb2.holder-public."
 body-text   = base64url(body)
 footer-text = base64url(f)      ; present if and only if len(f) > 0
 ```
 
-The header `cb2.local.` is 10 bytes and `cb2.public.` is 11 bytes. The
-body is defined per purpose in sections 5 and 6. The footer f is
+The header `cb2.local.` is 10 bytes, `cb2.public.` is 11 bytes and
+`cb2.holder-public.` is 18 bytes. The body is defined per purpose in
+sections 5, 6 and 13. The footer f is
 authenticated but transmitted in clear. Every byte of a token after the
 header is a base64url character or the single `.` that separates the
 body from the footer.
@@ -376,6 +378,7 @@ registered claims are all strings:
 | nbf | not before | RFC 3339 |
 | iat | issued at | RFC 3339 |
 | jti | token id | identifier |
+| cnf | the key this token is bound to (section 13) | identifier |
 
 Every other member is a custom claim. Its name is an identifier (9.4) and
 its value MAY be any JSON value, nested at most 15 levels deep (9.2). An
@@ -384,7 +387,7 @@ registered names.
 
 An issuer MUST write the payload with no whitespace outside strings, the
 registered claims first in the order of the table above (absent ones
-omitted), then the custom claims in insertion order. A string is written
+omitted, cnf last of them), then the custom claims in insertion order. A string is written
 with `"` as `\"`, `\` as `\\`, U+0008, U+000C, U+000A, U+000D and U+0009
 as `\b`, `\f`, `\n`, `\r` and `\t`, every other code point below U+0020
 as `\u00XX` with lowercase hex, and everything else, including U+007F and
@@ -504,9 +507,12 @@ failure:
      different from the expectation: `issuer_mismatch`,
      `audience_mismatch`, `subject_mismatch`, in that order
    - with a replay check installed: jti absent is `missing_jti`; the check
-     receives jti and refuses it: `replayed`. The check runs last, so it
-     sees only tokens that passed every other rule.
-5. Only then are the claims released to the caller.
+     receives jti and refuses it: `replayed`. The check runs after the
+     bindings, so it sees only tokens that passed every other rule.
+5. The sender constraint of section 13.5: nothing for a token without
+   cnf unless the rules require one, otherwise the holder proof is
+   checked under the key cnf carries.
+6. Only then are the claims released to the caller.
 
 An implementation MUST NOT offer a function that returns claims from a
 token that has not been authenticated.
@@ -527,6 +533,9 @@ MUST NOT split `invalid`.
 | unavailable | the build | ML-DSA-65 is not present |
 | claims_malformed | the authenticated payload | 9.2 or 9.4 failed after authentication |
 | missing_exp, expired, not_yet_valid, issued_in_future, lifetime_exceeded, issuer_mismatch, audience_mismatch, subject_mismatch, missing_jti, replayed | the authenticated claims and the rules | 9.6 step 4 |
+| missing_cnf, missing_proof | the authenticated claims and the rules | 13.5 step 1 |
+| proof_invalid | the proof | any failure before the proof authenticates, 13.5 step 3 |
+| proof_malformed, proof_expired, proof_mismatch, proof_replayed | the authenticated proof and the rules | 13.5 step 4 |
 
 ## 11. Versioning
 
@@ -572,6 +581,145 @@ steps above.
   the one for session tokens; the public purpose is for service to
   service use and for anything whose verifier must not hold the issuing
   key.
+
+## 13. Holder proofs: sender-constrained tokens
+
+A token whose payload carries the registered claim `cnf` is
+sender-constrained: a verifier accepts it only together with a holder
+proof, a token of purpose `cb2.holder-public.` that the presenter made
+under the key `cnf` names, for this request and for this very access
+token. The token alone is then no more useful to a thief than a public
+key. The design and its rationale are in SENDER_CONSTRAINT.md; this
+section is the normative part.
+
+### 13.1 The cnf claim
+
+`cnf` is a registered claim, a string subject to 9.4, written after jti.
+Its value is a key string:
+
+- `kcb2.public.` followed by 2646 base64url characters: the client's
+  whole hybrid public key, as section 7 writes it. The token carries the
+  key, not its id, so a verifier needs no key store and consults nothing
+  the client presents: the key arrives under the issuer's tag or
+  signature.
+- `kcb2.local.` followed by 43 base64url characters: reserved for the
+  symmetric holder mode, which this version does not define. A verifier
+  MUST treat it as `claims_malformed` in a cb2.public token, where the
+  key would be in clear, and as `unavailable` in a cb2.local token.
+
+Any other value is `claims_malformed` when the constraint is checked.
+
+### 13.2 The request and the target
+
+A proof names the request it is for: `htm`, the HTTP method, compared
+byte for byte and uppercase by convention; `htu`, the request target
+after the normalisation below; and `nonce`, present only when the
+verifier handed one out. The names are those of RFC 9449 so that their
+meaning needs no new definition. A verifier that is not an HTTP resource
+defines what `htm` and `htu` mean for it and says so; both are required
+all the same, since a proof that does not say what it is for can be
+replayed against anything.
+
+Target normalisation, applied by the client before writing `htu` and by
+the verifier to its own request before comparing: the query and the
+fragment are removed; the scheme and the host are lowercased; a port
+that is the scheme's default (80 for http, 443 for https) is removed; an
+empty path is written as `/`; the path is otherwise kept exactly as
+sent, percent-encoding included; nothing else changes. A URI without a
+scheme and a host, with userinfo, or with a port that is not all digits
+has no normal form and MUST be refused: by the client as `argument`, by
+the verifier as `argument` before the proof is read. The result is
+compared byte for byte in constant time.
+
+### 13.3 Proof claims
+
+The payload of a proof is a claims object under 9.1 and 9.2:
+
+| claim | required | meaning |
+|---|---|---|
+| jti | yes | a fresh id per proof, for the proof replay check |
+| iat | yes | when the proof was made |
+| exp | yes | when it stops being valid; the client writes iat plus a lifetime of at most the verifier's proof lifetime, 60 seconds by default |
+| htm | yes | the method, as a custom string claim |
+| htu | yes | the normalised target, as a custom string claim |
+| nonce | when the verifier uses nonces | the verifier's nonce, as a custom string claim |
+
+The client writes the registered claims in the order of 9.1 and then
+htm, htu and nonce in that order, so that a proof's payload is
+reproducible.
+
+### 13.4 Making a proof
+
+```
+h      = "cb2.holder-public."
+f      = {"kid":"<kcb2.pid of the client key>"}        (section 8, the key's default id)
+i      = the complete text of the access token
+proof  = the construction of section 6.2 with header h, message = the payload of 13.3, footer f, implicit assertion i
+```
+
+The header is the domain string everywhere section 6 uses the header:
+in the PAE, in the ML-DSA context string and in the text. A proof
+therefore never verifies as a cb2.public token and a cb2.public token
+never verifies as a proof, under the same key. The implicit assertion
+ties the proof to one access token without carrying a hash of it; the
+verifier holds that text and nothing is sent twice.
+
+### 13.5 Verifying
+
+The verifier's rules gain:
+
+| rule | default | meaning |
+|---|---|---|
+| holder proof | none | the proof presented with the request, together with the request's method, target and nonce |
+| proof lifetime | 60 seconds | the most exp - iat a proof may claim, and the most exp may lie after now plus the clock skew |
+| proof replay check | none; REQUIRED when a proof is given | receives the proof's jti and refuses one it has seen within the proof lifetime |
+| require sender constraint | false | a token without cnf is refused |
+| ignore sender constraint | false | cnf is not checked and no proof is needed; MUST be said explicitly |
+
+Rules that carry a proof without a proof replay check, or that both
+require and ignore the constraint, are incomplete (`rules_incomplete`,
+9.6 step 0).
+
+Step 5 of 9.6, stopping at the first failure:
+
+1. If the rules ignore the constraint, release. Otherwise cnf absent:
+   `missing_cnf` when required, else release as a bearer token. cnf
+   present and no proof in the rules: `missing_proof`.
+2. Classify cnf as 13.1 says; import the `kcb2.public` key; a string of
+   the wrong length or encoding is `claims_malformed`.
+3. Verify the proof as a `cb2.holder-public.` token under that key with
+   the footer rebuilt from the key's default id and the implicit
+   assertion set to the access token text, bounded first by the same
+   size limit as the access token. Every failure that depends on the
+   proof's bytes, the size included, is `proof_invalid`, one verdict.
+4. Parse the proof claims under 9.2 and 9.4; failure, or jti, iat, exp,
+   htm or htu absent or not strings: `proof_malformed`. Then, with
+   t = now, s = the clock skew and L = the proof lifetime:
+   - exp <= t - s, or iat > t + s, or exp - iat > L, or exp > t + s + L:
+     `proof_expired`
+   - htm different from the request's method, or htu different from
+     the request's normalised target, or, when the verifier has a nonce,
+     nonce absent or different: `proof_mismatch`, compared in constant
+     time
+   - the proof replay check refuses jti: `proof_replayed`
+5. Release the claims of the access token.
+
+A verifier MUST NOT accept a proof whose implicit assertion is anything
+but the access token it arrived with, MUST NOT accept a proof under a key
+other than the one cnf carries, and MUST NOT skip the replay check: the
+proof lifetime is the only thing that bounds the replay store, and
+without the store a captured request can be replayed for that long.
+
+### 13.6 Issuance
+
+How the client's key reaches the issuer is outside the token format, as
+key distribution is for the rest of cb2. The shape is: the client sends
+its `kcb2.public` string with the token request together with a proof
+over that request, a `cb2.holder-public.` token with the token
+endpoint's htm and htu, a fresh jti and an empty implicit assertion, so
+that the issuer binds only a key the client demonstrably holds. The
+issuer writes the whole key string into cnf. A new token means a new
+binding; a client key is never carried from one token to the next.
 
 ## Appendix A. Test vector files
 
@@ -683,6 +831,34 @@ serialise to the canonical text.
 `public`: `public-key` (hex), `secret-key` (hex), `kcb2.public`,
 `kcb2.pid` and `kcb2.secret`, all of which MUST be reproduced from the
 hex.
+
+### A.5 proofs.json
+
+`issuer` and `audience` are the expectations every test's rules carry.
+`client-public-key` and `stranger-public-key` are hex.
+
+`access-tokens`: an object with `local`, `bearer` and `public`. A local
+entry has `purpose` `local`, `key` (hex), `nonce` (hex), `payload` and
+`token`, and MUST be reproduced from them with the footer of section 8
+for the key's default id; `local` carries cnf and `bearer` does not. The
+`public` entry has `purpose` `public`, `issuer-public-key` (hex),
+`payload` and `token`, verified not reproduced.
+
+`tests`: objects with `name`, `access-token` (a key of `access-tokens`),
+`proof` (the proof text, or empty for none), `request` (`htm`, `htu` and
+optionally `nonce`), `rules` (`now`, `clock-skew`, `proof-lifetime`,
+`seen-jti`, `require-cnf`, `ignore-cnf`) and `expect`. Opening the
+access token under its key with rules that expect `issuer` and
+`audience`, carry the proof and the request when `proof` is not empty,
+and refuse the ids in `seen-jti`, MUST yield `expect`.
+
+`intermediates`: for the proof of cb2-H-1, `claims` (its payload),
+`footer`, `implicit-assertion` (the local access token), `pae` (hex)
+and `ed25519-signature` (hex), checked as A.2 describes with the
+`cb2.holder-public.` header.
+
+`normalisation`: objects with `input` and `output`, the latter null when
+the input has no normal form (13.2).
 
 ## Appendix B. Worked examples
 
@@ -810,3 +986,9 @@ apart unnoticed.
    equal lengths.
 10. The header of a token the implementation does not implement yields
     invalid.
+11. Every vector in proofs.json yields its recorded verdict: a bound
+    token is refused without a proof, a proof verifies only under the
+    key cnf carries and only with the access token it was made for, the
+    request and the times are checked as 13.5 says, a proof is never
+    accepted as a cb2.public token nor a cb2.public token as a proof,
+    and every target normalises as 13.2 says.

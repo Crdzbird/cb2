@@ -23,13 +23,21 @@
  * an UnverifiedKeyId whose name says what it is.
  *
  * Text is UTF-8 throughout and compared byte for byte. The identifier
- * claims (iss, sub, aud, jti), custom claim names and key ids must satisfy
- * text::identifier_ok on both sides: the issuer gets Error::argument
- * before anything is sealed or signed, the verifier gets claims_malformed
- * after authentication. See text.hpp for the policy.
+ * claims (iss, sub, aud, jti, cnf), custom claim names and key ids must
+ * satisfy text::identifier_ok on both sides: the issuer gets
+ * Error::argument before anything is sealed or signed, the verifier gets
+ * claims_malformed after authentication. See text.hpp for the policy.
+ *
+ * A token whose cnf claim names a client key is sender-constrained: after
+ * every other rule it is accepted only with a holder proof (HolderProof,
+ * holder.hpp) that the presenter made under that key for this request
+ * and this token. A verifier that does not check proofs must say so with
+ * ignore_sender_constraint(); by default such a token without a proof is
+ * missing_proof.
  */
 
 #include "detail/secure.hpp"
+#include "holder.hpp"
 #include "json.hpp"
 #include "keys.hpp"
 #include "local.hpp"
@@ -155,7 +163,7 @@ private:
 /// kept as JSON text.
 class Claims {
 public:
-    static constexpr std::string_view REGISTERED[] = {"iss", "sub", "aud", "exp", "nbf", "iat", "jti"};
+    static constexpr std::string_view REGISTERED[] = {"iss", "sub", "aud", "exp", "nbf", "iat", "jti", "cnf"};
 
     std::optional<std::string> iss;
     std::optional<std::string> sub;
@@ -164,6 +172,9 @@ public:
     std::optional<Seconds> nbf;
     std::optional<Seconds> iat;
     std::optional<std::string> jti;
+    /// The key this token is bound to: a kcb2.public string (the public
+    /// holder mode) or, reserved for the local mode, a kcb2.local string.
+    std::optional<std::string> cnf;
 
     [[nodiscard]] static bool is_registered(std::string_view name) noexcept {
         for (const auto r : REGISTERED) if (r == name) return true;
@@ -229,7 +240,7 @@ public:
     /// do not, with Error::argument; from_json refuses them with
     /// claims_malformed.
     [[nodiscard]] bool text_ok() const noexcept {
-        for (const auto& id : {&iss, &sub, &aud, &jti}) {
+        for (const auto& id : {&iss, &sub, &aud, &jti, &cnf}) {
             if (*id && !text::identifier_ok(**id)) return false;
         }
         for (const auto& [k, v] : custom_) {
@@ -239,7 +250,7 @@ public:
     }
 
     /// The JSON object: registered claims in the order iss, sub, aud, exp,
-    /// nbf, iat, jti, then custom claims in insertion order.
+    /// nbf, iat, jti, cnf, then custom claims in insertion order.
     [[nodiscard]] std::string to_json() const {
         std::string out = "{";
         bool first = true;
@@ -257,6 +268,7 @@ public:
         if (nbf) member("nbf", Rfc3339::format(*nbf));
         if (iat) member("iat", Rfc3339::format(*iat));
         if (jti) member("jti", *jti);
+        if (cnf) member("cnf", *cnf);
         for (const auto& [k, v] : custom_) {
             if (!first) out += ',';
             first = false;
@@ -281,6 +293,7 @@ public:
             if (k == "sub") { c.sub = std::move(v.text); continue; }
             if (k == "aud") { c.aud = std::move(v.text); continue; }
             if (k == "jti") { c.jti = std::move(v.text); continue; }
+            if (k == "cnf") { c.cnf = std::move(v.text); continue; }
             if (k == "exp" || k == "nbf" || k == "iat") {
                 Seconds t = 0;
                 if (!Rfc3339::parse(v.text, t)) return Result<Claims>::err(Error::claims_malformed);
@@ -313,9 +326,12 @@ private:
 /// size limit is enforced before any parsing; a maximum lifetime, when
 /// set, bounds how far ahead of now an accepted exp may lie; every
 /// string comparison is constant time. A replay check, when installed,
-/// runs last: it receives the jti of a token that passed every other
-/// rule and returns true to accept it, so a denylist never records a
-/// token that was refused for another reason.
+/// runs after the bindings: it receives the jti of a token that passed
+/// every other rule and returns true to accept it, so a denylist never
+/// records a token that was refused for another reason. The holder proof
+/// of a sender-constrained token is checked last of all, with the proof
+/// and the request given by with_holder_proof and a proof replay check
+/// that is required whenever a proof is given.
 class ValidationRules {
 public:
     static constexpr std::size_t DEFAULT_MAX_TOKEN_BYTES = 16384;
@@ -342,16 +358,41 @@ public:
     /// Fixes the clock, for tests and for callers with their own time source.
     ValidationRules& at(Seconds now) noexcept { now_ = now; return *this; }
 
+    /// The holder proof presented with the request and the request it must
+    /// name. A proof replay check must be installed as well.
+    ValidationRules& with_holder_proof(std::string proof, HolderRequest request) {
+        proof_ = std::move(proof);
+        request_ = std::move(request);
+        return *this;
+    }
+    /// The most a proof may live: exp at most this far after iat and after now.
+    ValidationRules& with_proof_lifetime(Seconds s) noexcept { proof_lifetime_ = s < 0 ? 0 : s; return *this; }
+    /// Receives a proof's jti; false reports proof_replayed. Required with a proof.
+    ValidationRules& with_proof_replay_check(ReplayCheck check) { proof_replay_ = std::move(check); return *this; }
+    /// Refuses a token that carries no cnf claim.
+    ValidationRules& require_sender_constraint() noexcept { require_cnf_ = true; return *this; }
+    /// Accepts a token that carries cnf without a proof. Say so on purpose.
+    ValidationRules& ignore_sender_constraint() noexcept { ignore_cnf_ = true; return *this; }
+
     [[nodiscard]] bool require_exp() const noexcept { return require_exp_; }
     [[nodiscard]] bool require_audience() const noexcept { return require_audience_; }
     [[nodiscard]] bool require_issuer() const noexcept { return require_issuer_; }
     [[nodiscard]] bool has_replay_check() const noexcept { return static_cast<bool>(replay_); }
+    [[nodiscard]] const std::optional<std::string>& holder_proof() const noexcept { return proof_; }
+    [[nodiscard]] const std::optional<HolderRequest>& holder_request() const noexcept { return request_; }
+    [[nodiscard]] Seconds proof_lifetime() const noexcept { return proof_lifetime_; }
+    [[nodiscard]] const ReplayCheck& proof_replay_check() const noexcept { return proof_replay_; }
+    [[nodiscard]] bool requires_sender_constraint() const noexcept { return require_cnf_; }
+    [[nodiscard]] bool ignores_sender_constraint() const noexcept { return ignore_cnf_; }
 
     /// Whether the rules say what audience and issuer they accept, by
-    /// expectation or by explicit allowance. Incomplete rules are refused
-    /// before any token is read.
+    /// expectation or by explicit allowance, carry a proof replay check
+    /// whenever they carry a proof, and do not both require and ignore the
+    /// sender constraint. Incomplete rules are refused before any token
+    /// is read.
     [[nodiscard]] bool complete() const noexcept {
-        return (audience_ || !require_audience_) && (issuer_ || !require_issuer_);
+        return (audience_ || !require_audience_) && (issuer_ || !require_issuer_) &&
+               (!proof_ || static_cast<bool>(proof_replay_)) && !(require_cnf_ && ignore_cnf_);
     }
     /// Whether every expected issuer, audience and subject satisfies the
     /// identifier policy the claims themselves must satisfy. One that
@@ -414,6 +455,12 @@ private:
     Seconds skew_ = 0;
     std::size_t max_token_ = DEFAULT_MAX_TOKEN_BYTES;
     std::optional<Seconds> max_lifetime_;
+    std::optional<std::string> proof_;
+    std::optional<HolderRequest> request_;
+    Seconds proof_lifetime_ = Holder::DEFAULT_LIFETIME;
+    ReplayCheck proof_replay_;
+    bool require_cnf_ = false;
+    bool ignore_cnf_ = false;
     std::optional<std::string> issuer_;
     std::optional<std::string> audience_;
     std::optional<std::string> subject_;
@@ -422,6 +469,115 @@ private:
 
 /// A key id read from a token footer before any verification. It may be
 /// used to select a candidate key and for nothing else.
+#ifdef CB2_HAS_PQ
+/// Holder proofs of the public mode: made by the client under its key pair
+/// for one request and one access token, checked by the verifier under
+/// the key the token's cnf claim carries.
+class HolderProof {
+public:
+    /// The claims a proof carries for a request made at now: jti, iat,
+    /// exp = now + lifetime, htm, htu normalised, and nonce when the
+    /// request has one. argument when the target does not normalise or
+    /// an identifier breaks the policy.
+    [[nodiscard]] static Result<Claims>
+    claims_for(const HolderRequest& request, std::string_view jti, Seconds now,
+               Seconds lifetime = Holder::DEFAULT_LIFETIME) {
+        const auto target = Holder::normalize_target(request.target);
+        if (!target || jti.empty()) return Result<Claims>::err(Error::argument);
+        Claims c;
+        c.jti = std::string(jti);
+        c.iat = now;
+        c.exp = now + (lifetime < 0 ? 0 : lifetime);
+        if (!c.set("htm", request.method) || !c.set("htu", *target)) return Result<Claims>::err(Error::argument);
+        if (request.nonce && !c.set("nonce", *request.nonce)) return Result<Claims>::err(Error::argument);
+        if (!c.text_ok()) return Result<Claims>::err(Error::argument);
+        return Result<Claims>::ok(std::move(c));
+    }
+
+    /// A proof under the client's key for access_token: a cb2.holder-public.
+    /// token of claims_for, whose footer binds the client key's kcb2.pid and
+    /// whose implicit assertion is the access token text.
+    [[nodiscard]] static Result<std::string>
+    make(const SecretKey& client, const HolderRequest& request, std::string_view access_token,
+         std::string_view jti, Seconds now, Seconds lifetime = Holder::DEFAULT_LIFETIME) {
+        auto c = claims_for(request, jti, now, lifetime);
+        if (c.is_err()) return Result<std::string>::err(c.error());
+        try {
+            const std::string payload = c.value().to_json();
+            const std::string footer = footer_for_key(client.public_key());
+            return detail::PublicCore::sign(Holder::PUBLIC_HEADER, client, bytes(payload), bytes(footer),
+                                            bytes(access_token));
+        } catch (...) {
+            return Result<std::string>::err(Error::internal);
+        }
+    }
+
+    /// Checks the proof the rules carry under client for access_token:
+    /// authentication (proof_invalid), parsing (proof_malformed), times
+    /// (proof_expired), the request and nonce (proof_mismatch) and the
+    /// proof replay check (proof_replayed), in that order. Returns the
+    /// proof's claims.
+    [[nodiscard]] static Result<Claims>
+    check(const PublicKey& client, std::string_view access_token, const ValidationRules& rules) {
+        if (!rules.complete()) return Result<Claims>::err(Error::rules_incomplete);
+        if (!rules.holder_proof() || !rules.holder_request()) return Result<Claims>::err(Error::missing_proof);
+        const auto target = Holder::normalize_target(rules.holder_request()->target);
+        if (!target) return Result<Claims>::err(Error::argument);
+        const std::string& proof = *rules.holder_proof();
+        if (proof.size() > rules.max_token_bytes()) return Result<Claims>::err(Error::proof_invalid);
+        try {
+            const std::string footer = footer_for_key(client);
+            auto msg = detail::PublicCore::verify(Holder::PUBLIC_HEADER, proof, client, bytes(footer),
+                                                  bytes(access_token), rules.max_token_bytes());
+            if (msg.is_err()) return Result<Claims>::err(Error::proof_invalid);
+            auto c = Claims::from_json(std::string_view(reinterpret_cast<const char*>(msg.value().data()),
+                                                        msg.value().size()));
+            if (c.is_err()) return Result<Claims>::err(Error::proof_malformed);
+            const auto v = validate(c.value(), *target, rules);
+            if (v.is_err()) return Result<Claims>::err(v.error());
+            return c;
+        } catch (...) {
+            return Result<Claims>::err(Error::internal);
+        }
+    }
+
+private:
+    [[nodiscard]] static std::string footer_for_key(const PublicKey& client) {
+        std::string f = "{\"kid\":";
+        json::Writer::string(f, client.paserk_id());
+        f += '}';
+        return f;
+    }
+
+    [[nodiscard]] static Result<void>
+    validate(const Claims& c, std::string_view target, const ValidationRules& rules) {
+        const auto htm = c.get("htm");
+        const auto htu = c.get("htu");
+        if (!c.jti || !c.iat || !c.exp || !htm || !htu) return Result<void>::err(Error::proof_malformed);
+        const Seconds t = rules.now();
+        const Seconds s = rules.clock_skew();
+        const Seconds life = rules.proof_lifetime();
+        if (*c.exp <= t - s || *c.iat > t + s || *c.exp - *c.iat > life || *c.exp > t + s + life)
+            return Result<void>::err(Error::proof_expired);
+        const HolderRequest& r = *rules.holder_request();
+        if (!detail::ct_equal(*htm, r.method) || !detail::ct_equal(*htu, target))
+            return Result<void>::err(Error::proof_mismatch);
+        if (r.nonce) {
+            const auto nonce = c.get("nonce");
+            if (!nonce || !detail::ct_equal(*nonce, *r.nonce)) return Result<void>::err(Error::proof_mismatch);
+        }
+        bool fresh = false;
+        try {
+            fresh = rules.proof_replay_check()(*c.jti);
+        } catch (...) {
+            return Result<void>::err(Error::internal);
+        }
+        if (!fresh) return Result<void>::err(Error::proof_replayed);
+        return Result<void>::ok();
+    }
+};
+#endif
+
 struct UnverifiedKeyId {
     std::string value;
 };
@@ -444,7 +600,8 @@ public:
         if (token.size() > max_token_bytes) return std::nullopt;
         detail::Split s{};
         if (!detail::split_token(token, Local::HEADER, true, s) &&
-            !detail::split_token(token, "cb2.public.", true, s))
+            !detail::split_token(token, "cb2.public.", true, s) &&
+            !detail::split_token(token, Holder::PUBLIC_HEADER, true, s))
             return std::nullopt;
         const std::size_t need = detail::b64::decoded_len(s.footer_len);
         if (need == static_cast<std::size_t>(-1)) return std::nullopt;
@@ -492,7 +649,7 @@ public:
             auto plain = Local::open(token, key, bytes(footer), bytes(implicit), rules.max_token_bytes());
             if (plain.is_err()) return Result<Claims>::err(plain.error());
             return finish(std::string_view(reinterpret_cast<const char*>(plain.value().data()),
-                                           plain.value().size()), rules);
+                                           plain.value().size()), rules, token, false);
         } catch (...) {
             return Result<Claims>::err(Error::internal);
         }
@@ -526,7 +683,7 @@ public:
             auto msg = Public::verify(token, key, bytes(footer), bytes(implicit), rules.max_token_bytes());
             if (msg.is_err()) return Result<Claims>::err(msg.error());
             return finish(std::string_view(reinterpret_cast<const char*>(msg.value().data()),
-                                           msg.value().size()), rules);
+                                           msg.value().size()), rules, token, true);
         } catch (...) {
             return Result<Claims>::err(Error::internal);
         }
@@ -534,12 +691,41 @@ public:
 #endif
 
 private:
-    [[nodiscard]] static Result<Claims> finish(std::string_view payload, const ValidationRules& rules) {
+    [[nodiscard]] static Result<Claims> finish(std::string_view payload, const ValidationRules& rules,
+                                               std::string_view token, bool public_purpose) {
         auto claims = Claims::from_json(payload);
         if (claims.is_err()) return claims;
         const auto verdict = rules.check(claims.value());
         if (verdict.is_err()) return Result<Claims>::err(verdict.error());
+        const auto holder = holder_step(claims.value(), rules, token, public_purpose);
+        if (holder.is_err()) return Result<Claims>::err(holder.error());
         return claims;
+    }
+
+    /// Step five of validation: the sender constraint. Nothing when the
+    /// rules ignore it; a bearer token when cnf is absent and not required;
+    /// otherwise the proof is checked under the key cnf carries.
+    [[nodiscard]] static Result<void> holder_step(const Claims& c, const ValidationRules& rules,
+                                                  std::string_view token, bool public_purpose) {
+        if (rules.ignores_sender_constraint()) return Result<void>::ok();
+        if (!c.cnf) {
+            if (rules.requires_sender_constraint()) return Result<void>::err(Error::missing_cnf);
+            return Result<void>::ok();
+        }
+        if (!rules.holder_proof()) return Result<void>::err(Error::missing_proof);
+        if (c.cnf->starts_with(Holder::CNF_LOCAL_PREFIX))
+            return Result<void>::err(public_purpose ? Error::claims_malformed : Error::unavailable);
+        if (!c.cnf->starts_with(Holder::CNF_PUBLIC_PREFIX)) return Result<void>::err(Error::claims_malformed);
+#ifdef CB2_HAS_PQ
+        auto client = PublicKey::from_paserk(*c.cnf);
+        if (client.is_err()) return Result<void>::err(Error::claims_malformed);
+        auto proof = HolderProof::check(client.value(), token, rules);
+        if (proof.is_err()) return Result<void>::err(proof.error());
+        return Result<void>::ok();
+#else
+        (void)token;
+        return Result<void>::err(Error::unavailable);
+#endif
     }
 };
 

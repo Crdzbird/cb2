@@ -17,6 +17,7 @@
 #include "keys.hpp"
 #include "local.hpp"
 #include "public.hpp"
+#include "holder.hpp"
 #include "keywrap.hpp"
 #include "text.hpp"
 #include "json.hpp"

@@ -215,7 +215,18 @@ Claims (`claims.hpp`)
   `expect_subject`, `allow_any_issuer`, `allow_any_audience`,
   `with_replay_check(fn)`, `with_clock_skew`, `with_max_token_bytes`,
   `with_max_lifetime`, `allow_missing_exp`, `at(now)`; `complete()`,
-  `expectations_ok()`, `check(claims)`.
+  `expectations_ok()`, `check(claims)`. For sender-constrained tokens:
+  `with_holder_proof(proof, request)`, `with_proof_replay_check(fn)`
+  (required with a proof), `with_proof_lifetime`,
+  `require_sender_constraint`, `ignore_sender_constraint`.
+- `HolderProof` (with liboqs): `make(client_secret_key, request,
+  access_token, jti, now, lifetime)` makes the `cb2.holder-public.`
+  proof a client presents with a request; `check(client_public_key,
+  access_token, rules)` verifies one; `claims_for` builds its claims.
+  `Token::open` and `Token::verify` run the check as the last step
+  whenever the token carries `cnf`. `Holder::normalize_target` is the
+  RFC 9449 target normalisation both ends apply. `Claims::cnf` holds
+  the client's `kcb2.public` string.
 - `Token::seal` / `open` / `sign` / `verify` / `peek_key_id` /
   `footer_for`.
 - `Rfc3339::parse` / `format`; `json::Reader` / `json::Writer`.
@@ -242,7 +253,8 @@ include/cb2/public.hpp         cb2.public (CB2_HAS_PQ)
 include/cb2/keywrap.hpp        kcb2.local-wrap
 include/cb2/text.hpp           strict UTF-8 decoder and the identifier policy
 include/cb2/json.hpp           strict JSON reader and writer
-include/cb2/claims.hpp         Claims, ValidationRules, Token, Rfc3339
+include/cb2/claims.hpp         Claims, ValidationRules, HolderProof, Token, Rfc3339
+include/cb2/holder.hpp         HolderRequest and the target normalisation of holder proofs
 include/cb2/detail/            base64url, PAE, BLAKE3 and liboqs wrappers, the local core, secure memory
 tests/                             runner, cases, gen_vectors.cpp, vectors/*.json, vectors/paseto-v4/ (the official v4 vectors, ISC)
 examples/international_text.cpp    the text policy against a legacy check, eight scenarios, self-checking
@@ -254,7 +266,7 @@ docs/PROTOCOL.md                   the normative format for implementers, the ve
 tools/check_vectors.py             an independent Python implementation that checks tests/vectors against docs/PROTOCOL.md alone
 docs/SPEC.md                       wire format, rationale, threat model
 docs/SECURITY.md                   claims and limits
-docs/SENDER_CONSTRAINT.md          design draft: sender-constrained tokens (cnf and per-request proofs), not implemented
+docs/SENDER_CONSTRAINT.md          sender-constrained tokens: the design, its decisions, the symmetric mode still to come
 ```
 
 ## Benchmark
