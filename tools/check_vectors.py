@@ -5,9 +5,10 @@ from the protocol document alone and never from the C++ reference. It
 reproduces every cb2.local token, every claims-layer local token and every
 kcb2 key string from the recorded inputs, recomputes and compares every
 intermediate value the vectors record, verifies every cb2.public token,
-and checks that every failure, tamper, weak-key, rejected-secret-key and
-claims vector yields the recorded verdict. It exits 0 when every check
-passes and 1 otherwise.
+checks that every failure, tamper, weak-key, rejected-secret-key and
+claims vector yields the recorded verdict, and runs the holder proof
+vectors of section 13 through the whole validation order. It exits 0 when
+every check passes and 1 otherwise.
 
 Primitives come from two PyPI packages: blake3 for BLAKE3 in hash and
 keyed mode, and pynacl for Ed25519 and for libsodium's HChaCha20 and
@@ -39,6 +40,7 @@ import nacl.signing
 
 LOCAL_HEADER = b"cb2.local."
 PUBLIC_HEADER = b"cb2.public."
+HOLDER_HEADER = b"cb2.holder-public."
 WRAP_HEADER = b"kcb2.local-wrap."
 ED25519_SIGNATURE_BYTES = 64
 MLDSA_SIGNATURE_BYTES = 3309
@@ -49,9 +51,12 @@ SECRET_KEY_BYTES = 64 + MLDSA_SECRET_BYTES + MLDSA_PUBLIC_BYTES
 SIGNATURE_BYTES = ED25519_SIGNATURE_BYTES + MLDSA_SIGNATURE_BYTES
 SELF_TEST_CONTEXT = b"kcb2.secret.self-test"
 DEFAULT_MAX_TOKEN_BYTES = 16384
-REGISTERED = ("iss", "sub", "aud", "exp", "nbf", "iat", "jti")
+DEFAULT_PROOF_LIFETIME = 60
+REGISTERED = ("iss", "sub", "aud", "exp", "nbf", "iat", "jti", "cnf")
 TIME_CLAIMS = ("exp", "nbf", "iat")
-IDENTIFIER_CLAIMS = ("iss", "sub", "aud", "jti")
+IDENTIFIER_CLAIMS = ("iss", "sub", "aud", "jti", "cnf")
+PROOF_CLAIMS = ("jti", "iat", "exp", "htm", "htu")
+DEFAULT_PORTS = {b"http": b"80", b"https": b"443"}
 
 
 class Verdict(Exception):
@@ -288,31 +293,31 @@ def import_secret_key(sk, mldsa):
     return True
 
 
-def public_sign(sk, message, footer, implicit, mldsa):
-    """Section 6.2; the token is None when ML-DSA-65 is not available."""
+def public_sign(sk, message, footer, implicit, mldsa, header=PUBLIC_HEADER):
+    """Section 6.2 under a header; the token is None without ML-DSA-65."""
     ed_sk, ml_sk = sk[:64], sk[64 : 64 + MLDSA_SECRET_BYTES]
-    m2 = pae(PUBLIC_HEADER, message, footer, implicit)
+    m2 = pae(header, message, footer, implicit)
     ed_sig = ed25519_sign(ed_sk, m2)
     token = None
     if mldsa is not None:
-        ml_sig = mldsa.sign(ml_sk, m2, ctx=PUBLIC_HEADER)
-        token = PUBLIC_HEADER + b64_encode(message + ed_sig + ml_sig)
+        ml_sig = mldsa.sign(ml_sk, m2, ctx=header)
+        token = header + b64_encode(message + ed_sig + ml_sig)
         if footer:
             token += b"." + b64_encode(footer)
     return {"pae": m2, "ed25519-signature": ed_sig, "token": token}
 
 
-def public_verify(token, pk, footer, implicit, mldsa):
-    """Section 6.3; returns (message, ml_checked) or raises invalid."""
-    body = split_token(token, PUBLIC_HEADER, footer)
+def public_verify(token, pk, footer, implicit, mldsa, header=PUBLIC_HEADER):
+    """Section 6.3 under a header; returns (message, ml_checked) or raises invalid."""
+    body = split_token(token, header, footer)
     if len(body) < SIGNATURE_BYTES:
         invalid()
     message, sig = body[:-SIGNATURE_BYTES], body[-SIGNATURE_BYTES:]
-    m2 = pae(PUBLIC_HEADER, message, footer, implicit)
+    m2 = pae(header, message, footer, implicit)
     ed_ok = ed25519_verify(pk[:32], m2, sig[:ED25519_SIGNATURE_BYTES])
     ml_ok = True
     if mldsa is not None:
-        ml_ok = mldsa.verify(pk[32:], m2, sig[ED25519_SIGNATURE_BYTES:], ctx=PUBLIC_HEADER)
+        ml_ok = mldsa.verify(pk[32:], m2, sig[ED25519_SIGNATURE_BYTES:], ctx=header)
     if not (ed_ok and ml_ok):
         invalid()
     return message, mldsa is not None
@@ -683,6 +688,13 @@ class Claims:
         value = self.registered.get(name)
         return None if value is None else parse_rfc3339(value)
 
+    def custom_value(self, name):
+        """The value of a custom claim, or None when absent."""
+        for key, value in self.custom:
+            if key == name:
+                return value
+        return None
+
     def to_json(self):
         """The canonical payload text of section 9.1."""
         members = []
@@ -729,8 +741,51 @@ def footer_for(key_id):
     return b'{"kid":' + write_string(key_id) + b"}"
 
 
+SCHEME_RE = re.compile(rb"[A-Za-z][A-Za-z0-9+.-]*")
+
+
+def normalise_target(uri):
+    """Section 13.2; returns the normal form or raises argument when there is none."""
+    scheme, sep, rest = uri.partition(b"://")
+    if not sep or SCHEME_RE.fullmatch(scheme) is None:
+        raise Verdict("argument")
+    cut = min([k for k in (rest.find(b"/"), rest.find(b"?"), rest.find(b"#")) if k >= 0] + [len(rest)])
+    authority, path = rest[:cut], rest[cut:]
+    if not authority or b"@" in authority:
+        raise Verdict("argument")
+    if authority.startswith(b"["):
+        close = authority.find(b"]")
+        if close < 0:
+            raise Verdict("argument")
+        host, port_part = authority[: close + 1], authority[close + 1 :]
+    else:
+        host, _, port = authority.rpartition(b":")
+        port_part = b":" + port if host else b""
+        host = host or authority
+    port = None
+    if port_part:
+        if not port_part.startswith(b":") or not re.fullmatch(rb"[0-9]+", port_part[1:]):
+            raise Verdict("argument")
+        port = port_part[1:]
+    scheme, host = scheme.lower(), host.lower()
+    if port == DEFAULT_PORTS.get(scheme):
+        port = None
+    for mark in (b"#", b"?"):
+        path = path.split(mark, 1)[0]
+    return scheme + b"://" + host + (b":" + port if port is not None else b"") + (path or b"/")
+
+
+class Request:
+    """The request a proof is checked against: method, normalised target, nonce."""
+
+    def __init__(self, spec):
+        self.htm = spec["htm"].encode("utf-8")
+        self.htu = normalise_target(spec["htu"].encode("utf-8"))
+        self.nonce = spec["nonce"].encode("utf-8") if "nonce" in spec else None
+
+
 class Rules:
-    """The verifier rules of section 9.5, read from a vector's rules object."""
+    """The verifier rules of sections 9.5 and 13.5, read from a rules object."""
 
     def __init__(self, spec):
         self.now = spec["now"]
@@ -743,10 +798,46 @@ class Rules:
         self.any_audience = not spec.get("require-audience", True)
         self.max_token_bytes = spec.get("max-token-bytes", DEFAULT_MAX_TOKEN_BYTES)
         self.seen_jti = spec.get("seen-jti")
+        self.proof = spec.get("proof")
+        self.request = spec.get("request")
+        self.proof_lifetime = spec.get("proof-lifetime", DEFAULT_PROOF_LIFETIME)
+        self.proof_seen_jti = spec.get("proof-seen-jti")
+        self.require_cnf = spec.get("require-cnf", False)
+        self.ignore_cnf = spec.get("ignore-cnf", False)
 
     def complete(self):
-        """Section 9.5: an expectation or an explicit allowance for both."""
+        """Sections 9.5 and 13.5: expectations or allowances, and a replay check for a proof."""
+        if self.proof is not None and self.proof_seen_jti is None:
+            return False
+        if self.require_cnf and self.ignore_cnf:
+            return False
         return (self.issuer is not None or self.any_issuer) and (self.audience is not None or self.any_audience)
+
+    def expectations_ok(self):
+        """Section 9.6 step 0: every expectation satisfies the identifier policy."""
+        return all(identifier_ok(e) for e in (self.issuer, self.audience, self.subject) if e is not None)
+
+    def check_proof_claims(self, claims):
+        """Section 13.5 step 4 after parsing; returns a verdict name or ok."""
+        for name in PROOF_CLAIMS:
+            value = claims.registered.get(name) if name in REGISTERED else claims.custom_value(name)
+            if not isinstance(value, str):
+                return "proof_malformed"
+        exp, iat = claims.time("exp"), claims.time("iat")
+        t, s, lifetime = self.now, self.skew, self.proof_lifetime
+        if exp <= t - s or iat > t + s or exp - iat > lifetime or exp > t + s + lifetime:
+            return "proof_expired"
+        if not constant_time_equal(claims.custom_value("htm").encode("utf-8"), self.request.htm):
+            return "proof_mismatch"
+        if not constant_time_equal(claims.custom_value("htu").encode("utf-8"), self.request.htu):
+            return "proof_mismatch"
+        if self.request.nonce is not None:
+            nonce = claims.custom_value("nonce")
+            if not isinstance(nonce, str) or not constant_time_equal(nonce.encode("utf-8"), self.request.nonce):
+                return "proof_mismatch"
+        if claims.registered["jti"] in self.proof_seen_jti:
+            return "proof_replayed"
+        return "ok"
 
     def check(self, claims):
         """Section 9.6 step 4; returns a verdict name or ok."""
@@ -781,24 +872,79 @@ class Rules:
         return "ok"
 
 
-def open_claims(token, authenticate, verifier_key_id, rules):
-    """Section 9.6 in order; returns (verdict, claims or None)."""
-    if not rules.complete():
-        return "rules_incomplete", None
-    if verifier_key_id is not None and not identifier_ok(verifier_key_id):
-        return "argument", None
-    if len(token) > rules.max_token_bytes:
-        return "too_large", None
+def classify_cnf(cnf, purpose):
+    """Section 13.1 and 13.5 step 2: the client key, or a verdict."""
+    text = cnf.encode("utf-8")
+    if text.startswith(b"kcb2.public.") and len(text) == 2658:
+        try:
+            return parse_key_string(text, b"kcb2.public.", 2658)
+        except Verdict:
+            raise Verdict("claims_malformed")
+    if text.startswith(b"kcb2.local.") and len(text) == 54:
+        raise Verdict("unavailable" if purpose == "local" else "claims_malformed")
+    raise Verdict("claims_malformed")
+
+
+class Opened:
+    """The outcome of opening a token: verdict, claims, and whether every half was checked."""
+
+    def __init__(self, verdict, claims=None, fully_checked=True):
+        self.verdict = verdict
+        self.claims = claims
+        self.fully_checked = fully_checked
+
+
+def check_constraint(claims, rules, token, purpose, mldsa):
+    """Section 13.5, step 5 of 9.6; returns (verdict, fully_checked)."""
+    if rules.ignore_cnf:
+        return "ok", True
+    cnf = claims.registered.get("cnf")
+    if cnf is None:
+        return ("missing_cnf" if rules.require_cnf else "ok"), True
+    if rules.proof is None:
+        return "missing_proof", True
     try:
-        payload = authenticate(footer_for(verifier_key_id))
+        client_key = classify_cnf(cnf, purpose)
     except Verdict as verdict:
-        return verdict.name, None
+        return verdict.name, True
+    if len(rules.proof) > rules.max_token_bytes:
+        return "proof_invalid", True
+    footer = footer_for(kcb2_pid(client_key).decode("ascii"))
+    try:
+        payload, ml_checked = public_verify(rules.proof, client_key, footer, token, mldsa, HOLDER_HEADER)
+    except Verdict:
+        return "proof_invalid", True
+    try:
+        proof_claims = parse_claims(payload)
+    except Verdict:
+        return "proof_malformed", ml_checked
+    return rules.check_proof_claims(proof_claims), ml_checked
+
+
+def open_claims(token, purpose, authenticate, verifier_key_id, rules, mldsa):
+    """Section 9.6 in order; authenticate(footer) returns (payload, fully_checked)."""
+    if not rules.complete():
+        return Opened("rules_incomplete")
+    if verifier_key_id is not None and not identifier_ok(verifier_key_id):
+        return Opened("argument")
+    if not rules.expectations_ok():
+        return Opened("argument")
+    if len(token) > rules.max_token_bytes:
+        return Opened("too_large")
+    try:
+        payload, fully_checked = authenticate(footer_for(verifier_key_id))
+    except Verdict as verdict:
+        return Opened(verdict.name)
     try:
         claims = parse_claims(payload)
     except Verdict as verdict:
-        return verdict.name, None
+        return Opened(verdict.name, None, fully_checked)
     verdict = rules.check(claims)
-    return verdict, claims if verdict == "ok" else None
+    if verdict != "ok":
+        return Opened(verdict, None, fully_checked)
+    verdict, proof_checked = check_constraint(claims, rules, token, purpose, mldsa)
+    fully_checked = fully_checked and proof_checked
+    return Opened(verdict, claims if verdict == "ok" else None, fully_checked)
 
 
 class Report:
@@ -1020,19 +1166,38 @@ def check_claims_vector(report, vector, mldsa):
         if not report.check("%s reproduce" % name, sealed["token"] == token, "got %s" % sealed["token"].decode()):
             return
         verifier_id = vector.get("verifier-key-id", kcb2_lid(key).decode("ascii"))
-        authenticate = lambda footer: local_open(token, key, footer, implicit)
+        authenticate = local_authenticator(token, key, implicit)
     else:
         pk = import_public_key(unhex(vector["public-key"]))
         verifier_id = vector.get("verifier-key-id", kcb2_pid(pk).decode("ascii"))
-        authenticate = lambda footer: public_verify(token, pk, footer, implicit, mldsa)[0]
-    verdict, claims = open_claims(token, authenticate, verifier_id, rules)
-    if not report.check("%s verdict" % name, verdict == vector["expect"], "got %s, expected %s" % (verdict, vector["expect"])):
+        authenticate = public_authenticator(token, pk, implicit, mldsa)
+    opened = open_claims(token, vector["purpose"], authenticate, verifier_id, rules, mldsa)
+    canonical = utf8(vector.get("payload-canonical", vector["payload"]))
+    check_opened(report, name, opened, vector["expect"], canonical)
+
+
+def local_authenticator(token, key, implicit):
+    """Section 9.6 step 2 for a local token, as a function of the rebuilt footer."""
+    return lambda footer: (local_open(token, key, footer, implicit), True)
+
+
+def public_authenticator(token, pk, implicit, mldsa):
+    """Section 9.6 step 2 for a public token, as a function of the rebuilt footer."""
+    return lambda footer: public_verify(token, pk, footer, implicit, mldsa)
+
+
+def check_opened(report, name, opened, expect, canonical):
+    """Compare an opening with the recorded verdict, skipping what ML-DSA alone decides."""
+    if opened.verdict != expect:
+        report.check("%s verdict" % name, False, "got %s, expected %s" % (opened.verdict, expect))
         return
-    if verdict == "ok":
-        canonical = utf8(vector.get("payload-canonical", vector["payload"]))
-        report.check("%s canonical text" % name, claims.to_json() == canonical, "got %s" % claims.to_json().decode("utf-8", "replace"))
-    if vector["purpose"] == "public" and mldsa is None and verdict not in ("rules_incomplete", "too_large", "invalid"):
-        report.skip("%s ML-DSA-65 half" % name, "no ML-DSA-65 implementation")
+    if not opened.fully_checked:
+        report.skip("%s verdict" % name, "the ML-DSA-65 half was not evaluated")
+        return
+    report.check("%s verdict" % name, True)
+    if opened.verdict == "ok":
+        text = opened.claims.to_json()
+        report.check("%s canonical text" % name, text == canonical, "got %s" % text.decode("utf-8", "replace"))
 
 
 def check_claims(report, doc, mldsa):
@@ -1083,6 +1248,89 @@ def check_paserk(report, doc, mldsa):
     report.section("paserk.json", before)
 
 
+def check_access_tokens(report, doc, mldsa):
+    """Appendix A.5 access-tokens: reproduce the local ones, verify the public one."""
+    verifiers = {}
+    for name, entry in doc["access-tokens"].items():
+        payload, token = utf8(entry["payload"]), utf8(entry["token"])
+        if entry["purpose"] == "local":
+            key = import_local_key(unhex(entry["key"]))
+            sealed = local_seal(key, unhex(entry["nonce"]), payload, footer_for(kcb2_lid(key).decode("ascii")), b"")
+            report.check("access token %s reproduce" % name, sealed["token"] == token, "got %s" % sealed["token"][:80].decode())
+            verifiers[name] = (token, "local", local_authenticator(token, key, b""), kcb2_lid(key).decode("ascii"))
+            continue
+        pk = import_public_key(unhex(entry["issuer-public-key"]))
+        footer = footer_for(kcb2_pid(pk).decode("ascii"))
+        try:
+            opened, ml_checked = public_verify(token, pk, footer, b"", mldsa)
+            report.check("access token %s verify" % name, opened == payload)
+            if not ml_checked:
+                report.skip("access token %s ML-DSA-65 half" % name, "no ML-DSA-65 implementation")
+        except Verdict as verdict:
+            report.check("access token %s verify" % name, False, "verdict %s" % verdict.name)
+        verifiers[name] = (token, "public", public_authenticator(token, pk, b"", mldsa), kcb2_pid(pk).decode("ascii"))
+    return verifiers
+
+
+def check_proof_intermediates(report, doc, mldsa):
+    """Appendix A.5 intermediates: the PAE under the holder header and the Ed25519 half."""
+    inter = doc["intermediates"]
+    client_key = import_public_key(unhex(doc["client-public-key"]))
+    proof, claims = utf8(inter["proof"]), utf8(inter["claims"])
+    footer, implicit = utf8(inter["footer"]), utf8(inter["implicit-assertion"])
+    report.check("cb2-H-1 footer is the client key's default id", footer == footer_for(kcb2_pid(client_key).decode("ascii")))
+    report.check("cb2-H-1 implicit assertion is the local access token", implicit == utf8(doc["access-tokens"]["local"]["token"]))
+    m2 = pae(HOLDER_HEADER, claims, footer, implicit)
+    if not report.check("cb2-H-1 pae", m2 == unhex(inter["pae"]), "got %s" % m2[:120].hex()):
+        return
+    try:
+        body = split_token(proof, HOLDER_HEADER, footer)
+    except Verdict as verdict:
+        report.check("cb2-H-1 proof splits", False, "verdict %s" % verdict.name)
+        return
+    message, sig = body[:-SIGNATURE_BYTES], body[-SIGNATURE_BYTES:]
+    report.check("cb2-H-1 proof message is the recorded claims", message == claims)
+    report.check("cb2-H-1 body carries the recorded ed25519 half", sig[:64] == unhex(inter["ed25519-signature"]))
+    report.check("cb2-H-1 ed25519 half verifies over pae", ed25519_verify(client_key[:32], unhex(inter["pae"]), sig[:64]))
+    report.check("cb2-H-1 proof claims are canonical", parse_claims(claims).to_json() == claims)
+    try:
+        opened, ml_checked = public_verify(proof, client_key, footer, implicit, mldsa, HOLDER_HEADER)
+        report.check("cb2-H-1 proof verifies as cb2.holder-public", opened == claims)
+        if not ml_checked:
+            report.skip("cb2-H-1 proof ML-DSA-65 half", "no ML-DSA-65 implementation")
+    except Verdict as verdict:
+        report.check("cb2-H-1 proof verifies as cb2.holder-public", False, "verdict %s" % verdict.name)
+    as_public = PUBLIC_HEADER + proof[len(HOLDER_HEADER) :]
+    expect_verdict(report, "cb2-H-1 proof is not a cb2.public token", lambda: public_verify(as_public, client_key, footer, implicit, mldsa), "invalid")
+
+
+def check_proofs(report, doc, mldsa):
+    """Every member of proofs.json."""
+    before = report.snapshot()
+    verifiers = check_access_tokens(report, doc, mldsa)
+    check_proof_intermediates(report, doc, mldsa)
+    for vector in doc["tests"]:
+        token, purpose, authenticate, verifier_id = verifiers[vector["access-token"]]
+        spec = dict(vector["rules"])
+        spec["issuer"], spec["audience"] = doc["issuer"], doc["audience"]
+        spec["proof-seen-jti"] = spec.pop("seen-jti")
+        if vector["proof"]:
+            spec["proof"], spec["request"] = utf8(vector["proof"]), Request(vector["request"])
+        opened = open_claims(token, purpose, authenticate, verifier_id, Rules(spec), mldsa)
+        check_opened(report, vector["name"], opened, vector["expect"], utf8(doc["access-tokens"][vector["access-token"]]["payload"]))
+    for case in doc["normalisation"]:
+        name = "normalise %s" % case["input"]
+        if case["output"] is None:
+            expect_verdict(report, name, lambda: normalise_target(utf8(case["input"])), "argument")
+            continue
+        try:
+            got = normalise_target(utf8(case["input"]))
+            report.check(name, got == utf8(case["output"]), "got %s" % got.decode())
+        except Verdict as verdict:
+            report.check(name, False, "verdict %s" % verdict.name)
+    report.section("proofs.json", before)
+
+
 def load(directory, filename):
     """Read one vector file."""
     with open(os.path.join(directory, filename), "rb") as handle:
@@ -1107,6 +1355,7 @@ def main(argv):
     check_public(report, load(directory, "cb2_public.json"), mldsa)
     check_claims(report, load(directory, "claims.json"), mldsa)
     check_paserk(report, load(directory, "paserk.json"), mldsa)
+    check_proofs(report, load(directory, "proofs.json"), mldsa)
     for note in report.notes:
         print(note)
     print("total: %d passed, %d failed, %d skipped" % (report.passed, report.failed, report.skipped))
