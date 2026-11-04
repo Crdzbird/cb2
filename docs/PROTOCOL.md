@@ -765,7 +765,12 @@ produces a different ML-DSA half that verifies equally.
 
 ## Appendix C. Conformance checklist
 
-An implementation conforms when all of the following hold.
+An implementation conforms when all of the following hold. A second
+implementation of this document exists for that purpose:
+`tools/check_vectors.py`, written in Python from this document alone,
+without reading the reference, runs items 1 to 7 and 10 against the
+vectors with the blake3 and pynacl packages, and the ML-DSA-65 half
+with dilithium-py when it is installed.
 
 1. Every success vector in cb2_local.json and every local vector in
    claims.json is reproduced byte for byte and opens to its payload;
