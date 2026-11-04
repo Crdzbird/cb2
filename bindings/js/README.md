@@ -22,7 +22,7 @@ The wasm32 dependencies (libsodium, BLAKE3, liboqs) come from
 With Emscripten on the PATH:
 
     bash bindings/js/build.sh
-    node --test bindings/js/test/
+    node --test bindings/js/test/test.mjs
 
 `build.sh` exports every `cb2_*` function of `cb2_c.h` plus `malloc` and
 `free`, with table growth enabled for the replay callbacks. The dist files

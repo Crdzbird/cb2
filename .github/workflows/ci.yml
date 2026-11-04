@@ -55,7 +55,7 @@ jobs:
         run: |
           (cd bindings/swift && swift test -Xlinker -L"$GITHUB_WORKSPACE/build/bindings/c" -Xlinker -rpath -Xlinker "$GITHUB_WORKSPACE/build/bindings/c")
           CB2_C_LIBRARY="$GITHUB_WORKSPACE/build/bindings/c/libcb2_c.dylib" python3 -m unittest discover -s bindings/python/tests
-          node --test bindings/js/test/
+          node --test bindings/js/test/test.mjs
           (cd bindings/go && go test ./...)
       - name: Fuzz targets (time-boxed)
         env:
@@ -123,7 +123,7 @@ jobs:
       - name: Bridges with a toolchain on this runner (Python, Node, Go)
         run: |
           CB2_C_LIBRARY="$GITHUB_WORKSPACE/build/bindings/c/libcb2_c.so" python3 -m unittest discover -s bindings/python/tests
-          node --test bindings/js/test/
+          node --test bindings/js/test/test.mjs
           (cd bindings/go && go test ./...)
 
   # The second implementation. tools/check_vectors.py was written from
