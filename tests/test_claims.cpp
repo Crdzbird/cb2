@@ -135,6 +135,28 @@ TEST_CASE("claims/to_json and from_json round trip without number coercion") {
     CHECK(b.to_json() == j);
 }
 
+TEST_CASE("claims/a custom claim nests one level less than the payload may") {
+    auto nested = [](int levels) {
+        std::string s;
+        for (int i = 0; i < levels; ++i) s += "{\"a\":";
+        s += "1";
+        for (int i = 0; i < levels; ++i) s += '}';
+        return s;
+    };
+    Claims c = good_claims();
+    CHECK(c.set_json("deep", nested(15)));
+    CHECK(!c.set_json("deeper", nested(16)));
+    const LocalKey k = key_a();
+    auto tok = Token::seal(k, c);
+    REQUIRE(tok.is_ok());
+    auto open = Token::open(tok.value(), k, tu::lenient(NOW).expect_audience("api"));
+    REQUIRE(open.is_ok());
+    CHECK(open.value().get_json("deep") == std::optional<std::string>(nested(15)));
+    std::string payload = "{\"exp\":\"2099-01-01T00:00:00+00:00\",\"deep\":" + nested(16) + "}";
+    auto back = Claims::from_json(payload);
+    CHECK(back.is_err() && back.error() == Error::claims_malformed);
+}
+
 TEST_CASE("claims/registered claims must be strings with valid timestamps") {
     CHECK(Claims::from_json("{\"exp\":1700000000}").is_err());
     CHECK(Claims::from_json("{\"exp\":\"soon\"}").is_err());

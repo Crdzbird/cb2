@@ -182,11 +182,17 @@ public:
         return true;
     }
 
-    /// Sets a custom claim from JSON text, which must be one valid value.
+    /// Deepest nesting a custom claim value may have: one level less than
+    /// the reader's limit, since the value sits inside the payload object.
+    static constexpr std::size_t MAX_CUSTOM_DEPTH = json::DEFAULT_MAX_DEPTH - 1;
+
+    /// Sets a custom claim from JSON text, which must be one valid value
+    /// nested at most MAX_CUSTOM_DEPTH deep, so that the verifier's reader
+    /// accepts it inside the payload.
     [[nodiscard]] bool set_json(std::string_view name, std::string_view json_text) {
         if (name.empty() || is_registered(name) || !text::identifier_ok(name)) return false;
         json::Value v;
-        if (!json::Reader::parse(json_text, v)) return false;
+        if (!json::Reader::parse(json_text, v, MAX_CUSTOM_DEPTH)) return false;
         put(name, std::move(v));
         return true;
     }

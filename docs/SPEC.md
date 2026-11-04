@@ -356,7 +356,9 @@ Exactly RFC 8259 and nothing more: the four JSON whitespace characters;
 strings with the seven named escapes and `\uXXXX` with surrogate pairs
 validated; raw UTF-8 validated (no overlong forms, no surrogates, nothing
 above U+10FFFF); numbers by the grammar and kept as text, never
-converted; no duplicate member names; nesting at most 16 deep; the whole
+converted; no duplicate member names; nesting at most 16 deep counting
+the payload object itself, so a custom claim value may nest at most 15
+deep and `set_json` refuses a deeper one on the issuing side; the whole
 input is one value. A registered claim that is not a string, or a time
 claim that is not valid RFC 3339, makes the payload `claims_malformed`.
 
