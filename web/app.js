@@ -174,7 +174,7 @@
         keys = [];
         var all = f.all || [];
         for (var i = 0; i < all.length; i++) {
-            var m = /^(\w+), kid (.*)$/.exec(all[i][1]);
+            var m = /^([\w ]+), (?:kid|rid) (.*)$/.exec(all[i][1]);
             if (m) keys.push({name: all[i][0], kind: m[1], kid: m[2]});
         }
         var body = $("keys-table").querySelector("tbody");
@@ -182,7 +182,7 @@
         for (var k = 0; k < keys.length; k++) {
             var tr = el("tr");
             tr.appendChild(el("td", "mono", keys[k].name));
-            tr.appendChild(el("td", "", keys[k].kind === "local" ? "local (seals and opens)" : keys[k].kind === "secret" ? "signing pair (signs and verifies)" : "public (verifies only)"));
+            tr.appendChild(el("td", "", keys[k].kind === "local" ? "local (seals and opens)" : keys[k].kind === "secret" ? "signing pair (signs and verifies)" : keys[k].kind === "recipient" ? "recipient pair (X-Wing: keys sealed to it open here)" : keys[k].kind === "recipient public" ? "recipient public (seals keys to the recipient)" : "public (verifies only)"));
             tr.appendChild(el("td", "mono small", keys[k].kid));
             var td = el("td");
             var b = el("button", "", "show");
@@ -1021,6 +1021,15 @@
             exec("check alice $ iss=" + arg(RULES.iss) + " aud=" + arg(RULES.aud) + " proof htm=GET htu=https://api.example/v1/me");
             exec("check alice $ iss=" + arg(RULES.iss) + " aud=" + arg(RULES.aud) + " proof htm=GET htu=https://api.example/v1/me");
             exec("check alice $ iss=" + arg(RULES.iss) + " aud=" + arg(RULES.aud));
+        }},
+        {label: "seal a key to a recipient", pq: true, hint: "A local key sealed to a recipient's X-Wing pair (ML-KEM-768 plus X25519): the kcb2.seal string is 1632 characters and only the recipient's secret opens it. Unsealed as alice-again, it has the same kcb2.lid as alice in step 1. Change a character of the sealed string and unseal again to see invalid.", go: function () {
+            ensureLocal("alice");
+            if (keyKind("vault") !== "recipient") exec("keygen recipient vault");
+            exec("sealkey vault alice");
+            exec("unsealkey vault $sealed alice-again");
+            refreshKeys();
+            exec("keygen recipient stranger");
+            exec("unsealkey stranger $sealed");
         }},
         {label: "signed token (Ed25519 + ML-DSA-65)", pq: true, hint: "A signing pair signs; its public half verifies. Both signatures must verify: a classical one and a post-quantum one. Step 3 can read the claims of a public token before verifying, since they travel in clear; it says so, and nothing there is trusted.", go: function () {
             ensureSigner("issuer");

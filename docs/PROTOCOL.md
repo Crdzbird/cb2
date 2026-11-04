@@ -318,6 +318,10 @@ other over the same m2.
 | kcb2.lid | `kcb2.lid.` \|\| base64url(BLAKE3(`kcb2.lid.` \|\| kcb2.local-string, 33)) | 9 + 44 = 53 |
 | kcb2.pid | `kcb2.pid.` \|\| base64url(BLAKE3(`kcb2.pid.` \|\| kcb2.public-string, 33)) | 9 + 44 = 53 |
 | kcb2.local-wrap | `kcb2.local-wrap.` \|\| base64url(n \|\| c \|\| t) | 16 + 128 = 144 |
+| kcb2.recipient | `kcb2.recipient.` \|\| base64url(X-Wing encapsulation key, 1216 bytes) | 15 + 1622 = 1637 |
+| kcb2.recipient-secret | `kcb2.recipient-secret.` \|\| base64url(X-Wing decapsulation key, 32 bytes) | 22 + 43 = 65 |
+| kcb2.rid | `kcb2.rid.` \|\| base64url(BLAKE3(`kcb2.rid.` \|\| kcb2.recipient-string, 33)) | 9 + 44 = 53 |
+| kcb2.seal | `kcb2.seal.` \|\| base64url(ct \|\| n \|\| c \|\| t), section 14 | 10 + 1622 = 1632 |
 
 A key string MUST be decoded with the strict decoder and MUST have
 exactly the length in the table. The id of a key is the hash of the id
@@ -721,6 +725,67 @@ that the issuer binds only a key the client demonstrably holds. The
 issuer writes the whole key string into cnf. A new token means a new
 binding; a client key is never carried from one token to the next.
 
+## 14. kcb2.seal: a local key sealed to a recipient
+
+A kcb2.seal string carries a 32-byte local key to one recipient: whoever
+holds the recipient's secret recovers the key, nobody else does, and the
+string may travel over any channel. It is the post-quantum counterpart
+of PASERK's k4.seal.
+
+### 14.1 Recipient keys
+
+The recipient key pair is X-Wing (draft-connolly-cfrg-xwing-kem), the
+hybrid of ML-KEM-768 and X25519, used exactly as that document defines
+it and nothing else: the 32-byte decapsulation key expands through
+SHAKE256 to the ML-KEM-768 seed and the X25519 secret; the
+encapsulation key is pk_M (1184 bytes) || pk_X (32); a ciphertext is
+ct_M (1088) || ct_X (32); the shared secret is SHA3-256 of ss_M, ss_X,
+ct_X, pk_X and the six-byte X-Wing label. An implementation MUST
+reproduce the draft's test vectors (tests/vectors/xwing) before anything
+below means anything. Only the 32-byte decapsulation key is ever
+serialised (kcb2.recipient-secret); the expanded form MUST NOT be
+transmitted, as the draft says.
+
+An X25519 result of all zero bytes (a low-order peer point) MUST be
+refused, on both sides.
+
+### 14.2 Sealing
+
+```
+(ss, ct) = X-Wing.Encapsulate(pk)                       ct 1120 bytes, ss 32 bytes
+h        = "kcb2.seal."                                  (10 bytes)
+n        = 32 random bytes
+body     = the cb2.local construction of section 5.2 with header h, key ss,
+           message = the 32 key bytes, footer empty, implicit assertion ct:
+           n || c || t                                   96 bytes
+string   = h || base64url(ct || n || c || t)             1632 characters
+```
+
+The header is the domain string in the key derivation and the PAE, so
+the body is not a cb2.local token of the key bytes nor a kcb2.local-wrap
+string, and the KEM ciphertext is the implicit assertion, so the tag
+covers it as well as the key. The PAE begins
+`LE64(5) || LE64(10) || "kcb2.seal." || LE64(32) || n || LE64(32) || c || LE64(0) || LE64(1120) || ct`.
+
+### 14.3 Unsealing
+
+1. The string MUST be exactly 1632 characters and begin with
+   `kcb2.seal.`; its remainder MUST decode strictly to 1216 bytes.
+   Otherwise invalid.
+2. ct is the first 1120 bytes; ss = X-Wing.Decapsulate(ct, sk). A
+   decapsulation failure is invalid.
+3. Open the 96-byte body as section 5.3 steps 5 to 8 with header h, key
+   ss, footer empty and implicit assertion ct. A tag mismatch is
+   invalid; nothing is decrypted before it.
+4. The 32 bytes are the local key; an all-equal key is refused as
+   invalid, as section 5.1 requires of any import. The key carries its
+   default id.
+
+Every failure that depends on the string's bytes is the single verdict
+invalid. ML-KEM decapsulation never fails on a malformed ciphertext, by
+its construction; it returns an implicit-rejection secret and the tag
+check refuses the result, which is what makes the single verdict hold.
+
 ## Appendix A. Test vector files
 
 The files under tests/vectors are JSON, UTF-8 encoded, written by the
@@ -860,6 +925,22 @@ and `ed25519-signature` (hex), checked as A.2 describes with the
 `normalisation`: objects with `input` and `output`, the latter null when
 the input has no normal form (13.2).
 
+### A.6 seal.json
+
+`recipient`: `secret` (hex, the 32-byte X-Wing decapsulation key, the
+first vector of tests/vectors/xwing), `public-key` (hex, 1216 bytes),
+and the strings `kcb2.recipient-secret`, `kcb2.recipient` and
+`kcb2.rid`, all of which MUST be reproduced.
+
+`sealed`: `key` (hex, the local key), `eseed` (hex, the 64-byte X-Wing
+encapsulation randomness), `nonce` (hex), `ct` (hex, the ciphertext
+Encapsulate produces from `eseed`), `ss` (hex, the shared secret) and
+`kcb2.seal`, which MUST be reproduced byte for byte from `key`,
+`eseed` and `nonce` under the recipient, and MUST unseal to `key`.
+
+`failures`: objects with `name`, `recipient-secret` (hex), `kcb2.seal`
+and `reason`; unsealing MUST yield invalid.
+
 ## Appendix B. Worked examples
 
 ### B.1 cb2-E-10: the shortest cb2.local token
@@ -992,3 +1073,5 @@ apart unnoticed.
     request and the times are checked as 13.5 says, a proof is never
     accepted as a cb2.public token nor a cb2.public token as a proof,
     and every target normalises as 13.2 says.
+12. X-Wing reproduces the draft's vectors, seal.json is reproduced byte
+    for byte and unseals, and every failure in it is invalid.

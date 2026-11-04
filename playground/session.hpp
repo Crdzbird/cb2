@@ -6,8 +6,8 @@
  * run() executes one line and appends its output to Session::out as
  * "name = value" lines; a verdict line reports ok or an error name, an
  * "error:" line reports a malformed command and counts a failure. The
- * token "$" in any argument stands for the last token produced and
- * "$proof" for the last holder proof. Inside
+ * token "$" in any argument stands for the last token produced, "$proof"
+ * for the last holder proof and "$sealed" for the last sealed key. Inside
  * double quotes, \" \\ \n \t, \uXXXX or \u{X...} (a code point) and
  * \xNN (a raw byte) are resolved, so an ASCII script can carry any text.
  */
@@ -37,6 +37,11 @@ struct Session {
 #ifdef CB2_HAS_PQ
     std::map<std::string, cb2::SecretKey> secret;
     std::map<std::string, cb2::PublicKey> pub;
+#endif
+#ifdef CB2_HAS_SEAL
+    std::map<std::string, cb2::RecipientKey> recipient;
+    std::map<std::string, cb2::RecipientPublicKey> recipient_pub;
+    std::string last_sealed;
 #endif
     std::set<std::string> seen_jti;
     std::set<std::string> seen_proof_jti;
@@ -261,6 +266,34 @@ inline std::optional<cb2::PublicKey> find_public(Session& s, const std::string& 
 }
 #endif
 
+#ifdef CB2_HAS_SEAL
+inline const cb2::RecipientKey* find_recipient(Session& s, const std::string& name) {
+    const auto it = s.recipient.find(name);
+    return it == s.recipient.end() ? nullptr : &it->second;
+}
+
+inline std::optional<cb2::RecipientPublicKey> find_recipient_public(Session& s, const std::string& name) {
+    const auto it = s.recipient_pub.find(name);
+    if (it != s.recipient_pub.end()) return it->second;
+    if (const cb2::RecipientKey* r = find_recipient(s, name)) return r->public_key();
+    return std::nullopt;
+}
+
+inline void describe_recipient(Session& s, const std::string& name, const cb2::RecipientKey& k) {
+    const cb2::SecureString p = k.to_paserk();
+    say(s, "key", name);
+    say(s, "kcb2.recipient-secret", std::string_view(p.data(), p.size()));
+    say(s, "kcb2.recipient", k.public_key().to_paserk());
+    say(s, "kcb2.rid", k.paserk_id());
+}
+
+inline void describe_recipient_public(Session& s, const std::string& name, const cb2::RecipientPublicKey& k) {
+    say(s, "key", name);
+    say(s, "kcb2.recipient", k.to_paserk());
+    say(s, "kcb2.rid", k.paserk_id());
+}
+#endif
+
 inline void describe_local(Session& s, const std::string& name, const cb2::LocalKey& k) {
     const cb2::SecureString p = k.to_paserk();
     say(s, "key", name);
@@ -294,7 +327,8 @@ inline void help(Session& s) {
         "inside quotes \\uXXXX, \\u{X..}, \\xNN, \\n, \\t, \\\" and \\\\ are resolved)\n"
         "  keygen local [name]            new 32-byte key, stored under name (default local)\n"
         "  keygen public [name]           new Ed25519 + ML-DSA-65 pair (default signer)\n"
-        "  import <kcb2 string> [name]    kcb2.local, kcb2.secret or kcb2.public\n"
+        "  keygen recipient [name]        new X-Wing pair for sealing keys (default recipient)\n"
+        "  import <kcb2 string> [name]    kcb2.local, kcb2.secret, kcb2.public, kcb2.recipient[-secret]\n"
         "  keys                           list the stored keys\n"
         "  show <key>                     the kcb2 strings and id of a stored key\n"
         "  kid <key> <id>|none            set or clear the key id bound into the footer\n"
@@ -318,6 +352,8 @@ inline void help(Session& s) {
         "  tamper <token> [index]         flip one character (default: last of the body)\n"
         "  wrap <wrapping key> <key>      kcb2.local-wrap string\n"
         "  unwrap <wrapping key> <string> [name]\n"
+        "  sealkey <recipient> <key>      kcb2.seal string: the key sealed to the recipient; $sealed is the last one\n"
+        "  unsealkey <recipient> <string> [name]  the recipient's secret opens it\n"
         "  text <string>                  bytes, code points and the identifier policy's verdict\n"
         "  time                           the clock the playground uses and the random source\n"
         "  assert <verdict>               scripts: fail unless the last verdict matches\n"
@@ -378,7 +414,23 @@ inline bool cmd_text(Session& s, const Args& a) {
 }
 
 inline bool cmd_keygen(Session& s, const Args& a) {
-    if (a.size() < 2) return fail(s, "keygen local|public [name]");
+    if (a.size() < 2) return fail(s, "keygen local|public|recipient [name]");
+    if (a[1] == "recipient") {
+#ifdef CB2_HAS_SEAL
+        const std::string name = a.size() > 2 ? a[2] : "recipient";
+        auto k = cb2::RecipientKey::generate();
+        if (k.is_err()) {
+            verdict(s, k.error());
+            return true;
+        }
+        describe_recipient(s, name, k.value());
+        s.recipient.insert_or_assign(name, std::move(k).value());
+        verdict(s, "ok");
+#else
+        verdict(s, Error::unavailable);
+#endif
+        return true;
+    }
     if (a[1] == "local") {
         const std::string name = a.size() > 2 ? a[2] : "local";
         auto k = cb2::LocalKey::generate();
@@ -407,7 +459,7 @@ inline bool cmd_keygen(Session& s, const Args& a) {
 #endif
         return true;
     }
-    return fail(s, "keygen local|public [name]");
+    return fail(s, "keygen local|public|recipient [name]");
 }
 
 inline bool cmd_import(Session& s, const Args& a) {
@@ -451,15 +503,82 @@ inline bool cmd_import(Session& s, const Args& a) {
         return true;
     }
 #endif
+#ifdef CB2_HAS_SEAL
+    if (text.rfind("kcb2.recipient-secret.", 0) == 0) {
+        const std::string name = a.size() > 2 ? a[2] : "recipient";
+        auto k = cb2::RecipientKey::from_paserk(text);
+        if (k.is_err()) {
+            verdict(s, k.error());
+            return true;
+        }
+        describe_recipient(s, name, k.value());
+        s.recipient.insert_or_assign(name, std::move(k).value());
+        verdict(s, "ok");
+        return true;
+    }
+    if (text.rfind("kcb2.recipient.", 0) == 0) {
+        const std::string name = a.size() > 2 ? a[2] : "recipient";
+        auto k = cb2::RecipientPublicKey::from_paserk(text);
+        if (k.is_err()) {
+            verdict(s, k.error());
+            return true;
+        }
+        describe_recipient_public(s, name, k.value());
+        s.recipient_pub.insert_or_assign(name, std::move(k).value());
+        verdict(s, "ok");
+        return true;
+    }
+#endif
     verdict(s, Error::argument);
     return true;
 }
+
+#ifdef CB2_HAS_SEAL
+inline bool cmd_sealkey(Session& s, const Args& a) {
+    if (a.size() < 3) return fail(s, "sealkey <recipient> <local key>");
+    const auto to = find_recipient_public(s, a[1]);
+    if (!to) return fail(s, "no recipient named " + a[1]);
+    const cb2::LocalKey* k = find_local(s, a[2]);
+    if (k == nullptr) return fail(s, "no local key named " + a[2]);
+    auto sealed = cb2::Seal::seal(*to, *k);
+    if (sealed.is_err()) {
+        verdict(s, sealed.error());
+        return true;
+    }
+    s.last_sealed = sealed.value();
+    say(s, "kcb2.seal", sealed.value());
+    say(s, "length", std::to_string(sealed.value().size()));
+    say(s, "to", to->paserk_id());
+    verdict(s, "ok");
+    return true;
+}
+
+inline bool cmd_unsealkey(Session& s, const Args& a) {
+    if (a.size() < 3) return fail(s, "unsealkey <recipient> <kcb2.seal string> [name]");
+    const cb2::RecipientKey* by = find_recipient(s, a[1]);
+    if (by == nullptr) return fail(s, "no recipient secret named " + a[1]);
+    auto k = cb2::Seal::unseal(a[2], *by);
+    if (k.is_err()) {
+        verdict(s, k.error());
+        return true;
+    }
+    const std::string name = a.size() > 3 ? a[3] : "unsealed";
+    describe_local(s, name, k.value());
+    s.local.insert_or_assign(name, std::move(k).value());
+    verdict(s, "ok");
+    return true;
+}
+#endif
 
 inline bool cmd_keys(Session& s, const Args&) {
     for (const auto& [name, k] : s.local) say(s, name, "local, kid " + (k.key_id() ? *k.key_id() : "none"));
 #ifdef CB2_HAS_PQ
     for (const auto& [name, k] : s.secret) say(s, name, "secret, kid " + (k.key_id() ? *k.key_id() : "none"));
     for (const auto& [name, k] : s.pub) say(s, name, "public, kid " + (k.key_id() ? *k.key_id() : "none"));
+#endif
+#ifdef CB2_HAS_SEAL
+    for (const auto& [name, k] : s.recipient) say(s, name, "recipient, rid " + k.paserk_id());
+    for (const auto& [name, k] : s.recipient_pub) say(s, name, "recipient public, rid " + k.paserk_id());
 #endif
     return true;
 }
@@ -477,6 +596,16 @@ inline bool cmd_show(Session& s, const Args& a) {
     }
     if (const auto it = s.pub.find(a[1]); it != s.pub.end()) {
         describe_public(s, a[1], it->second);
+        return true;
+    }
+#endif
+#ifdef CB2_HAS_SEAL
+    if (const cb2::RecipientKey* r = find_recipient(s, a[1])) {
+        describe_recipient(s, a[1], *r);
+        return true;
+    }
+    if (const auto it = s.recipient_pub.find(a[1]); it != s.recipient_pub.end()) {
+        describe_recipient_public(s, a[1], it->second);
         return true;
     }
 #endif
@@ -524,9 +653,19 @@ inline bool cmd_export(Session& s, const Args& a) {
         }
         for (const auto& [name, k] : s.pub) export_lines(s, name, k.to_paserk(), k.key_id(), k.paserk_id());
 #endif
+#ifdef CB2_HAS_SEAL
+        for (const auto& [name, k] : s.recipient) {
+            const cb2::SecureString p = k.to_paserk();
+            emit(s, "import " + std::string(p.data(), p.size()) + " " + script_arg(name));
+        }
+        for (const auto& [name, k] : s.recipient_pub) emit(s, "import " + k.to_paserk() + " " + script_arg(name));
+#endif
         say(s, "keys", std::to_string(s.local.size()
 #ifdef CB2_HAS_PQ
             + s.secret.size() + s.pub.size()
+#endif
+#ifdef CB2_HAS_SEAL
+            + s.recipient.size() + s.recipient_pub.size()
 #endif
         ));
         verdict(s, "ok");
@@ -555,6 +694,27 @@ inline bool cmd_export(Session& s, const Args& a) {
         verdict(s, "ok");
         return true;
     }
+#ifdef CB2_HAS_SEAL
+    if (const cb2::RecipientKey* r = find_recipient(s, a[1])) {
+        say(s, "key", a[1]);
+        if (public_half) {
+            say(s, "kcb2.recipient", r->public_key().to_paserk());
+        } else {
+            const cb2::SecureString p = r->to_paserk();
+            say(s, "kcb2.recipient-secret", std::string_view(p.data(), p.size()));
+        }
+        say(s, "kcb2.rid", r->paserk_id());
+        verdict(s, "ok");
+        return true;
+    }
+    if (const auto it = s.recipient_pub.find(a[1]); it != s.recipient_pub.end()) {
+        say(s, "key", a[1]);
+        say(s, "kcb2.recipient", it->second.to_paserk());
+        say(s, "kcb2.rid", it->second.paserk_id());
+        verdict(s, "ok");
+        return true;
+    }
+#endif
     if (const auto it = s.pub.find(a[1]); it != s.pub.end()) {
         say(s, "key", a[1]);
         say(s, "kcb2.public", it->second.to_paserk());
@@ -1076,6 +1236,9 @@ inline bool run(Session& s, const std::string& line) {
     for (std::string& arg : a) {
         if (arg == "$") arg = s.last_token;
         if (arg == "$proof") arg = s.last_proof;
+#ifdef CB2_HAS_SEAL
+        if (arg == "$sealed") arg = s.last_sealed;
+#endif
     }
     const std::string& c = a[0];
     if (c == "help") {
@@ -1097,6 +1260,10 @@ inline bool run(Session& s, const std::string& line) {
     if (c == "check") return cmd_check(s, a);
 #ifdef CB2_HAS_PQ
     if (c == "proof") return cmd_proof(s, a);
+#endif
+#ifdef CB2_HAS_SEAL
+    if (c == "sealkey") return cmd_sealkey(s, a);
+    if (c == "unsealkey") return cmd_unsealkey(s, a);
 #endif
     if (c == "peek") return cmd_peek(s, a);
     if (c == "lookup") return cmd_lookup(s, a);

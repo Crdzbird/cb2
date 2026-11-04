@@ -289,6 +289,59 @@ public:
         return s;
     }
 
+    /// The raw body n || c || t of a token, without the text layer: what
+    /// kcb2.seal places after its KEM ciphertext. body must hold
+    /// LOCAL_OVERHEAD + msg.size() bytes and overlap no input.
+    [[nodiscard]] static Status
+    seal_body(std::string_view h, std::span<uint8_t> body, const uint8_t* key, std::span<const uint8_t> msg,
+              std::span<const uint8_t> footer, std::span<const uint8_t> implicit, const uint8_t* nonce) noexcept {
+        if (h.size() > MAX_HEADER_BYTES || msg.size() > MAX_INPUT_BYTES || footer.size() > MAX_INPUT_BYTES ||
+            implicit.size() > MAX_INPUT_BYTES || body.size() != LOCAL_OVERHEAD + msg.size())
+            return Status::argument;
+        if (overlaps(body, msg) || overlaps(body, footer) || overlaps(body, implicit) ||
+            overlaps(body, {key, LOCAL_KEY_BYTES}) || overlaps(body, {nonce, LOCAL_NONCE_BYTES}))
+            return Status::argument;
+        if (!ensure_sodium()) return Status::internal;
+        uint8_t* c = body.data() + LOCAL_NONCE_BYTES;
+        LocalKeys k;
+        derive(k, key, h, nonce);
+        std::memcpy(body.data(), nonce, LOCAL_NONCE_BYTES);
+        if (!xchacha20_xor(c, msg.data(), msg.size(), k.n2(), k.ek())) {
+            wipe(body.data(), body.size());
+            return Status::internal;
+        }
+        mac(k, c + msg.size(), h, nonce, {c, msg.size()}, footer, implicit);
+        return Status::ok;
+    }
+
+    /// Authenticates and decrypts a raw body n || c || t into out, which
+    /// must hold body.size() - LOCAL_OVERHEAD bytes and overlap no input.
+    /// On failure out is wiped.
+    [[nodiscard]] static Status
+    open_body(std::string_view h, std::span<uint8_t> out, std::span<const uint8_t> body, const uint8_t* key,
+              std::span<const uint8_t> footer, std::span<const uint8_t> implicit) noexcept {
+        if (h.size() > MAX_HEADER_BYTES || footer.size() > MAX_INPUT_BYTES || implicit.size() > MAX_INPUT_BYTES ||
+            body.size() < LOCAL_OVERHEAD || body.size() - LOCAL_OVERHEAD > MAX_INPUT_BYTES ||
+            out.size() != body.size() - LOCAL_OVERHEAD)
+            return Status::argument;
+        if (overlaps(out, body) || overlaps(out, footer) || overlaps(out, implicit) ||
+            overlaps(out, {key, LOCAL_KEY_BYTES}))
+            return Status::argument;
+        if (!ensure_sodium()) return Status::internal;
+        const uint8_t* n = body.data();
+        const std::span<const uint8_t> c(body.data() + LOCAL_NONCE_BYTES, out.size());
+        const uint8_t* t = body.data() + body.size() - LOCAL_TAG_BYTES;
+        LocalKeys k;
+        derive(k, key, h, n);
+        mac(k, k.tag, h, n, c, footer, implicit);
+        if (crypto_verify_32(t, k.tag) != 0) return Status::invalid;
+        if (!xchacha20_xor(out.data(), c.data(), c.size(), k.n2(), k.ek())) {
+            wipe(out.data(), out.size());
+            return Status::internal;
+        }
+        return Status::ok;
+    }
+
 private:
     static void derive(LocalKeys& k, const uint8_t* key, std::string_view h,
                        const uint8_t* n) noexcept {

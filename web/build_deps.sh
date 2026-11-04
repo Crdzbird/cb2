@@ -65,7 +65,7 @@ if [[ ! -f "$PREFIX/lib/liboqs.a" ]]; then
     tar -xf "$A" -C "$WORK/liboqs" --strip-components=1
     emcmake cmake -S "$WORK/liboqs" -B "$WORK/liboqs/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_SHARED_LIBS=OFF -DOQS_BUILD_ONLY_LIB=ON -DOQS_USE_OPENSSL=OFF -DOQS_DIST_BUILD=OFF \
-        -DOQS_PERMIT_UNSUPPORTED_ARCHITECTURE=ON -DOQS_MINIMAL_BUILD="SIG_ml_dsa_65" \
+        -DOQS_PERMIT_UNSUPPORTED_ARCHITECTURE=ON -DOQS_MINIMAL_BUILD="SIG_ml_dsa_65;KEM_ml_kem_768" \
         -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_INSTALL_LIBDIR=lib > "$WORK/liboqs-cmake.log" 2>&1 \
         || { tail -60 "$WORK/liboqs-cmake.log"; exit 1; }
     cmake --build "$WORK/liboqs/build" --target install -j"$JOBS" > "$WORK/liboqs-build.log" 2>&1 \

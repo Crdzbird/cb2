@@ -419,6 +419,48 @@ TEST_CASE("vectors/holder proof vectors yield the recorded verdicts") {
 }
 #endif
 
+#ifdef CB2_HAS_SEAL
+TEST_CASE("vectors/seal vectors reproduce and the failures fail") {
+    Value root;
+    REQUIRE(load("seal.json", root));
+    const Value* rec = root.get("recipient");
+    const Value* sealed = root.get("sealed");
+    REQUIRE(rec != nullptr && sealed != nullptr);
+    auto r = cb2::RecipientKey::from_bytes(tu::unhex(tu::str(*rec, "secret")));
+    REQUIRE(r.is_ok());
+    CHECK(tu::hex(r.value().public_key().bytes()) == tu::str(*rec, "public-key"));
+    CHECK(r.value().public_key().to_paserk() == tu::str(*rec, "kcb2.recipient"));
+    CHECK(r.value().paserk_id() == tu::str(*rec, "kcb2.rid"));
+    const cb2::SecureString sp = r.value().to_paserk();
+    CHECK(std::string(sp.data(), sp.size()) == tu::str(*rec, "kcb2.recipient-secret"));
+    auto k = LocalKey::from_bytes(tu::unhex(tu::str(*sealed, "key")));
+    REQUIRE(k.is_ok());
+    const Bytes eseed = tu::unhex(tu::str(*sealed, "eseed"));
+    Bytes ct(cb2::detail::XWing::CT_BYTES), ss(32);
+    REQUIRE(cb2::detail::XWing::encaps(r.value().public_key().bytes().data(), eseed.data(), ct.data(), ss.data()));
+    CHECK(tu::hex(ct) == tu::str(*sealed, "ct"));
+    CHECK(tu::hex(ss) == tu::str(*sealed, "ss"));
+    auto made = cb2::Seal::seal_with_randomness_for_testing(r.value().public_key(), k.value(), eseed, tu::unhex(tu::str(*sealed, "nonce")));
+    REQUIRE(made.is_ok());
+    CHECK(made.value() == tu::str(*sealed, "kcb2.seal"));
+    auto back = cb2::Seal::unseal(tu::str(*sealed, "kcb2.seal"), r.value());
+    REQUIRE(back.is_ok());
+    CHECK(back.value().paserk_id() == k.value().paserk_id());
+    const Value* fails = root.get("failures");
+    REQUIRE(fails != nullptr && fails->kind == Value::Kind::array);
+    int seen = 0;
+    for (const Value& f : fails->items) {
+        ++seen;
+        auto by = cb2::RecipientKey::from_bytes(tu::unhex(tu::str(f, "recipient-secret")));
+        REQUIRE(by.is_ok());
+        auto v = cb2::Seal::unseal(tu::str(f, "kcb2.seal"), by.value());
+        if (!v.is_err()) std::printf("      %s should fail\n", tu::str(f, "name").c_str());
+        CHECK(v.is_err() && v.error() == Error::invalid);
+    }
+    CHECK(seen >= 8);
+}
+#endif
+
 TEST_CASE("vectors/paserk vectors reproduce") {
     Value root;
     REQUIRE(load("paserk.json", root));

@@ -197,6 +197,12 @@ Keys (`keys.hpp`)
   halves.
 - `KeyWrap::wrap(wrapping, key)` / `unwrap(text, wrapping)`:
   `kcb2.local-wrap`.
+- `RecipientKey` and `RecipientPublicKey` (with liboqs ML-KEM-768): an
+  X-Wing pair, `generate()`, `from_bytes`, `from_paserk`, `to_paserk`
+  (`kcb2.recipient-secret`, `kcb2.recipient`), `public_key()`,
+  `paserk_id()` (`kcb2.rid`). `Seal::seal(recipient_public, key)` returns
+  the `kcb2.seal` string of a local key sealed to that recipient and
+  `Seal::unseal(text, recipient)` recovers the key.
 
 Tokens
 
@@ -276,6 +282,7 @@ include/cb2/text.hpp           strict UTF-8 decoder and the identifier policy
 include/cb2/json.hpp           strict JSON reader and writer
 include/cb2/claims.hpp         Claims, ValidationRules, HolderProof, Token, Rfc3339
 include/cb2/holder.hpp         HolderRequest and the target normalisation of holder proofs
+include/cb2/seal.hpp           X-Wing recipient keys and kcb2.seal
 include/cb2/detail/            base64url, PAE, BLAKE3 and liboqs wrappers, the local core, secure memory
 tests/                             runner, cases, gen_vectors.cpp, vectors/*.json, vectors/paseto-v1 to v4 (the official PASETO vectors, ISC)
 examples/international_text.cpp    the text policy against a legacy check, eight scenarios, self-checking
@@ -288,6 +295,7 @@ tools/check_vectors.py             an independent Python implementation that che
 docs/SPEC.md                       wire format, rationale, threat model
 docs/SECURITY.md                   claims and limits
 docs/SENDER_CONSTRAINT.md          sender-constrained tokens: the design, its decisions, the symmetric mode still to come
+docs/MIGRATION.md                  moving a cb1 or PASETO v4 deployment to cb2
 ```
 
 ## Benchmark

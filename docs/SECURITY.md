@@ -87,6 +87,15 @@ implicit assertion.
 3. kcb2.local-wrap. A local key wrapped under another local key is the
    cb2.local construction with its own header, so a wrapped key is not a
    token and a token is not a wrapped key.
+3a. kcb2.seal. A local key sealed to a recipient is recoverable only
+   with the recipient's X-Wing secret: the shared secret is the X-Wing
+   combiner of ML-KEM-768 and X25519, so it stays secret while either
+   survives, including against a quantum computer that breaks X25519;
+   the sealed body is the local construction under that secret with its
+   own header and the KEM ciphertext bound as the implicit assertion, so
+   a change to any byte is refused before anything is decrypted. X-Wing
+   is used exactly as its draft defines it and reproduces the draft's
+   vectors. Recipient secrets are locked and wiped like the other keys.
 4. Key entropy. A local key must be 32 uniformly random bytes. Its
    default key id is a fast hash of the key that travels in clear in
    every footer, so a key with little entropy can be tested against one

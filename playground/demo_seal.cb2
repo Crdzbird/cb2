@@ -1,0 +1,26 @@
+# cb2 playground demo: a local key sealed to a recipient with X-Wing. Needs liboqs with ML-KEM-768.
+echo -- a recipient pair and a local key worth sending
+keygen recipient vault
+assert ok
+keygen local alice
+assert ok
+echo -- the key sealed to the recipient: 1632 characters, ML-KEM-768 plus X25519
+sealkey vault alice
+assert ok
+echo -- the recipient's secret opens it, and it is the same key: compare the kcb2.lid
+unsealkey vault $sealed alice-again
+assert ok
+show alice
+echo -- a token sealed under alice opens under alice-again
+claims alice iss=https://issuer.example aud=api sub=user-1 exp=+3600
+assert ok
+check alice-again $ iss=https://issuer.example aud=api
+assert ok
+echo -- another recipient cannot open it
+keygen recipient stranger
+unsealkey stranger $sealed
+assert invalid
+echo -- one changed character
+tamper $sealed
+unsealkey vault $
+assert invalid

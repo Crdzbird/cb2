@@ -1,0 +1,8 @@
+The vectors in xwing.json are the test vectors of the Internet-Draft
+draft-connolly-cfrg-xwing-kem-10 (X-Wing: general-purpose hybrid
+post-quantum KEM; Connolly, Schwabe, Westerbaan), appendix C, taken from
+the draft's repository at github.com/dconnolly/draft-connolly-cfrg-xwing-kem
+(spec/test-vectors.json). Code components of IETF documents, including
+these vectors, are licensed under the Revised BSD License as described in
+Section 4.e of the IETF Trust Legal Provisions (https://trustee.ietf.org/license-info).
+They are reproduced here unchanged, for the test suite only.

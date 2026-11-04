@@ -13,6 +13,7 @@
  *   claims.json     the claims layer with rules and the expected verdict
  *   paserk.json     kcb2.local, kcb2.lid, kcb2.local-wrap, kcb2.public, kcb2.pid, kcb2.secret
  *   proofs.json     sender-constrained tokens and their holder proofs, with the verdicts
+ *   seal.json       a local key sealed to an X-Wing recipient, reproduced from fixed randomness
  *
  * Every success vector also records its intermediate values (the derived
  * keys, the pre-authentication encoding, the ciphertext, the tag, the
@@ -798,6 +799,66 @@ void write_holder(const std::string& dir) {
 }
 #endif
 
+#ifdef CB2_HAS_SEAL
+/// seal.json: the X-Wing recipient of the draft's first vector, the usual
+/// local key sealed to it with fixed randomness, the shared secret and
+/// the KEM ciphertext as intermediates, and the strings that must fail.
+void write_seal(const std::string& dir) {
+    const char* const RECIPIENT_SEED = "7f9c2ba4e88f827d616045507605853ed73b8093f6efbc88eb1a6eacfa66ef26";
+    const char* const ESEED = "3cb1eea988004b93103cfb0aeefd2a686e01fa4a58e8a3639ca8a1e3f9ae57e235b8cc873c23dc62b8d260169afa2f75ab916a58d974918835d25e6a435085b2";
+    const cb2::RecipientKey r = cb2::RecipientKey::from_bytes(tu::unhex(RECIPIENT_SEED)).value();
+    const cb2::RecipientKey other = cb2::RecipientKey::from_bytes(tu::unhex(KEY2_HEX)).value();
+    const LocalKey k = LocalKey::from_bytes(tu::unhex(KEY_HEX)).value();
+    const Bytes eseed = tu::unhex(ESEED);
+    const Bytes nonce = tu::unhex(NONCE_A);
+    auto sealed = cb2::Seal::seal_with_randomness_for_testing(r.public_key(), k, eseed, nonce);
+    if (sealed.is_err()) { std::fprintf(stderr, "seal failed\n"); std::exit(1); }
+    Bytes ct(cb2::detail::XWing::CT_BYTES), ss(32);
+    if (!cb2::detail::XWing::encaps(r.public_key().bytes().data(), eseed.data(), ct.data(), ss.data())) std::exit(1);
+    Value root = object();
+    put(root, "name", str("kcb2.seal vectors"));
+    put(root, "generator", str("cb2_gen_vectors " + std::string(cb2::VERSION)));
+    Value rec = object();
+    put(rec, "secret", str(RECIPIENT_SEED));
+    put(rec, "public-key", str(tu::hex(r.public_key().bytes())));
+    put(rec, "kcb2.recipient-secret", str([&] { const cb2::SecureString p = r.to_paserk(); return std::string(p.data(), p.size()); }()));
+    put(rec, "kcb2.recipient", str(r.public_key().to_paserk()));
+    put(rec, "kcb2.rid", str(r.paserk_id()));
+    put(root, "recipient", std::move(rec));
+    Value t = object();
+    put(t, "name", str("cb2-K-1"));
+    put(t, "key", str(KEY_HEX));
+    put(t, "eseed", str(ESEED));
+    put(t, "nonce", str(NONCE_A));
+    put(t, "ct", str(tu::hex(ct)));
+    put(t, "ss", str(tu::hex(ss)));
+    put(t, "kcb2.seal", str(sealed.value()));
+    put(root, "sealed", std::move(t));
+    Value fails = array();
+    auto add = [&](const char* name, const char* secret, std::string text, const char* reason) {
+        Value v = object();
+        put(v, "name", str(name));
+        put(v, "recipient-secret", str(secret));
+        put(v, "kcb2.seal", str(text));
+        put(v, "reason", str(reason));
+        fails.items.push_back(std::move(v));
+    };
+    add("cb2-K-F-1", KEY2_HEX, sealed.value(), "another recipient");
+    add("cb2-K-F-2", RECIPIENT_SEED, flip_char(sealed.value(), 12), "ciphertext character changed");
+    add("cb2-K-F-3", RECIPIENT_SEED, flip_char(sealed.value(), 1500), "nonce character changed");
+    add("cb2-K-F-4", RECIPIENT_SEED, flip_char(sealed.value(), 1560), "sealed key character changed");
+    add("cb2-K-F-5", RECIPIENT_SEED, flip_char(sealed.value(), sealed.value().size() - 1), "last character changed");
+    add("cb2-K-F-6", RECIPIENT_SEED, sealed.value().substr(0, sealed.value().size() - 1), "truncated by one character");
+    add("cb2-K-F-7", RECIPIENT_SEED, sealed.value() + "A", "one character appended");
+    std::string wrapped = sealed.value();
+    wrapped.replace(0, cb2::Seal::HEADER.size(), "kcb2.local-wrap.");
+    add("cb2-K-F-8", RECIPIENT_SEED, wrapped, "kcb2.local-wrap header");
+    put(root, "failures", std::move(fails));
+    (void)other;
+    if (!tu::write_file((dir + "/seal.json").c_str(), pretty(root))) std::exit(1);
+}
+#endif
+
 void write_paserk(const std::string& dir) {
     const LocalKey k = LocalKey::from_bytes(tu::unhex(KEY_HEX)).value();
     const LocalKey wk = LocalKey::from_bytes(tu::unhex(KEY2_HEX)).value();
@@ -832,6 +893,9 @@ int main(int argc, char** argv) {
     write_paserk(dir);
 #ifdef CB2_HAS_PQ
     write_holder(dir);
+#endif
+#ifdef CB2_HAS_SEAL
+    write_seal(dir);
 #endif
     std::printf("vectors written to %s\n", dir.c_str());
     return 0;

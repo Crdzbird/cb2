@@ -512,6 +512,7 @@ access token itself (3.6 and 8.3).
 | PAE | materialised head of 73 bytes | streamed | streamed through a 256-byte buffered sink; never materialised for the MAC | nothing new in security; one hasher update instead of eleven for a short token |
 | bulk cipher | libsodium | libsodium | libsodium below 512 bytes, OpenSSL's vectorised ChaCha20 at or above it under libsodium's HChaCha20 subkey; the same keystream | nothing in security; 64 KiB tokens about twice as fast on CPUs where libsodium's ChaCha20 is plain C |
 | key footer | built per call | built per call | kept with the key, rebuilt when the id changes | nothing in security; the claims layer no longer escapes the id on every token |
+| sealing a key to a recipient | k4.seal, X25519 only | none | kcb2.seal on X-Wing (ML-KEM-768 + X25519), the local construction under the shared secret with the ciphertext as implicit assertion | a recorded key exchange broken by a quantum computer; a sealed key moved to another ciphertext |
 | allocation | caller buffers | caller buffers | caller buffers plus convenience functions that allocate once | a convenience API that does not tempt callers into copying secrets |
 
 ## 10. Threat model
@@ -578,14 +579,22 @@ and generator executables only, never for the library interface.
    strings `kcb2.*`. The `v5` identifier the library first used is
    reserved by the PASETO developers for a future official version, and
    continuing CipherBird's own cb1 identifier removes the collision.
-2. Whether cb2 should replace cb1 in the repository, sit beside it, or
-   move to its own repository with its own release cadence.
+2. Resolved on 2026-11-04: cb2 supersedes cb1. cb2 lives in its own
+   repository with its own release cadence; cb1 stays in cryptolib only
+   as a benchmark reference and gets no further work, and its removal
+   there is a change for that repository. docs/MIGRATION.md says what a
+   cb1 or PASETO v4 deployment changes to move.
 3. Resolved: the ML-DSA half uses the FIPS 204 context string with the
    header `cb2.public.` as the context (section 5.2), through liboqs
    `OQS_SIG_sign_with_ctx_str`, which requires a liboqs that reports
    `sig_with_ctx_support` for ML-DSA-65 (0.12 and later).
-4. Whether a `kcb2.seal` (local key sealed to a public key) should be added
-   on top of the existing hybrid KEM of the repository.
+4. Resolved on 2026-11-04: kcb2.seal exists (PROTOCOL.md section 14),
+   on X-Wing (ML-KEM-768 and X25519, draft-connolly-cfrg-xwing-kem)
+   rather than on cryptolib's hybrid KEM, so that the recipient key pair
+   and the combiner are a published construction with its own analysis
+   and test vectors, used unchanged. The sealed body is the cb2.local
+   construction under the shared secret with its own header and the
+   KEM ciphertext as the implicit assertion.
 5. Whether to batch nonces per thread as cb1 does. The benchmark shows
    the per-token `randombytes_buf` costs about 1.4 us per seal, so cb1
    seals a 64-byte token in 1.2 us and cb2 in 2.7 us; at 1 KiB the

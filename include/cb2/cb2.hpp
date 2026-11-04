@@ -19,6 +19,7 @@
 #include "public.hpp"
 #include "holder.hpp"
 #include "keywrap.hpp"
+#include "seal.hpp"
 #include "text.hpp"
 #include "json.hpp"
 #include "claims.hpp"
