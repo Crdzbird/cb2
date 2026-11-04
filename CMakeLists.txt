@@ -15,6 +15,7 @@ option(CB2_BUILD_EXAMPLES "Build the runnable examples under examples/" ON)
 option(CB2_BUILD_PLAYGROUND "Build the interactive playground under playground/" ON)
 option(CB2_FUZZ "Build the libFuzzer targets (LLVM clang only)" OFF)
 option(CB2_SANITIZE "Build tests and bench with AddressSanitizer + UBSan" OFF)
+option(CB2_OPENSSL_CHACHA "Use OpenSSL's ChaCha20 for messages of 512 bytes or more (same keystream, vector unit)" ON)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SODIUM REQUIRED libsodium>=1.0.18)
@@ -30,15 +31,16 @@ target_link_directories(cb2 INTERFACE ${SODIUM_LIBRARY_DIRS} ${BLAKE3_LIBRARY_DI
 target_link_libraries(cb2 INTERFACE ${SODIUM_LIBRARIES} ${BLAKE3_LIBRARIES})
 target_compile_features(cb2 INTERFACE cxx_std_20)
 
-# libcrypto is a dependency of liboqs and of the reference constructions
-# the tests and the benchmark compare cb2 with (bench/reference.hpp). With
-# cb2.public it reaches every consumer through the cb2 target; without it
-# the tests and the benchmark link it themselves.
+# libcrypto: a dependency of liboqs, the optional ChaCha20 backend for
+# large messages, and the reference constructions the tests and the
+# benchmark compare cb2 with (bench/reference.hpp).
 pkg_check_modules(OPENSSL REQUIRED libcrypto>=3.0)
-if(CB2_PQ)
-    set(CB2_REFERENCE_LIBS "")
-else()
-    set(CB2_REFERENCE_LIBS ${OPENSSL_LIBRARIES})
+target_include_directories(cb2 INTERFACE ${OPENSSL_INCLUDE_DIRS})
+target_link_directories(cb2 INTERFACE ${OPENSSL_LIBRARY_DIRS})
+target_link_libraries(cb2 INTERFACE ${OPENSSL_LIBRARIES})
+if(CB2_OPENSSL_CHACHA)
+    target_compile_definitions(cb2 INTERFACE CB2_OPENSSL_CHACHA=1)
+    message(STATUS "cb2: OpenSSL ChaCha20 for messages of 512 bytes or more")
 endif()
 
 if(CB2_PQ)
@@ -55,8 +57,8 @@ if(CB2_PQ)
     endif()
     target_compile_definitions(cb2 INTERFACE CB2_HAS_PQ=1)
     target_include_directories(cb2 INTERFACE ${OQS_INCLUDE_DIRS})
-    target_link_directories(cb2 INTERFACE ${OQS_LIBRARY_DIRS} ${OPENSSL_LIBRARY_DIRS})
-    target_link_libraries(cb2 INTERFACE ${OQS_LIBRARIES} ${OPENSSL_LIBRARIES})
+    target_link_directories(cb2 INTERFACE ${OQS_LIBRARY_DIRS})
+    target_link_libraries(cb2 INTERFACE ${OQS_LIBRARIES})
     message(STATUS "cb2: cb2.public enabled (liboqs)")
 else()
     message(STATUS "cb2: cb2.public disabled; only cb2.local is built")
@@ -88,9 +90,8 @@ if(CB2_BUILD_TESTS)
         tests/test_text.cpp
         tests/test_holder.cpp
         tests/test_reference.cpp)
-    target_link_libraries(cb2_tests PRIVATE cb2::cb2 ${CB2_REFERENCE_LIBS})
-    target_link_directories(cb2_tests PRIVATE ${OPENSSL_LIBRARY_DIRS})
-    target_include_directories(cb2_tests PRIVATE bench ${OPENSSL_INCLUDE_DIRS})
+    target_link_libraries(cb2_tests PRIVATE cb2::cb2)
+    target_include_directories(cb2_tests PRIVATE bench)
     target_compile_options(cb2_tests PRIVATE ${CB2_WARNINGS} ${CB2_SANITIZE_FLAGS})
     target_link_options(cb2_tests PRIVATE ${CB2_SANITIZE_FLAGS})
     target_compile_definitions(cb2_tests PRIVATE
@@ -133,9 +134,7 @@ endif()
 
 if(CB2_BUILD_BENCH)
     add_executable(cb2_bench bench/bench_main.cpp)
-    target_link_libraries(cb2_bench PRIVATE cb2::cb2 ${CB2_REFERENCE_LIBS})
-    target_link_directories(cb2_bench PRIVATE ${OPENSSL_LIBRARY_DIRS})
-    target_include_directories(cb2_bench PRIVATE ${OPENSSL_INCLUDE_DIRS})
+    target_link_libraries(cb2_bench PRIVATE cb2::cb2)
     target_compile_options(cb2_bench PRIVATE -O2 ${CB2_SANITIZE_FLAGS})
     target_link_options(cb2_bench PRIVATE ${CB2_SANITIZE_FLAGS})
     set(CB2_CRYPTOLIB_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/../cryptolib/include" CACHE PATH

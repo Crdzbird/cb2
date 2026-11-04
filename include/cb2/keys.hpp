@@ -32,6 +32,10 @@
  * importers refuse the one weak key they can recognise, a key whose bytes
  * are all equal; everything else is the caller's responsibility.
  *
+ * Every key also keeps the footer the claims layer binds its id into,
+ * {"kid":"..."} or nothing, rebuilt whenever the id changes, so that a
+ * token operation does not escape the id again.
+ *
  * The bytes of a LocalKey and of a SecretKey are locked in memory for the
  * life of the object (sodium_mlock: no swapping, and no core dump where
  * the platform supports it) and wiped and unlocked when it dies. The lock
@@ -44,6 +48,7 @@
 #include "detail/nonce.hpp"
 #include "detail/pq.hpp"
 #include "detail/secure.hpp"
+#include "json.hpp"
 #include "result.hpp"
 
 #include <sodium.h>
@@ -90,6 +95,15 @@ template <class Str>
     return diff == 0;
 }
 
+/// The footer a key id is bound into: {"kid":"..."}; empty for no id.
+[[nodiscard]] inline std::string kid_footer(const std::optional<std::string>& kid) {
+    if (!kid) return {};
+    std::string f = "{\"kid\":";
+    json::Writer::string(f, *kid);
+    f += '}';
+    return f;
+}
+
 [[nodiscard]] inline std::string paserk_id(std::string_view id_header, std::string_view paserk) {
     uint8_t digest[PASERK_ID_BYTES];
     Blake3 h;
@@ -112,7 +126,7 @@ public:
 
     LocalKey(const LocalKey&) = delete;
     LocalKey& operator=(const LocalKey&) = delete;
-    LocalKey(LocalKey&& o) noexcept : kid_(std::move(o.kid_)) {
+    LocalKey(LocalKey&& o) noexcept : kid_(std::move(o.kid_)), footer_(std::move(o.footer_)) {
         std::memcpy(k_, o.k_, BYTES);
         detail::wipe(o.k_, BYTES);
     }
@@ -121,6 +135,7 @@ public:
             std::memcpy(k_, o.k_, BYTES);
             detail::wipe(o.k_, BYTES);
             kid_ = std::move(o.kid_);
+            footer_ = std::move(o.footer_);
         }
         return *this;
     }
@@ -131,7 +146,7 @@ public:
         if (!detail::ensure_sodium()) return Result<LocalKey>::err(Error::internal);
         LocalKey k;
         detail::fresh_nonce(k.k_, BYTES);
-        k.kid_ = k.paserk_id();
+        k.set_kid(k.paserk_id());
         return Result<LocalKey>::ok(std::move(k));
     }
 
@@ -143,7 +158,7 @@ public:
             return Result<LocalKey>::err(Error::argument);
         LocalKey k;
         std::memcpy(k.k_, bytes.data(), BYTES);
-        k.kid_ = k.paserk_id();
+        k.set_kid(k.paserk_id());
         return Result<LocalKey>::ok(std::move(k));
     }
 
@@ -153,7 +168,7 @@ public:
         if (!detail::paserk_decode(PASERK_HEADER, text, k.k_, BYTES) ||
             detail::constant_bytes(k.k_, BYTES))
             return Result<LocalKey>::err(Error::argument);
-        k.kid_ = k.paserk_id();
+        k.set_kid(k.paserk_id());
         return Result<LocalKey>::ok(std::move(k));
     }
 
@@ -170,22 +185,29 @@ public:
 
     /// The id bound into tokens, if any. Defaults to paserk_id().
     [[nodiscard]] const std::optional<std::string>& key_id() const noexcept { return kid_; }
-    LocalKey& set_key_id(std::string id) { kid_ = std::move(id); return *this; }
-    LocalKey& clear_key_id() noexcept { kid_.reset(); return *this; }
+    LocalKey& set_key_id(std::string id) { set_kid(std::move(id)); return *this; }
+    LocalKey& clear_key_id() noexcept { kid_.reset(); footer_.clear(); return *this; }
+    /// The footer the claims layer binds this key's id into; empty for no id.
+    [[nodiscard]] const std::string& footer() const noexcept { return footer_; }
 
     /// An explicit copy; keys are never copied implicitly.
     [[nodiscard]] LocalKey clone() const {
         LocalKey k;
         std::memcpy(k.k_, k_, BYTES);
-        k.kid_ = kid_;
+        k.set_kid(kid_);
         return k;
     }
 
 private:
     friend struct detail::KeyAccess;
     LocalKey() noexcept : k_{} { detail::lock(k_, BYTES); }
+    void set_kid(std::optional<std::string> k) {
+        kid_ = std::move(k);
+        footer_ = detail::kid_footer(kid_);
+    }
     uint8_t k_[BYTES];
     std::optional<std::string> kid_;
+    std::string footer_;
 };
 
 #ifdef CB2_HAS_PQ
@@ -203,7 +225,7 @@ public:
         if (bytes.size() != BYTES) return Result<PublicKey>::err(Error::argument);
         PublicKey k;
         k.pk_.assign(bytes.begin(), bytes.end());
-        k.kid_ = k.paserk_id();
+        k.set_kid(k.paserk_id());
         return Result<PublicKey>::ok(std::move(k));
     }
 
@@ -212,7 +234,7 @@ public:
         k.pk_.resize(BYTES);
         if (!detail::paserk_decode(PASERK_HEADER, text, k.pk_.data(), BYTES))
             return Result<PublicKey>::err(Error::argument);
-        k.kid_ = k.paserk_id();
+        k.set_kid(k.paserk_id());
         return Result<PublicKey>::ok(std::move(k));
     }
 
@@ -226,8 +248,9 @@ public:
     }
 
     [[nodiscard]] const std::optional<std::string>& key_id() const noexcept { return kid_; }
-    PublicKey& set_key_id(std::string id) { kid_ = std::move(id); return *this; }
-    PublicKey& clear_key_id() noexcept { kid_.reset(); return *this; }
+    PublicKey& set_key_id(std::string id) { set_kid(std::move(id)); return *this; }
+    PublicKey& clear_key_id() noexcept { kid_.reset(); footer_.clear(); return *this; }
+    [[nodiscard]] const std::string& footer() const noexcept { return footer_; }
 
     /// The raw 1984 bytes; public, so freely readable.
     [[nodiscard]] std::span<const uint8_t> bytes() const noexcept { return pk_; }
@@ -236,8 +259,13 @@ private:
     friend struct detail::KeyAccess;
     friend class SecretKey;
     PublicKey() = default;
+    void set_kid(std::optional<std::string> k) {
+        kid_ = std::move(k);
+        footer_ = detail::kid_footer(kid_);
+    }
     std::vector<uint8_t> pk_;
     std::optional<std::string> kid_;
+    std::string footer_;
 };
 
 /// The hybrid signing key: Ed25519 sk || ML-DSA-65 sk || ML-DSA-65 pk.
@@ -256,6 +284,7 @@ public:
             release();
             sk_ = std::move(o.sk_);
             kid_ = std::move(o.kid_);
+            footer_ = std::move(o.footer_);
         }
         return *this;
     }
@@ -272,7 +301,7 @@ public:
         if (crypto_sign_keypair(ed_pk, k.sk_.data()) != 0 ||
             !detail::MlDsa65::keypair(k.sk_.data() + ED_BYTES + ML_BYTES, k.sk_.data() + ED_BYTES))
             return Result<SecretKey>::err(Error::internal);
-        k.kid_ = k.public_key().paserk_id();
+        k.set_kid(k.public_key().paserk_id());
         return Result<SecretKey>::ok(std::move(k));
     }
 
@@ -327,19 +356,20 @@ public:
         p.pk_.reserve(PublicKey::BYTES);
         p.pk_.insert(p.pk_.end(), sk_.begin() + crypto_sign_SEEDBYTES, sk_.begin() + ED_BYTES);
         p.pk_.insert(p.pk_.end(), sk_.begin() + ED_BYTES + ML_BYTES, sk_.end());
-        p.kid_ = kid_.has_value() ? kid_ : std::optional<std::string>(p.paserk_id());
+        p.set_kid(kid_.has_value() ? kid_ : std::optional<std::string>(p.paserk_id()));
         return p;
     }
 
     [[nodiscard]] const std::optional<std::string>& key_id() const noexcept { return kid_; }
-    SecretKey& set_key_id(std::string id) { kid_ = std::move(id); return *this; }
-    SecretKey& clear_key_id() noexcept { kid_.reset(); return *this; }
+    SecretKey& set_key_id(std::string id) { set_kid(std::move(id)); return *this; }
+    SecretKey& clear_key_id() noexcept { kid_.reset(); footer_.clear(); return *this; }
+    [[nodiscard]] const std::string& footer() const noexcept { return footer_; }
 
     [[nodiscard]] SecretKey clone() const {
         SecretKey k;
         k.sk_ = sk_;
         k.lock();
-        k.kid_ = kid_;
+        k.set_kid(kid_);
         return k;
     }
 
@@ -354,7 +384,7 @@ private:
     [[nodiscard]] static Result<SecretKey> finish_import(SecretKey k) {
         if (!detail::MlDsa65::available()) return Result<SecretKey>::err(Error::unavailable);
         if (!k.consistent()) return Result<SecretKey>::err(Error::argument);
-        k.kid_ = k.public_key().paserk_id();
+        k.set_kid(k.public_key().paserk_id());
         return Result<SecretKey>::ok(std::move(k));
     }
 
@@ -366,8 +396,14 @@ private:
         if (!sk_.empty()) detail::unlock(sk_.data(), sk_.size());
     }
 
+    void set_kid(std::optional<std::string> k) {
+        kid_ = std::move(k);
+        footer_ = detail::kid_footer(kid_);
+    }
+
     SecureBytes sk_;
     std::optional<std::string> kid_;
+    std::string footer_;
 };
 
 #endif

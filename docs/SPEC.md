@@ -45,6 +45,13 @@ the change is justified in section 9.
 - `BLAKE3(m, n)` is unkeyed BLAKE3 with n bytes of output.
 - `XChaCha20(k, n2, m)` is libsodium's `crypto_stream_xchacha20_xor` of m
   under 32-byte key k and 24-byte nonce n2, with the block counter at 0.
+  In builds with `CB2_OPENSSL_CHACHA` (the default) a message of 512
+  bytes or more is instead passed through OpenSSL's ChaCha20 under the
+  subkey of libsodium's `crypto_core_hchacha20`, with the IETF nonce
+  layout (four zero bytes and the last 8 nonce bytes): the same bytes,
+  from an implementation that uses the CPU's vector unit, checked across
+  the threshold by the test suite and by every vector whose payload
+  crosses it.
 - `Ed25519-sign`, `Ed25519-verify` are libsodium's `crypto_sign_detached`
   and `crypto_sign_verify_detached`.
 - `ML-DSA-65-sign`, `ML-DSA-65-verify` are liboqs's `OQS_SIG_sign` and
@@ -502,7 +509,9 @@ access token itself (3.6 and 8.3).
 | JSON | caller's problem | caller's problem | strict reader, numbers never converted | duplicate-key and coercion ambiguities between issuer and verifier |
 | international text | UTF-8 accepted by the JSON grammar, nothing more | same | UTF-8 raw on the wire, escapes resolved before comparison, an identifier policy on both sides, no normalisation | identifiers that differ by an invisible or bidi character; tokens minted with text the verifier will refuse |
 | nonce source | batched per-thread CSPRNG | same | `randombytes_buf` per token, no batch | the batch is a public buffer held for a long time; one call per token keeps no nonce state at all. Measured cost on this Mac: about 1.4 us per seal (README benchmark), which is the whole difference between cb2 and cb1 at seal time; open is at parity or faster |
-| PAE | materialised head of 73 bytes | streamed | streamed through a 128-byte buffered sink; never materialised for the MAC | nothing new in security; one or two hasher updates instead of eleven |
+| PAE | materialised head of 73 bytes | streamed | streamed through a 256-byte buffered sink; never materialised for the MAC | nothing new in security; one hasher update instead of eleven for a short token |
+| bulk cipher | libsodium | libsodium | libsodium below 512 bytes, OpenSSL's vectorised ChaCha20 at or above it under libsodium's HChaCha20 subkey; the same keystream | nothing in security; 64 KiB tokens about twice as fast on CPUs where libsodium's ChaCha20 is plain C |
+| key footer | built per call | built per call | kept with the key, rebuilt when the id changes | nothing in security; the claims layer no longer escapes the id on every token |
 | allocation | caller buffers | caller buffers | caller buffers plus convenience functions that allocate once | a convenience API that does not tempt callers into copying secrets |
 
 ## 10. Threat model

@@ -586,11 +586,7 @@ class Token {
 public:
     /// The footer a key id is bound into: {"kid":"..."}; empty for none.
     [[nodiscard]] static std::string footer_for(const std::optional<std::string>& kid) {
-        if (!kid) return {};
-        std::string f = "{\"kid\":";
-        json::Writer::string(f, *kid);
-        f += '}';
-        return f;
+        return detail::kid_footer(kid);
     }
 
     /// Reads the kid from the footer of a token of either purpose without
@@ -629,7 +625,7 @@ public:
         if (!claims.text_ok() || !key_id_ok(key.key_id())) return Result<std::string>::err(Error::argument);
         try {
             const std::string payload = claims.to_json();
-            const std::string footer = footer_for(key.key_id());
+            const std::string& footer = key.footer();
             return Local::seal(key, bytes(payload), bytes(footer), bytes(implicit));
         } catch (...) {
             return Result<std::string>::err(Error::internal);
@@ -645,7 +641,7 @@ public:
         if (!key_id_ok(key.key_id()) || !rules.expectations_ok()) return Result<Claims>::err(Error::argument);
         if (token.size() > rules.max_token_bytes()) return Result<Claims>::err(Error::too_large);
         try {
-            const std::string footer = footer_for(key.key_id());
+            const std::string& footer = key.footer();
             auto plain = Local::open(token, key, bytes(footer), bytes(implicit), rules.max_token_bytes());
             if (plain.is_err()) return Result<Claims>::err(plain.error());
             return finish(std::string_view(reinterpret_cast<const char*>(plain.value().data()),
@@ -663,7 +659,7 @@ public:
         if (!claims.text_ok() || !key_id_ok(key.key_id())) return Result<std::string>::err(Error::argument);
         try {
             const std::string payload = claims.to_json();
-            const std::string footer = footer_for(key.key_id());
+            const std::string& footer = key.footer();
             return Public::sign(key, bytes(payload), bytes(footer), bytes(implicit));
         } catch (...) {
             return Result<std::string>::err(Error::internal);
@@ -679,7 +675,7 @@ public:
         if (!key_id_ok(key.key_id()) || !rules.expectations_ok()) return Result<Claims>::err(Error::argument);
         if (token.size() > rules.max_token_bytes()) return Result<Claims>::err(Error::too_large);
         try {
-            const std::string footer = footer_for(key.key_id());
+            const std::string& footer = key.footer();
             auto msg = Public::verify(token, key, bytes(footer), bytes(implicit), rules.max_token_bytes());
             if (msg.is_err()) return Result<Claims>::err(msg.error());
             return finish(std::string_view(reinterpret_cast<const char*>(msg.value().data()),

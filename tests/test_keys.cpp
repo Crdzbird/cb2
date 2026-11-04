@@ -115,3 +115,32 @@ TEST_CASE("keys/a secret key survives moves and clones with its memory lock") {
     CHECK(assigned.public_key().paserk_id() != pk.paserk_id());
 }
 #endif
+
+TEST_CASE("keys/every key carries the footer its id is bound into") {
+    auto k = cb2::LocalKey::from_bytes(tu::pattern(32, 0x11));
+    REQUIRE(k.is_ok());
+    CHECK(k.value().footer() == cb2::Token::footer_for(k.value().key_id()));
+    CHECK(k.value().footer() == "{\"kid\":\"" + k.value().paserk_id() + "\"}");
+    k.value().set_key_id("a\"b\\c");
+    CHECK(k.value().footer() == "{\"kid\":\"a\\\"b\\\\c\"}");
+    const cb2::LocalKey cloned = k.value().clone();
+    CHECK(cloned.footer() == k.value().footer());
+    cb2::LocalKey moved(std::move(k.value()));
+    CHECK(moved.footer() == cloned.footer());
+    moved.clear_key_id();
+    CHECK(moved.footer().empty() && !moved.key_id());
+    cb2::LocalKey assigned = cb2::LocalKey::generate().value();
+    assigned = std::move(moved);
+    CHECK(assigned.footer().empty());
+#ifdef CB2_HAS_PQ
+    auto sk = cb2::SecretKey::generate().value();
+    CHECK(sk.footer() == cb2::Token::footer_for(sk.key_id()));
+    CHECK(sk.public_key().footer() == sk.footer());
+    sk.set_key_id("rotation-1");
+    CHECK(sk.public_key().footer() == "{\"kid\":\"rotation-1\"}" && sk.footer() == sk.public_key().footer());
+    auto pk = cb2::PublicKey::from_paserk(sk.public_key().to_paserk()).value();
+    CHECK(pk.footer() == cb2::Token::footer_for(pk.key_id()));
+    pk.clear_key_id();
+    CHECK(pk.footer().empty());
+#endif
+}

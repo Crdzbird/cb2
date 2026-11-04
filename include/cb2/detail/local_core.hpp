@@ -18,6 +18,14 @@
  * crypto_verify_32, and only then decrypts. Every token-dependent failure
  * is the single verdict Status::invalid. The derived keys live in a stack
  * struct that is wiped on every path.
+ *
+ * XChaCha20 is libsodium's. With CB2_OPENSSL_CHACHA (the CMake default on
+ * native builds) a message of OPENSSL_CHACHA_MIN_BYTES or more goes
+ * through OpenSSL's ChaCha20 instead, after libsodium's HChaCha20: the
+ * same keystream byte for byte, which the test suite checks across the
+ * threshold, from an implementation that uses the CPU's vector unit where
+ * libsodium's does not. Short messages stay on libsodium, whose call has
+ * no setup cost.
  */
 
 #include "base64url.hpp"
@@ -26,6 +34,10 @@
 #include "secure.hpp"
 
 #include <sodium.h>
+
+#ifdef CB2_OPENSSL_CHACHA
+#include <openssl/evp.h>
+#endif
 
 #include <cstddef>
 #include <cstdint>
@@ -61,6 +73,51 @@ inline constexpr std::size_t LOCAL_AK_BYTES = 32;
 inline constexpr std::size_t LOCAL_SPLIT_BYTES = LOCAL_EK_BYTES + LOCAL_N2_BYTES + LOCAL_AK_BYTES;
 inline constexpr std::size_t LOCAL_OVERHEAD = LOCAL_NONCE_BYTES + LOCAL_TAG_BYTES;
 inline constexpr std::size_t MAX_HEADER_BYTES = 32;
+
+/// Messages of this many bytes or more use OpenSSL's ChaCha20 when the
+/// build enables it; below it libsodium's call is the cheaper one.
+inline constexpr std::size_t OPENSSL_CHACHA_MIN_BYTES = 512;
+
+/// out = in XOR XChaCha20(ek, n2), libsodium.
+[[nodiscard]] inline bool xchacha20_xor_sodium(uint8_t* out, const uint8_t* in, std::size_t n,
+                                               const uint8_t* n2, const uint8_t* ek) noexcept {
+    return n == 0 || crypto_stream_xchacha20_xor(out, in, n, n2, ek) == 0;
+}
+
+#ifdef CB2_OPENSSL_CHACHA
+/// The same keystream through OpenSSL: HChaCha20 of the key and the
+/// first 16 nonce bytes (libsodium's crypto_core_hchacha20), then ChaCha20
+/// under that subkey with the IETF nonce layout, four zero bytes and the
+/// last 8 nonce bytes, counter 0. Identical to the 64-bit counter form for
+/// every length this library accepts. in and out are equal or disjoint.
+[[nodiscard]] inline bool xchacha20_xor_openssl(uint8_t* out, const uint8_t* in, std::size_t n,
+                                                const uint8_t* n2, const uint8_t* ek) noexcept {
+    static EVP_CIPHER* const cipher = EVP_CIPHER_fetch(nullptr, "ChaCha20", nullptr);
+    if (n == 0) return true;
+    if (cipher == nullptr || n > static_cast<std::size_t>(INT32_MAX)) return false;
+    SecureArray<32> sub;
+    if (crypto_core_hchacha20(sub.v, n2, ek, nullptr) != 0) return false;
+    uint8_t iv[16] = {};
+    std::memcpy(iv + 8, n2 + 16, 8);
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    int len = 0;
+    const bool ok = ctx != nullptr && EVP_EncryptInit_ex(ctx, cipher, nullptr, sub.v, iv) == 1 &&
+                    EVP_EncryptUpdate(ctx, out, &len, in, static_cast<int>(n)) == 1 &&
+                    static_cast<std::size_t>(len) == n;
+    EVP_CIPHER_CTX_free(ctx);
+    return ok;
+}
+#endif
+
+/// The XChaCha20 the local construction uses: libsodium below the
+/// threshold, OpenSSL at or above it when the build enables it.
+[[nodiscard]] inline bool xchacha20_xor(uint8_t* out, const uint8_t* in, std::size_t n,
+                                        const uint8_t* n2, const uint8_t* ek) noexcept {
+#ifdef CB2_OPENSSL_CHACHA
+    if (n >= OPENSSL_CHACHA_MIN_BYTES) return xchacha20_xor_openssl(out, in, n, n2, ek);
+#endif
+    return xchacha20_xor_sodium(out, in, n, n2, ek);
+}
 
 /// Token text length for a header, a raw body and a footer.
 [[nodiscard]] constexpr std::size_t
@@ -120,7 +177,8 @@ inline std::size_t finish_token(std::span<uint8_t> out, std::string_view header,
 }
 
 /// Groups the many small PAE updates into one hasher update, so the MAC
-/// of a short token costs one or two compression calls, not eleven.
+/// of a short token costs one hasher update, not eleven: 256 bytes hold
+/// the whole encoding of a 64-byte message with a key id footer.
 template <class Inner>
 class BufferedSink {
 public:
@@ -143,7 +201,7 @@ public:
 
 private:
     Inner& inner_;
-    uint8_t buf_[128];
+    uint8_t buf_[256];
     std::size_t pos_ = 0;
 };
 
@@ -198,8 +256,7 @@ public:
         LocalKeys k;
         derive(k, key, h, nonce);
         std::memcpy(raw, nonce, LOCAL_NONCE_BYTES);
-        if (!msg.empty() &&
-            crypto_stream_xchacha20_xor(c, msg.data(), msg.size(), k.n2(), k.ek()) != 0) {
+        if (!xchacha20_xor(c, msg.data(), msg.size(), k.n2(), k.ek())) {
             wipe(out.data(), need);
             return Status::internal;
         }
@@ -275,9 +332,7 @@ private:
         mac(k, k.tag, h, n, {c, clen}, expected_footer, implicit);
         if (crypto_verify_32(t, k.tag) != 0) return Status::invalid;
         std::memmove(work.data(), c, clen);
-        if (clen != 0 &&
-            crypto_stream_xchacha20_xor(work.data(), work.data(), clen, k.n2(), k.ek()) != 0)
-            return Status::internal;
+        if (!xchacha20_xor(work.data(), work.data(), clen, k.n2(), k.ek())) return Status::internal;
         wipe(work.data() + clen, work.size() - clen);
         out_len = clen;
         return Status::ok;

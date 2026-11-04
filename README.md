@@ -32,10 +32,14 @@ cmake --build build
 ```
 
 Options: `CB2_PQ` (default ON; OFF builds without liboqs and without
-cb2.public), `CB2_BUILD_TESTS`, `CB2_BUILD_PLAYGROUND`, `CB2_BUILD_BENCH` (needs
-CipherBird's headers; `CB2_CRYPTOLIB_INCLUDE` names them, default
-`../cryptolib/include`), `CB2_FUZZ` (LLVM clang), `CB2_SANITIZE`
-(ASan + UBSan).
+cb2.public), `CB2_OPENSSL_CHACHA` (default ON; messages of 512 bytes or
+more go through OpenSSL's ChaCha20 after libsodium's HChaCha20, the same
+keystream from an implementation that uses the vector unit; OFF keeps
+every byte on libsodium), `CB2_BUILD_TESTS`, `CB2_BUILD_PLAYGROUND`,
+`CB2_BUILD_BENCH` (`CB2_CRYPTOLIB_INCLUDE`, default
+`../cryptolib/include`, adds CipherBird's own rows when present),
+`CB2_FUZZ` (LLVM clang), `CB2_SANITIZE` (ASan + UBSan). libcrypto is
+required in every configuration.
 
 To use the library, add the `include` directory, define `CB2_HAS_PQ`
 when liboqs is linked, and link libsodium, libblake3 and (for PQ) liboqs
@@ -272,7 +276,8 @@ docs/SENDER_CONSTRAINT.md          sender-constrained tokens: the design, its de
 ## Benchmark
 
 `cb2_bench` (`-DCB2_BUILD_BENCH=ON`), Release build, Apple clang 21,
-this Mac (Apple silicon), macOS 26.6, idle machine, 2026-11-04. Each
+this Mac (Apple silicon), macOS 26.6, idle machine, 2026-11-04, after
+the ChaCha20 backend and the footer cache described below. Each
 cell is the median of seven repeats of at least 200 ms of back-to-back
 calls, in time per operation, of the allocating functions of every
 implementation: a payload of 64 B, 1 KiB or 64 KiB, a 44-byte footer
@@ -295,65 +300,67 @@ parsing at all: the verifier knows its algorithm, as a safe JWT verifier
 must, which favours JWT, not cb2.
 
 | implementation | token at 64 B | seal 64 B | seal 1 KiB | seal 64 KiB | open 64 B | open 1 KiB | open 64 KiB |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| cb2.local | 246 | 2938 ns | 6991 ns | 225.3 us | 1437 ns | 5723 ns | 222.6 us |
-| PASETO v4.local | 245 | 3507 ns | 7205 ns | 250.6 us | 2207 ns | 5947 ns | 252.7 us |
-| PASETO v3.local | 266 | 8238 ns | 9664 ns | 110.3 us | 6840 ns | 8384 ns | 115.0 us |
-| PASETO v2.local | 213 | 2889 ns | 7047 ns | 301.9 us | 957 ns | 4039 ns | 207.7 us |
-| PASETO v1.local | 266 | 10.0 us | 12.5 us | 170.9 us | 7325 ns | 8995 ns | 116.4 us |
-| JWE dir A256GCM | 167 | 2694 ns | 3285 ns | 49.2 us | 773 ns | 1455 ns | 48.2 us |
-| cb2.public (Ed25519 + ML-DSA-65) | 4659 | 179.7 us | 188.5 us | 670.8 us | 118.2 us | 126.3 us | 464.1 us |
-| PASETO v4.public (Ed25519) | 246 | 18.4 us | 23.2 us | 310.2 us | 50.3 us | 52.2 us | 216.0 us |
-| PASETO v3.public (ECDSA P-384) | 289 | 179.7 us | 181.4 us | 275.3 us | 366.1 us | 367.0 us | 461.9 us |
-| PASETO v2.public (Ed25519) | 246 | 16.9 us | 23.2 us | 333.4 us | 50.3 us | 53.2 us | 229.0 us |
-| PASETO v1.public (RSA-2048 PSS) | 502 | 647.4 us | 640.9 us | 744.1 us | 21.5 us | 23.0 us | 125.9 us |
-| JWS EdDSA (Ed25519) | 210 | 18.4 us | 24.3 us | 414.0 us | 51.6 us | 53.6 us | 268.2 us |
-| JWS ES256 (ECDSA P-256) | 210 | 23.4 us | 23.1 us | 98.4 us | 62.1 us | 60.3 us | 136.7 us |
-| JWS RS256 (RSA-2048) | 466 | 603.1 us | 606.7 us | 690.8 us | 17.5 us | 18.8 us | 94.4 us |
-| JWS HS256 (HMAC-SHA256) | 167 | 1113 ns | 2194 ns | 76.6 us | 1071 ns | 2176 ns | 76.3 us |
-| cryptolib v4.local | 245 | 1896 ns | 5501 ns | 259.9 us | 1861 ns | 5642 ns | 265.7 us |
-| cryptolib cb1.local | 246 | 1339 ns | 5402 ns | 214.1 us | 1273 ns | 5460 ns | 226.3 us |
+| cb2.local | 246 | 2713 ns | 5261 ns | 121.2 us | 1328 ns | 4280 ns | 128.0 us |
+| PASETO v4.local | 245 | 3779 ns | 7758 ns | 266.9 us | 2386 ns | 6364 ns | 266.8 us |
+| PASETO v3.local | 266 | 8995 ns | 10.6 us | 113.1 us | 7499 ns | 9095 ns | 114.2 us |
+| PASETO v2.local | 213 | 2926 ns | 7016 ns | 300.3 us | 972 ns | 3972 ns | 214.5 us |
+| PASETO v1.local | 266 | 10.2 us | 12.5 us | 172.2 us | 7559 ns | 9002 ns | 118.3 us |
+| JWE dir A256GCM | 167 | 2656 ns | 3339 ns | 45.4 us | 751 ns | 1463 ns | 44.6 us |
+| cb2.public (Ed25519 + ML-DSA-65) | 4659 | 166.7 us | 174.2 us | 623.3 us | 112.6 us | 116.2 us | 441.3 us |
+| PASETO v4.public (Ed25519) | 246 | 17.3 us | 23.2 us | 334.6 us | 50.3 us | 51.3 us | 230.3 us |
+| PASETO v3.public (ECDSA P-384) | 289 | 195.8 us | 196.3 us | 296.7 us | 396.6 us | 394.0 us | 503.7 us |
+| PASETO v2.public (Ed25519) | 246 | 18.5 us | 23.5 us | 333.1 us | 50.3 us | 53.1 us | 235.8 us |
+| PASETO v1.public (RSA-2048 PSS) | 502 | 639.6 us | 640.7 us | 739.8 us | 21.8 us | 23.0 us | 124.4 us |
+| JWS EdDSA (Ed25519) | 210 | 17.4 us | 23.0 us | 399.3 us | 47.1 us | 50.5 us | 252.8 us |
+| JWS ES256 (ECDSA P-256) | 210 | 21.5 us | 22.5 us | 97.8 us | 58.1 us | 59.8 us | 135.5 us |
+| JWS RS256 (RSA-2048) | 466 | 593.2 us | 595.6 us | 710.6 us | 17.3 us | 18.6 us | 98.8 us |
+| JWS HS256 (HMAC-SHA256) | 167 | 1191 ns | 2348 ns | 81.8 us | 1145 ns | 2324 ns | 81.4 us |
+| cryptolib v4.local | 245 | 2015 ns | 5849 ns | 259.6 us | 2020 ns | 6034 ns | 265.9 us |
+| cryptolib cb1.local | 246 | 1299 ns | 5365 ns | 213.2 us | 1272 ns | 5435 ns | 227.7 us |
 
 64 KiB throughput, seal / open, in MB/s:
 
 | implementation | seal | open |
 |---|---:|---:|
-| cb2.local | 277 | 281 |
-| PASETO v4.local | 249 | 247 |
-| PASETO v3.local | 567 | 544 |
-| PASETO v2.local | 207 | 301 |
-| PASETO v1.local | 366 | 537 |
-| JWE dir A256GCM | 1271 | 1297 |
-| cb2.public | 93 | 135 |
-| PASETO v4.public | 201 | 289 |
-| PASETO v3.public | 227 | 135 |
-| PASETO v2.public | 187 | 273 |
-| PASETO v1.public | 84 | 496 |
-| JWS EdDSA | 151 | 233 |
-| JWS ES256 | 635 | 457 |
-| JWS RS256 | 90 | 662 |
-| JWS HS256 | 816 | 819 |
-| cryptolib v4.local | 240 | 235 |
-| cryptolib cb1.local | 292 | 276 |
+| cb2.local | 516 | 488 |
+| PASETO v4.local | 234 | 234 |
+| PASETO v3.local | 553 | 547 |
+| PASETO v2.local | 208 | 291 |
+| PASETO v1.local | 363 | 528 |
+| JWE dir A256GCM | 1377 | 1401 |
+| PASETO v4.public | 187 | 271 |
+| PASETO v2.public | 188 | 265 |
+| JWS EdDSA | 157 | 247 |
+| JWS ES256 | 639 | 461 |
+| JWS RS256 | 88 | 632 |
+| JWS HS256 | 764 | 768 |
+| cryptolib v4.local | 241 | 235 |
+| cryptolib cb1.local | 293 | 274 |
 
 Reading, local tokens. At the sizes tokens actually have, cb2.local
-sits with the fastest of the family: opening a 64 B token costs 1.4 us,
-against 2.2 us for v4.local written the same plain way, 1.9 us for the
+sits with the fastest of the family: opening a 64 B token costs 1.3 us,
+against 2.4 us for v4.local written the same plain way, 2.0 us for the
 tuned v4.local, 1.0 us for v2.local (one AEAD call, no key split, and no
-key commitment) and about 7 us for v1.local and v3.local, whose
+key commitment) and about 7.5 us for v1.local and v3.local, whose
 HKDF-SHA384 split and HMAC-SHA384 tag cost more than the cipher at that
 size. HS256 and JWE A256GCM are cheaper still at 64 B because they do
-less: no key split, and for HS256 no encryption. At 64 KiB the order
-inverts: this CPU has AES in hardware and OpenSSL uses it, so the
-AES-CTR of v1 and v3 and the AES-GCM of JWE move bulk data two to five
-times faster than libsodium's software XChaCha20, which cb2, v2 and v4
-share. That is a choice of cipher, not of construction; cb2 keeps
-XChaCha20 for its nonce size and its constant-time software
-implementation on every platform, and a 64 KiB token is not what the
-format is for. Seal costs 1.4 us more than open at every size on the
-cb2 row, which is the per-token `randombytes_buf` call the design
-requires in place of a nonce batch (docs/SPEC.md section 12, question
-5); cb1.local shows the same construction with the batch.
+less: no key split, and for HS256 no encryption. Of the 1.3 us, the
+three primitive calls (the keyed BLAKE3 split, the keyed BLAKE3 tag over
+the 198-byte encoding, XChaCha20) are 1.0 us; the decoder, the footer
+compare and the buffers are the rest. At 64 KiB cb2 is the fastest of
+the XChaCha20 family: a message of 512 bytes or more goes through
+OpenSSL's vectorised ChaCha20 under libsodium's HChaCha20 subkey, the
+same keystream, which halves the bulk cost against libsodium's plain C
+ChaCha20 on this CPU (v2 and v4 in the table still use it). AES-CTR in
+v1 and v3 and AES-GCM in JWE stay ahead because this CPU has AES in
+hardware; that is a choice of cipher, not of construction, and a 64 KiB
+token is not what the format is for. Seal costs 1.4 us more than open at
+64 B on the cb2 row, which is the per-token `randombytes_buf` call
+the design requires in place of a nonce batch (docs/SPEC.md section
+12, question 5); cb1.local shows the same construction with the batch.
+Through the claims layer, `Token::open` of a typical token costs
+about 3.4 us, of which the strict JSON parse is one; the footer the key
+id is bound into is kept with the key, which took 0.3 us off that path.
 
 Reading, public tokens. The post-quantum half is the whole difference:
 cb2.public signs in 180 us and verifies in 118 us where Ed25519 alone

@@ -191,8 +191,11 @@ in docs/SENDER_CONSTRAINT.md is not yet implemented.
 ## Assumptions
 
 - libsodium, BLAKE3 and liboqs are correct and their constant-time
-  properties hold on the target. cb2 composes them and adds no
-  primitive of its own.
+  properties hold on the target, and so is OpenSSL's ChaCha20 in builds
+  that use it for messages of 512 bytes or more (CB2_OPENSSL_CHACHA, the
+  default). cb2 composes them and adds no primitive of its own; the
+  test suite checks that the two ChaCha20 implementations produce the
+  same keystream on both sides of the threshold.
 - The caller keeps the LocalKey and SecretKey secret and the PublicKey
   authentic. A key id is not a secret and not a proof of key possession.
 - The verifier's clock is correct to within the configured skew.

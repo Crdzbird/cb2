@@ -215,3 +215,23 @@ TEST_CASE("local/the allocating open refuses an oversize token before reading it
     CHECK(allowed.value().size() == msg.size());
     CHECK(cb2::DEFAULT_RAW_MAX_TOKEN_BYTES == (std::size_t{1} << 20));
 }
+
+#ifdef CB2_OPENSSL_CHACHA
+TEST_CASE("local/the OpenSSL ChaCha20 path yields libsodium's keystream at every size") {
+    for (std::size_t n : {std::size_t{0}, std::size_t{1}, std::size_t{63}, std::size_t{64}, std::size_t{65}, std::size_t{511},
+                          std::size_t{512}, std::size_t{513}, std::size_t{1000}, std::size_t{4096}, std::size_t{70000}}) {
+        uint8_t key[32], nonce[24];
+        randombytes_buf(key, 32);
+        randombytes_buf(nonce, 24);
+        std::vector<uint8_t> msg(n), a(n), b(n);
+        if (n != 0) randombytes_buf(msg.data(), n);
+        REQUIRE(cb2::detail::xchacha20_xor_sodium(a.data(), msg.data(), n, nonce, key));
+        REQUIRE(cb2::detail::xchacha20_xor_openssl(b.data(), msg.data(), n, nonce, key));
+        CHECK(a == b);
+        std::vector<uint8_t> inplace = msg;
+        REQUIRE(cb2::detail::xchacha20_xor_openssl(inplace.data(), inplace.data(), n, nonce, key));
+        CHECK(inplace == a);
+    }
+    CHECK(cb2::detail::OPENSSL_CHACHA_MIN_BYTES == 512);
+}
+#endif
