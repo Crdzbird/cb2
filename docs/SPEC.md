@@ -592,7 +592,12 @@ and generator executables only, never for the library interface.
    gap is the same 1.4 us and at 64 KiB it vanishes. Batching would
    close the gap at the price of a nonce buffer that lives in process
    memory and a fork handler. This implementation follows the owner's
-   instruction to use `randombytes_buf` only.
+   instruction to use `randombytes_buf` only. Resolved on 2026-11-04:
+   the library keeps the kernel source and no nonce state; an
+   application that wants the 1.4 us selects libsodium's own internal
+   generator through `randombytes_set_implementation` before its first
+   cb2 call, a vetted generator with its state owned by libsodium, as
+   README.md describes. No batch of cb2's own will be added.
 6. Sender-constrained tokens: a `cnf` claim bound to a client key and a
    per-request proof of a new purpose, so that a stolen token is useless
    without the key. The design draft is docs/SENDER_CONSTRAINT.md; it is

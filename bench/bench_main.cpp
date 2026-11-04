@@ -8,6 +8,10 @@
  * bench/reference.hpp, checked against the official PASETO vectors and
  * the RFC 7515 example by tests/test_reference.cpp. CipherBird's own
  * v4.local and cb1.local rows appear when cryptolib is found.
+ *
+ * --fast-random selects libsodium's own userspace random generator for
+ * every nonce in the run, the application opt-in README.md describes;
+ * --only <text> measures only the rows whose name contains the text.
  */
 
 #include "reference.hpp"
@@ -219,8 +223,21 @@ std::vector<Scheme> schemes(const Keys& keys, const cb2::LocalKey& local) {
 
 }
 
-int main() {
+int main(int argc, char** argv) {
+    std::string only;
+    for (int i = 1; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--fast-random") {
+            if (randombytes_set_implementation(&randombytes_internal_implementation) != 0) return 2;
+        } else if (a == "--only" && i + 1 < argc) {
+            only = argv[++i];
+        } else {
+            std::fprintf(stderr, "usage: cb2_bench [--fast-random] [--only <text>]\n");
+            return 2;
+        }
+    }
     if (sodium_init() < 0) return 2;
+    std::printf("random source: %s\n", randombytes_implementation_name());
     Keys keys;
     for (int i = 0; i < 32; ++i) keys.k32[i] = static_cast<uint8_t>(0x70 + i);
     crypto_sign_keypair(keys.ed_pk, keys.ed_sk);
@@ -233,6 +250,7 @@ int main() {
     const Bytes footer(footer_text.begin(), footer_text.end());
     std::vector<Row> rows;
     for (const Scheme& s : schemes(keys, local)) {
+        if (!only.empty() && s.name.find(only) == std::string::npos) continue;
         std::fprintf(stderr, "measuring %s\n", s.name.c_str());
         rows.push_back(bench(s, footer));
     }

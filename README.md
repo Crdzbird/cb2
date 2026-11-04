@@ -117,6 +117,9 @@ and import keys, seal and open, sign and verify, build claims and check
 them under rules, wrap keys, peek at a footer, tamper with a token and
 watch the verdict change. Run it with no arguments for a prompt, or give
 it a script; `help` lists the commands and `$` stands for the last token.
+`--fast-random` before the script selects libsodium's userspace random
+generator for the nonces (the opt-in described under API below); `time`
+reports which source is in use.
 
 ```
 ./build/cb2_playground
@@ -208,6 +211,20 @@ Tokens
   sized by `verify_capacity`, which includes the scratch for the
   pre-authentication encoding, so it allocates nothing either. The
   ML-DSA half signs under the FIPS 204 context string `cb2.public.`.
+
+Nonce source
+
+- Every seal takes 32 fresh bytes from `randombytes_buf`, which by
+  default is the kernel (getentropy or getrandom), about 1.6 us per call
+  on this Mac and the larger part of a 64 B seal. An application that
+  wants that time back calls, once and before any cb2 function,
+  `randombytes_set_implementation(&randombytes_internal_implementation)`:
+  libsodium's own ChaCha20-based generator, seeded from the kernel,
+  reseeded on a schedule and after a fork, about 0.3 us per call. cb2
+  itself keeps no nonce state and makes no such choice; the trade, a
+  generator state in process memory maintained by libsodium instead of a
+  kernel call per token, belongs to the application. `cb2_playground
+  --fast-random` and `cb2_bench --fast-random` show both.
 
 Claims (`claims.hpp`)
 
@@ -361,6 +378,10 @@ the design requires in place of a nonce batch (docs/SPEC.md section
 Through the claims layer, `Token::open` of a typical token costs
 about 3.4 us, of which the strict JSON parse is one; the footer the key
 id is bound into is kept with the key, which took 0.3 us off that path.
+With `cb2_bench --fast-random`, the application opt-in for libsodium's
+own generator described under API, the same cb2.local row seals a 64 B
+token in 1489 ns and a 1 KiB one in 4136 ns, against 2736 and 5332 with
+the kernel source in the same session; open does not change.
 
 Reading, public tokens. The post-quantum half is the whole difference:
 cb2.public signs in 180 us and verifies in 118 us where Ed25519 alone

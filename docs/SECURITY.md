@@ -32,6 +32,14 @@ assertion.
    through libsodium; the keystream is derived from key and nonce, so a
    repeat requires a 256-bit collision. The process aborts if the system
    random device is unavailable; it never falls back to anything weaker.
+   An application may select libsodium's internal generator instead
+   (randombytes_set_implementation, before any cb2 call): a ChaCha20
+   generator libsodium seeds from the kernel, reseeds on a schedule and
+   after a fork. The uniqueness argument is unchanged, since the nonce
+   is public and only its non-repetition matters; what changes is that
+   generator state then lives in process memory, which is the
+   application's trade to make. cb2 keeps no nonce state of its own in
+   either case.
 5. No oracle. Every failure that depends on the token (header, encoding,
    footer, key id, tag) is reported as one verdict, invalid, and the tag
    comparison is constant time (libsodium crypto_verify_32). Footer and

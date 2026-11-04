@@ -319,7 +319,7 @@ inline void help(Session& s) {
         "  wrap <wrapping key> <key>      kcb2.local-wrap string\n"
         "  unwrap <wrapping key> <string> [name]\n"
         "  text <string>                  bytes, code points and the identifier policy's verdict\n"
-        "  time                           the clock the playground uses\n"
+        "  time                           the clock the playground uses and the random source\n"
         "  assert <verdict>               scripts: fail unless the last verdict matches\n"
         "  echo <text>                    print text\n"
         "  help, quit");
@@ -1106,6 +1106,7 @@ inline bool run(Session& s, const std::string& line) {
     if (c == "assert") return cmd_assert(s, a);
     if (c == "time") {
         say(s, "now", time_text(now_seconds()));
+        say(s, "random", randombytes_implementation_name());
         return true;
     }
     if (c == "echo") {

@@ -10,6 +10,12 @@
  * Interactive: ./build/cb2_playground
  * Scripted:    ./build/cb2_playground playground/demo.cb2
  *
+ * --fast-random, given first, selects libsodium's own userspace random
+ * generator for the nonces instead of the kernel's: the opt-in that
+ * README.md describes, chosen here before anything else runs because
+ * libsodium takes the choice only once, before its initialisation. The
+ * time command reports which source is in use.
+ *
  * A script is the same commands, one per line, with # comments; "assert
  * <verdict>" checks the last verdict and the process exits non-zero if any
  * assert fails or a command is malformed, so a script doubles as a test.
@@ -40,17 +46,29 @@ bool is_terminal() {
 }
 
 int main(int argc, char** argv) {
+    int first = 1;
+    if (argc > 1 && std::string(argv[1]) == "--fast-random") {
+        if (randombytes_set_implementation(&randombytes_internal_implementation) != 0) {
+            std::fputs("cannot select libsodium's internal random generator\n", stderr);
+            return 2;
+        }
+        first = 2;
+    }
+    if (sodium_init() < 0) {
+        std::fputs("libsodium failed to initialise\n", stderr);
+        return 2;
+    }
     std::ifstream file;
     std::istream* in = &std::cin;
-    if (argc > 1) {
-        file.open(argv[1]);
+    if (argc > first) {
+        file.open(argv[first]);
         if (!file) {
-            std::fprintf(stderr, "cannot open %s\n", argv[1]);
+            std::fprintf(stderr, "cannot open %s\n", argv[first]);
             return 2;
         }
         in = &file;
     }
-    const bool prompt = argc <= 1 && is_terminal();
+    const bool prompt = argc <= first && is_terminal();
     cb2_playground::Session s;
     if (prompt) std::puts("cb2 playground; help lists the commands, quit leaves");
     std::string text;
