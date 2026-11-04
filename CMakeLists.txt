@@ -42,7 +42,6 @@ if(CB2_PQ)
         set(OQS_INCLUDE_DIRS ${OQS_INCLUDE_DIR})
         set(OQS_LIBRARY_DIRS "")
     endif()
-    pkg_check_modules(OPENSSL REQUIRED libcrypto>=3.0)
     target_compile_definitions(cb2 INTERFACE CB2_HAS_PQ=1)
     target_include_directories(cb2 INTERFACE ${OQS_INCLUDE_DIRS})
     target_link_directories(cb2 INTERFACE ${OQS_LIBRARY_DIRS} ${OPENSSL_LIBRARY_DIRS})
@@ -50,6 +49,17 @@ if(CB2_PQ)
     message(STATUS "cb2: cb2.public enabled (liboqs)")
 else()
     message(STATUS "cb2: cb2.public disabled; only cb2.local is built")
+endif()
+
+# libcrypto is a dependency of liboqs and of the reference constructions
+# the tests and the benchmark compare cb2 with (bench/reference.hpp). With
+# cb2.public it already comes through the cb2 target; without it the
+# tests and the benchmark link it themselves.
+pkg_check_modules(OPENSSL REQUIRED libcrypto>=3.0)
+if(CB2_PQ)
+    set(CB2_REFERENCE_LIBS "")
+else()
+    set(CB2_REFERENCE_LIBS ${OPENSSL_LIBRARIES})
 endif()
 
 set(CB2_WARNINGS -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow)
@@ -76,8 +86,11 @@ if(CB2_BUILD_TESTS)
         tests/test_vectors.cpp
         tests/test_v4_crosscheck.cpp
         tests/test_text.cpp
-        tests/test_holder.cpp)
-    target_link_libraries(cb2_tests PRIVATE cb2::cb2)
+        tests/test_holder.cpp
+        tests/test_reference.cpp)
+    target_link_libraries(cb2_tests PRIVATE cb2::cb2 ${CB2_REFERENCE_LIBS})
+    target_link_directories(cb2_tests PRIVATE ${OPENSSL_LIBRARY_DIRS})
+    target_include_directories(cb2_tests PRIVATE bench ${OPENSSL_INCLUDE_DIRS})
     target_compile_options(cb2_tests PRIVATE ${CB2_WARNINGS} ${CB2_SANITIZE_FLAGS})
     target_link_options(cb2_tests PRIVATE ${CB2_SANITIZE_FLAGS})
     target_compile_definitions(cb2_tests PRIVATE
@@ -119,17 +132,21 @@ if(CB2_BUILD_PLAYGROUND)
 endif()
 
 if(CB2_BUILD_BENCH)
+    add_executable(cb2_bench bench/bench_main.cpp)
+    target_link_libraries(cb2_bench PRIVATE cb2::cb2 ${CB2_REFERENCE_LIBS})
+    target_link_directories(cb2_bench PRIVATE ${OPENSSL_LIBRARY_DIRS})
+    target_include_directories(cb2_bench PRIVATE ${OPENSSL_INCLUDE_DIRS})
+    target_compile_options(cb2_bench PRIVATE -O2 ${CB2_SANITIZE_FLAGS})
+    target_link_options(cb2_bench PRIVATE ${CB2_SANITIZE_FLAGS})
     set(CB2_CRYPTOLIB_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/../cryptolib/include" CACHE PATH
-        "CipherBird's include directory, for the reference benchmark against v4.local and cb1.local")
+        "CipherBird's include directory; adds its v4.local and cb1.local rows to the benchmark when present")
     if(EXISTS "${CB2_CRYPTOLIB_INCLUDE}/cryptolib/paseto.hpp")
-        add_executable(cb2_bench bench/bench_main.cpp bench/bench_ref.cpp)
-        target_link_libraries(cb2_bench PRIVATE cb2::cb2)
+        target_sources(cb2_bench PRIVATE bench/bench_ref.cpp)
         target_include_directories(cb2_bench PRIVATE "${CB2_CRYPTOLIB_INCLUDE}")
-        target_compile_definitions(cb2_bench PRIVATE CRYPTOLIB_HAS_BLAKE3=1)
-        target_compile_options(cb2_bench PRIVATE -O2 ${CB2_SANITIZE_FLAGS})
-        target_link_options(cb2_bench PRIVATE ${CB2_SANITIZE_FLAGS})
+        target_compile_definitions(cb2_bench PRIVATE CRYPTOLIB_HAS_BLAKE3=1 CB2_BENCH_CRYPTOLIB=1)
+        message(STATUS "cb2: benchmark with CipherBird's v4.local and cb1.local rows")
     else()
-        message(STATUS "cb2: no cryptolib/paseto.hpp under ${CB2_CRYPTOLIB_INCLUDE}; the benchmark is skipped")
+        message(STATUS "cb2: benchmark without cryptolib rows (no cryptolib/paseto.hpp under ${CB2_CRYPTOLIB_INCLUDE})")
     endif()
 endif()
 

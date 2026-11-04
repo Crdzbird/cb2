@@ -256,12 +256,12 @@ include/cb2/json.hpp           strict JSON reader and writer
 include/cb2/claims.hpp         Claims, ValidationRules, HolderProof, Token, Rfc3339
 include/cb2/holder.hpp         HolderRequest and the target normalisation of holder proofs
 include/cb2/detail/            base64url, PAE, BLAKE3 and liboqs wrappers, the local core, secure memory
-tests/                             runner, cases, gen_vectors.cpp, vectors/*.json, vectors/paseto-v4/ (the official v4 vectors, ISC)
+tests/                             runner, cases, gen_vectors.cpp, vectors/*.json, vectors/paseto-v1 to v4 (the official PASETO vectors, ISC)
 examples/international_text.cpp    the text policy against a legacy check, eight scenarios, self-checking
 playground/                        cb2_playground and the two scripted, self-checking demo sessions
 web/                               the browser playground: page, C shim, Emscripten build, the built module, node smoke test
 fuzz/                              fuzz_local, fuzz_public, fuzz_claims
-bench/                             bench_main.cpp, bench_ref.cpp (CipherBird's v4.local and cb1.local)
+bench/                             bench_main.cpp; reference.hpp, PASETO v1 to v4, JWS and JWE from their specifications, checked by tests/test_reference.cpp against the official vectors; bench_ref.cpp, CipherBird's v4.local and cb1.local when cryptolib is present
 docs/PROTOCOL.md                   the normative format for implementers, the vector file format, worked examples
 tools/check_vectors.py             an independent Python implementation that checks tests/vectors against docs/PROTOCOL.md alone
 docs/SPEC.md                       wire format, rationale, threat model
@@ -271,33 +271,101 @@ docs/SENDER_CONSTRAINT.md          sender-constrained tokens: the design, its de
 
 ## Benchmark
 
-`cb2_bench`, Release build, Apple clang 21, this Mac (Apple silicon),
-idle machine, 2026-11-03. Each cell is the median of seven repeats of at
-least 200 ms of back-to-back calls, in time per operation; a 44-byte
-footer, an empty implicit assertion, the same libsodium 1.0.22 and
-libblake3 1.8.7 under every implementation. Two runs agreed within a few
-percent; this is the first.
+`cb2_bench` (`-DCB2_BUILD_BENCH=ON`), Release build, Apple clang 21,
+this Mac (Apple silicon), macOS 26.6, idle machine, 2026-11-04. Each
+cell is the median of seven repeats of at least 200 ms of back-to-back
+calls, in time per operation, of the allocating functions of every
+implementation: a payload of 64 B, 1 KiB or 64 KiB, a 44-byte footer
+where the format has one, an empty implicit assertion. libsodium 1.0.22,
+libblake3 1.8.7, liboqs 0.16.0 and OpenSSL 4.0.3 under every row. A
+second run agreed with this one within 13 percent in the worst cell and
+within 8 percent in most, with no row changing place; this is the first.
 
-| implementation | seal 64 B | seal 1 KiB | seal 64 KiB | open 64 B | open 1 KiB | open 64 KiB |
-|---|---:|---:|---:|---:|---:|---:|
-| cb2.local (caller buffers) | 2631 ns | 6567 ns | 204.2 us | 1225 ns | 5168 ns | 209.0 us |
-| cb2.local (allocating) | 2699 ns | 6638 ns | 209.8 us | 1303 ns | 5381 ns | 226.6 us |
-| cryptolib v4.local | 1938 ns | 5641 ns | 250.1 us | 1921 ns | 5739 ns | 257.5 us |
-| cryptolib cb1.local | 1271 ns | 5096 ns | 211.9 us | 1206 ns | 5176 ns | 217.4 us |
+The PASETO v1 to v4, JWS and JWE rows are `bench/reference.hpp`: each
+construction written from its specification on libsodium and OpenSSL,
+sharing cb2's pre-authentication encoding and base64url codec, and
+checked by `tests/test_reference.cpp` against the official PASETO
+vectors of every version (local tokens reproduced byte for byte,
+signatures verified, every failure vector refused) and against the RFC
+7515 HS256 example before any number was taken. They are plain
+implementations that allocate as they go, not tuned ones; the two
+cryptolib rows are CipherBird's tuned v4.local and cb1.local and show
+what tuning is worth on the same construction. The JWS rows do no header
+parsing at all: the verifier knows its algorithm, as a safe JWT verifier
+must, which favours JWT, not cb2.
 
-64 KiB throughput (seal / open): cb2 306 / 299 MB/s, v4.local
-250 / 243 MB/s, cb1.local 295 / 287 MB/s.
+| implementation | token at 64 B | seal 64 B | seal 1 KiB | seal 64 KiB | open 64 B | open 1 KiB | open 64 KiB |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| cb2.local | 246 | 2938 ns | 6991 ns | 225.3 us | 1437 ns | 5723 ns | 222.6 us |
+| PASETO v4.local | 245 | 3507 ns | 7205 ns | 250.6 us | 2207 ns | 5947 ns | 252.7 us |
+| PASETO v3.local | 266 | 8238 ns | 9664 ns | 110.3 us | 6840 ns | 8384 ns | 115.0 us |
+| PASETO v2.local | 213 | 2889 ns | 7047 ns | 301.9 us | 957 ns | 4039 ns | 207.7 us |
+| PASETO v1.local | 266 | 10.0 us | 12.5 us | 170.9 us | 7325 ns | 8995 ns | 116.4 us |
+| JWE dir A256GCM | 167 | 2694 ns | 3285 ns | 49.2 us | 773 ns | 1455 ns | 48.2 us |
+| cb2.public (Ed25519 + ML-DSA-65) | 4659 | 179.7 us | 188.5 us | 670.8 us | 118.2 us | 126.3 us | 464.1 us |
+| PASETO v4.public (Ed25519) | 246 | 18.4 us | 23.2 us | 310.2 us | 50.3 us | 52.2 us | 216.0 us |
+| PASETO v3.public (ECDSA P-384) | 289 | 179.7 us | 181.4 us | 275.3 us | 366.1 us | 367.0 us | 461.9 us |
+| PASETO v2.public (Ed25519) | 246 | 16.9 us | 23.2 us | 333.4 us | 50.3 us | 53.2 us | 229.0 us |
+| PASETO v1.public (RSA-2048 PSS) | 502 | 647.4 us | 640.9 us | 744.1 us | 21.5 us | 23.0 us | 125.9 us |
+| JWS EdDSA (Ed25519) | 210 | 18.4 us | 24.3 us | 414.0 us | 51.6 us | 53.6 us | 268.2 us |
+| JWS ES256 (ECDSA P-256) | 210 | 23.4 us | 23.1 us | 98.4 us | 62.1 us | 60.3 us | 136.7 us |
+| JWS RS256 (RSA-2048) | 466 | 603.1 us | 606.7 us | 690.8 us | 17.5 us | 18.8 us | 94.4 us |
+| JWS HS256 (HMAC-SHA256) | 167 | 1113 ns | 2194 ns | 76.6 us | 1071 ns | 2176 ns | 76.3 us |
+| cryptolib v4.local | 245 | 1896 ns | 5501 ns | 259.9 us | 1861 ns | 5642 ns | 265.7 us |
+| cryptolib cb1.local | 246 | 1339 ns | 5402 ns | 214.1 us | 1273 ns | 5460 ns | 226.3 us |
 
-Reading: open is at parity with cb1 at every size and 36 percent faster
-than v4.local at 64 B; at 64 KiB cb2 is the fastest of the three on
-both sides (one keyed XOF call for the key split, the PAE streamed
-through a buffered sink). Seal is 1.4 us slower than cb1 at every size,
-and that 1.4 us is exactly the per-token `randombytes_buf` call that the
-design requires in place of cb1's per-thread nonce batch (docs/SPEC.md,
-section 12, question 5). The allocating convenience functions cost a few
-percent over the caller-buffer functions for one allocation. The absolute
-numbers depend on how the Homebrew libblake3 was built; the comparison
-does not, since all three share it.
+64 KiB throughput, seal / open, in MB/s:
+
+| implementation | seal | open |
+|---|---:|---:|
+| cb2.local | 277 | 281 |
+| PASETO v4.local | 249 | 247 |
+| PASETO v3.local | 567 | 544 |
+| PASETO v2.local | 207 | 301 |
+| PASETO v1.local | 366 | 537 |
+| JWE dir A256GCM | 1271 | 1297 |
+| cb2.public | 93 | 135 |
+| PASETO v4.public | 201 | 289 |
+| PASETO v3.public | 227 | 135 |
+| PASETO v2.public | 187 | 273 |
+| PASETO v1.public | 84 | 496 |
+| JWS EdDSA | 151 | 233 |
+| JWS ES256 | 635 | 457 |
+| JWS RS256 | 90 | 662 |
+| JWS HS256 | 816 | 819 |
+| cryptolib v4.local | 240 | 235 |
+| cryptolib cb1.local | 292 | 276 |
+
+Reading, local tokens. At the sizes tokens actually have, cb2.local
+sits with the fastest of the family: opening a 64 B token costs 1.4 us,
+against 2.2 us for v4.local written the same plain way, 1.9 us for the
+tuned v4.local, 1.0 us for v2.local (one AEAD call, no key split, and no
+key commitment) and about 7 us for v1.local and v3.local, whose
+HKDF-SHA384 split and HMAC-SHA384 tag cost more than the cipher at that
+size. HS256 and JWE A256GCM are cheaper still at 64 B because they do
+less: no key split, and for HS256 no encryption. At 64 KiB the order
+inverts: this CPU has AES in hardware and OpenSSL uses it, so the
+AES-CTR of v1 and v3 and the AES-GCM of JWE move bulk data two to five
+times faster than libsodium's software XChaCha20, which cb2, v2 and v4
+share. That is a choice of cipher, not of construction; cb2 keeps
+XChaCha20 for its nonce size and its constant-time software
+implementation on every platform, and a 64 KiB token is not what the
+format is for. Seal costs 1.4 us more than open at every size on the
+cb2 row, which is the per-token `randombytes_buf` call the design
+requires in place of a nonce batch (docs/SPEC.md section 12, question
+5); cb1.local shows the same construction with the batch.
+
+Reading, public tokens. The post-quantum half is the whole difference:
+cb2.public signs in 180 us and verifies in 118 us where Ed25519 alone
+signs in 18 us and verifies in 50 us, and the token is 4659 bytes
+against 246. Against the rest of the field the hybrid is ordinary:
+signing is ten times cheaper than RSA-2048 (v1.public and RS256, over
+600 us) and equal to ECDSA P-384 (v3.public), and verifying is three
+times cheaper than ECDSA P-384 and within a factor of six of RSA, which
+verifies fast and signs slowly. A cb2.public verification costs about
+what two ECDSA P-256 verifications cost. The size is the price that
+matters: it is paid once per token in a service to service call, and
+it is why the local purpose is the one for sessions.
 
 ## What is covered and what is not
 
