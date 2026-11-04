@@ -300,7 +300,11 @@ on every push and pull request: the `macos` job (release with cb2.public,
 ASan and UBSan, a build without liboqs, one minute of each fuzz target)
 and the `linux` job (Ubuntu 24.04 with gcc, BLAKE3 and liboqs built from
 pinned sources, release with cb2.public, a build without liboqs, ASan and
-UBSan).
+UBSan), plus the `web` job (the module rebuilt from source and the demos
+run under node) and the `vectors` job (`tools/check_vectors.py`, the
+independent Python implementation, against every vector with the ML-DSA
+half included, so the reference and docs/PROTOCOL.md cannot drift apart
+unnoticed).
 
 Not covered: a C ABI and language bindings (those are CipherBird's,
 which consumes this library), interoperability with any other

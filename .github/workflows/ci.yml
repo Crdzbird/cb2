@@ -10,7 +10,9 @@ on:
 # tests under ASan and UBSan, and a build without liboqs. macOS also runs
 # the three libFuzzer targets time-boxed; it mirrors the known-good local
 # build with Homebrew dependencies. Linux takes libsodium and libcrypto
-# from Ubuntu and builds BLAKE3 and liboqs from pinned sources.
+# from Ubuntu and builds BLAKE3 and liboqs from pinned sources. Two more
+# jobs cover what the C++ cannot check about itself: the web build, and
+# the independent Python implementation run against every vector.
 jobs:
   macos:
     runs-on: macos-14
@@ -104,6 +106,24 @@ jobs:
           ./build-nopq/cb2_example_text
           ./build-nopq/cb2_playground playground/demo.cb2
           ./build-nopq/cb2_playground playground/demo_text.cb2
+
+  # The second implementation. tools/check_vectors.py was written from
+  # docs/PROTOCOL.md alone and must still pass every committed vector with
+  # nothing skipped, so a change to the reference that the document does
+  # not describe, or a vector the document does not explain, fails here.
+  vectors:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Install the pinned Python primitives
+        run: |
+          python3 --version
+          python3 -m venv .venv
+          .venv/bin/pip install blake3==1.0.11 PyNaCl==1.6.2 dilithium-py==1.5.1
+      - name: Check every vector against PROTOCOL.md
+        run: |
+          .venv/bin/python -I tools/check_vectors.py tests/vectors | tee checker.log
+          grep -q ', 0 skipped' checker.log
 
   # The web playground: the same interpreter compiled to WebAssembly with
   # Emscripten against wasm32 builds of the pinned dependencies, then the
