@@ -158,8 +158,9 @@ unwrapping, key import and export (one key as its kcb2 string, a
 signing pair as its public half only, or every key as a script that
 restores the ids too), and an international-text checker, plus scenarios that fill the forms and run them. Every button
 runs a playground command, and the transcript beside the forms shows
-the command and the library's answer, so what the page does can be
-repeated in `cb2_playground`. Nothing typed
+the command and the library's answer, with any code point outside
+printable ASCII written as a `\u{...}` escape, so what the page does
+can be repeated in `cb2_playground` by pasting the transcript. Nothing typed
 into the page leaves it. It is published at https://crdzbird.github.io/cb2/
 by the Pages workflow on every push that touches `web/`; to run it
 locally, serve the directory with any static server, for example

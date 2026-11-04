@@ -60,11 +60,23 @@
     }
 
     function quote(s) {
-        return "\"" + s.replace(/\\/g, "\\\\").replace(/"/g, "\\\"").replace(/\n/g, "\\n").replace(/\t/g, "\\t").replace(/\r/g, "") + "\"";
+        var q = "\"";
+        for (var i = 0; i < s.length; i++) {
+            var cp = s.codePointAt(i);
+            if (cp > 0xffff) i += 1;
+            var c = String.fromCodePoint(cp);
+            if (c === "\\" || c === "\"") q += "\\" + c;
+            else if (c === "\n") q += "\\n";
+            else if (c === "\t") q += "\\t";
+            else if (c === "\r") continue;
+            else if (cp < 0x20 || cp > 0x7e) q += "\\u{" + cp.toString(16).toUpperCase() + "}";
+            else q += c;
+        }
+        return q + "\"";
     }
 
     function arg(s) {
-        if (s === "" || s === "$" || /[\s"\\]/.test(s)) return quote(s);
+        if (s === "" || s === "$" || /[^\x21-\x7e]|["\\]/.test(s)) return quote(s);
         return s;
     }
 
@@ -805,6 +817,8 @@
 
     var BASE = {iss: "https://issuer.example", sub: "user-1", aud: "api", jti: "t-1", exp: "+3600", custom: [["role", "admin", "string"]]};
     var RULES = {iss: "https://issuer.example", aud: "api"};
+    var COMPOSED = "Pe" + ch(0xf1) + "a";
+    var DECOMPOSED = "Pen" + ch(0x303) + "a";
 
     function scenarioStart(key) {
         ensureLocal(key || "alice");
@@ -894,6 +908,17 @@
             issue();
             inspectText("admin" + ch(0x200b));
             $("text-in").value = "admin" + ch(0x200b);
+        }},
+        {label: "international text in claims", hint: "A subject with a composed n-tilde, a claim named in Japanese, a city with an umlaut and an emoji value: every script is accepted and travels as UTF-8 in the payload; the transcript writes the code points as escapes, so the commands stay ASCII. Identifiers are compared byte for byte with no normalisation: checked against the decomposed spelling of the subject, which looks the same, the token is subject_mismatch; checked against the spelling it was issued with, ok.", go: function () {
+            scenarioStart();
+            setClaims({iss: BASE.iss, sub: COMPOSED, aud: BASE.aud, exp: "+3600", custom: [[ch(0x540d, 0x524d), ch(0x5c71, 0x7530, 0x592a, 0x90ce), "string"], ["city", "Z" + ch(0xfc) + "rich", "string"], ["mood", ch(0x1f600), "string"]]});
+            issue();
+            setRules({iss: RULES.iss, aud: RULES.aud, sub: DECOMPOSED});
+            verify();
+            setRules({iss: RULES.iss, aud: RULES.aud, sub: COMPOSED});
+            verify();
+            $("text-in").value = DECOMPOSED;
+            inspectText(DECOMPOSED);
         }},
         {label: "key id in the footer", hint: "The key carries an id, bound into the footer as {\"kid\":...}. A verifier reads it without verifying anything, picks the key, then verifies. Clear the id in step 1 and the token has no footer.", go: function () {
             scenarioStart();
