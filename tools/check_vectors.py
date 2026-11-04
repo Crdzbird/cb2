@@ -6,18 +6,21 @@ reproduces every cb2.local token, every claims-layer local token and every
 kcb2 key string from the recorded inputs, recomputes and compares every
 intermediate value the vectors record, verifies every cb2.public token,
 checks that every failure, tamper, weak-key, rejected-secret-key and
-claims vector yields the recorded verdict, and runs the holder proof
-vectors of section 13 through the whole validation order. It exits 0 when
-every check passes and 1 otherwise.
+claims vector yields the recorded verdict, runs the holder proof vectors
+of section 13 through the whole validation order, reproduces the X-Wing
+vectors of draft-connolly-cfrg-xwing-kem and the kcb2.seal strings of
+section 14. It exits 0 when every check passes and 1 otherwise.
 
 Primitives come from two PyPI packages: blake3 for BLAKE3 in hash and
-keyed mode, and pynacl for Ed25519 and for libsodium's HChaCha20 and
-ChaCha20, which pynacl does not wrap in Python but which its bundled
+keyed mode, and pynacl for Ed25519, X25519 and for libsodium's HChaCha20
+and ChaCha20, which pynacl does not wrap in Python but which its bundled
 libsodium exports, so the XChaCha20 of section 2 is composed from them
-through ctypes exactly as the document describes. ML-DSA-65 is taken from
-the pure-Python dilithium-py package when it is installed; without it the
-ML-DSA half of cb2.public is not evaluated, every check that depends on it
-alone is reported as skipped rather than passed, and a note says so.
+through ctypes exactly as the document describes. SHA3-256 and SHAKE256
+come from hashlib. ML-DSA-65 is taken from the pure-Python dilithium-py
+package and ML-KEM-768 from kyber-py, whose KeyGen_internal and
+Encaps_internal are what the X-Wing draft's derandomised functions call,
+when they are installed; without one of them every check that depends on
+it alone is reported as skipped rather than passed, and a note says so.
 
 Run as
 
@@ -27,6 +30,7 @@ with the directory defaulting to tests/vectors beside this file's parent.
 """
 
 import ctypes
+import hashlib
 import hmac
 import json
 import os
@@ -42,6 +46,13 @@ LOCAL_HEADER = b"cb2.local."
 PUBLIC_HEADER = b"cb2.public."
 HOLDER_HEADER = b"cb2.holder-public."
 WRAP_HEADER = b"kcb2.local-wrap."
+SEAL_HEADER = b"kcb2.seal."
+XWING_LABEL = b"\\.//^\\"
+MLKEM_PUBLIC_BYTES = 1184
+MLKEM_CIPHERTEXT_BYTES = 1088
+XWING_PUBLIC_BYTES = MLKEM_PUBLIC_BYTES + 32
+XWING_CIPHERTEXT_BYTES = MLKEM_CIPHERTEXT_BYTES + 32
+SEAL_STRING_LENGTH = 1632
 ED25519_SIGNATURE_BYTES = 64
 MLDSA_SIGNATURE_BYTES = 3309
 MLDSA_PUBLIC_BYTES = 1952
@@ -79,6 +90,15 @@ def load_mldsa():
     except ImportError:
         return None
     return ML_DSA_65
+
+
+def load_mlkem():
+    """Return the ML-KEM-768 implementation when kyber-py is installed."""
+    try:
+        from kyber_py.ml_kem import ML_KEM_768
+    except ImportError:
+        return None
+    return ML_KEM_768
 
 
 def load_sodium():
@@ -138,6 +158,58 @@ def ed25519_verify(ed_pk, message, signature):
     except (nacl.exceptions.BadSignatureError, nacl.exceptions.ValueError, ValueError):
         return False
     return True
+
+
+def x25519(scalar, point):
+    """RFC 7748 X25519, refusing the all-zero result as section 14.1 requires."""
+    try:
+        return nacl.bindings.crypto_scalarmult(scalar, point)
+    except nacl.exceptions.RuntimeError:
+        invalid()
+
+
+def xwing_expand(sk, mlkem):
+    """The draft's expandDecapsulationKey: (sk_M, sk_X, pk_M, pk_X) from 32 bytes."""
+    if len(sk) != 32:
+        raise Verdict("argument")
+    expanded = hashlib.shake_256(sk).digest(96)
+    pk_m, sk_m = mlkem._keygen_internal(expanded[0:32], expanded[32:64])
+    sk_x = expanded[64:96]
+    return sk_m, sk_x, pk_m, nacl.bindings.crypto_scalarmult_base(sk_x)
+
+
+def xwing_public_key(sk, mlkem):
+    """The draft's GenerateKeyPairDerand: the 1216-byte encapsulation key."""
+    _, _, pk_m, pk_x = xwing_expand(sk, mlkem)
+    return pk_m + pk_x
+
+
+def xwing_combiner(ss_m, ss_x, ct_x, pk_x):
+    """The draft's Combiner: SHA3-256 over the secrets, ct_X, pk_X and the label."""
+    return hashlib.sha3_256(ss_m + ss_x + ct_x + pk_x + XWING_LABEL).digest()
+
+
+def xwing_encapsulate(pk, eseed, mlkem):
+    """The draft's EncapsulateDerand; returns (ss, ct)."""
+    if len(pk) != XWING_PUBLIC_BYTES or len(eseed) != 64:
+        raise Verdict("argument")
+    pk_m, pk_x = pk[:MLKEM_PUBLIC_BYTES], pk[MLKEM_PUBLIC_BYTES:]
+    ek_x = eseed[32:64]
+    ct_x = nacl.bindings.crypto_scalarmult_base(ek_x)
+    ss_x = x25519(ek_x, pk_x)
+    ss_m, ct_m = mlkem._encaps_internal(pk_m, eseed[0:32])
+    return xwing_combiner(ss_m, ss_x, ct_x, pk_x), ct_m + ct_x
+
+
+def xwing_decapsulate(ct, sk, mlkem):
+    """The draft's Decapsulate; raises invalid on a refused X25519 result."""
+    if len(ct) != XWING_CIPHERTEXT_BYTES:
+        invalid()
+    sk_m, sk_x, _, pk_x = xwing_expand(sk, mlkem)
+    ct_m, ct_x = ct[:MLKEM_CIPHERTEXT_BYTES], ct[MLKEM_CIPHERTEXT_BYTES:]
+    ss_m = mlkem.decaps(sk_m, ct_m)
+    ss_x = x25519(sk_x, ct_x)
+    return xwing_combiner(ss_m, ss_x, ct_x, pk_x)
 
 
 def le64(n):
@@ -368,6 +440,53 @@ def key_unwrap(text, wrapping):
     if len(key) != 32:
         invalid()
     return key
+
+
+def kcb2_recipient(pk):
+    """The kcb2.recipient string of section 7."""
+    return b"kcb2.recipient." + b64_encode(pk)
+
+
+def kcb2_recipient_secret(sk):
+    """The kcb2.recipient-secret string of section 7."""
+    return b"kcb2.recipient-secret." + b64_encode(sk)
+
+
+def kcb2_rid(pk):
+    """The kcb2.rid string of section 7."""
+    return b"kcb2.rid." + b64_encode(blake3_hash(b"kcb2.rid." + kcb2_recipient(pk), 33))
+
+
+def seal_key(pk, key, eseed, nonce, mlkem):
+    """Section 14.2 with the encapsulation derandomised; returns ss, ct and the string."""
+    ss, ct = xwing_encapsulate(pk, eseed, mlkem)
+    ek, n2, ak = local_split(ss, nonce, SEAL_HEADER)
+    ciphertext = xchacha20(ek, n2, key)
+    tag = blake3_keyed(ak, pae(SEAL_HEADER, nonce, ciphertext, b"", ct), 32)
+    return {"ss": ss, "ct": ct, "string": SEAL_HEADER + b64_encode(ct + nonce + ciphertext + tag)}
+
+
+def unseal_key(text, sk, mlkem):
+    """Section 14.3; returns the local key or raises invalid."""
+    if len(text) != SEAL_STRING_LENGTH or not text.startswith(SEAL_HEADER):
+        invalid()
+    raw = b64_decode(text[len(SEAL_HEADER) :])
+    if len(raw) != XWING_CIPHERTEXT_BYTES + 96:
+        invalid()
+    ct, body = raw[:XWING_CIPHERTEXT_BYTES], raw[XWING_CIPHERTEXT_BYTES:]
+    try:
+        ss = xwing_decapsulate(ct, sk, mlkem)
+    except Exception:
+        invalid()
+    nonce, ciphertext, tag = body[:32], body[32:64], body[64:]
+    ek, n2, ak = local_split(ss, nonce, SEAL_HEADER)
+    if not constant_time_equal(blake3_keyed(ak, pae(SEAL_HEADER, nonce, ciphertext, b"", ct), 32), tag):
+        invalid()
+    key = xchacha20(ek, n2, ciphertext)
+    try:
+        return import_local_key(key)
+    except Verdict:
+        invalid()
 
 
 class JsonNumber:
@@ -1331,6 +1450,67 @@ def check_proofs(report, doc, mldsa):
     report.section("proofs.json", before)
 
 
+def check_xwing(report, doc, mlkem):
+    """The draft's vectors: key pair from seed, derandomised encapsulation, decapsulation."""
+    before = report.snapshot()
+    for index, vector in enumerate(doc["tests"]):
+        name = "xwing %d" % (index + 1)
+        if mlkem is None:
+            report.skip(name, "no ML-KEM-768 implementation")
+            continue
+        seed, eseed = unhex(vector["seed"]), unhex(vector["eseed"])
+        report.check("%s sk is the seed" % name, unhex(vector["sk"]) == seed)
+        pk = xwing_public_key(seed, mlkem)
+        if not report.check("%s pk" % name, pk == unhex(vector["pk"]), "got %s" % pk[:32].hex()):
+            continue
+        ss, ct = xwing_encapsulate(pk, eseed, mlkem)
+        report.check("%s ct" % name, ct == unhex(vector["ct"]), "got %s" % ct[:32].hex())
+        report.check("%s ss" % name, ss == unhex(vector["ss"]), "got %s" % ss.hex())
+        report.check("%s decapsulate" % name, xwing_decapsulate(unhex(vector["ct"]), seed, mlkem) == unhex(vector["ss"]))
+        report.check("%s sizes" % name, (len(pk), len(ct), len(ss)) == (XWING_PUBLIC_BYTES, XWING_CIPHERTEXT_BYTES, 32))
+    report.section("xwing/xwing.json", before)
+
+
+def check_seal(report, doc, mlkem):
+    """Every member of seal.json: recipient strings, the sealed key, the failures."""
+    before = report.snapshot()
+    if mlkem is None:
+        report.skip("seal.json", "no ML-KEM-768 implementation")
+        report.section("seal.json", before)
+        return
+    recipient = doc["recipient"]
+    sk, pk = unhex(recipient["secret"]), unhex(recipient["public-key"])
+    report.check("recipient public key from secret", xwing_public_key(sk, mlkem) == pk)
+    report.check("kcb2.recipient-secret", kcb2_recipient_secret(sk) == utf8(recipient["kcb2.recipient-secret"]))
+    report.check("kcb2.recipient-secret length", len(kcb2_recipient_secret(sk)) == 65)
+    report.check("kcb2.recipient-secret round trip", parse_key_string(kcb2_recipient_secret(sk), b"kcb2.recipient-secret.", 65) == sk)
+    report.check("kcb2.recipient", kcb2_recipient(pk) == utf8(recipient["kcb2.recipient"]))
+    report.check("kcb2.recipient length", len(kcb2_recipient(pk)) == 1637)
+    report.check("kcb2.recipient round trip", parse_key_string(kcb2_recipient(pk), b"kcb2.recipient.", 1637) == pk)
+    report.check("kcb2.rid", kcb2_rid(pk) == utf8(recipient["kcb2.rid"]))
+    report.check("kcb2.rid length", len(kcb2_rid(pk)) == 53)
+    sealed = doc["sealed"]
+    name = sealed["name"]
+    key, eseed, nonce = unhex(sealed["key"]), unhex(sealed["eseed"]), unhex(sealed["nonce"])
+    result = seal_key(pk, key, eseed, nonce, mlkem)
+    report.check("%s ct" % name, result["ct"] == unhex(sealed["ct"]), "got %s" % result["ct"][:32].hex())
+    report.check("%s ss" % name, result["ss"] == unhex(sealed["ss"]), "got %s" % result["ss"].hex())
+    text = utf8(sealed["kcb2.seal"])
+    report.check("%s kcb2.seal" % name, result["string"] == text, "got %s" % result["string"][:80].decode())
+    report.check("%s kcb2.seal length" % name, len(text) == SEAL_STRING_LENGTH)
+    try:
+        report.check("%s unseals" % name, unseal_key(text, sk, mlkem) == key)
+    except Verdict as verdict:
+        report.check("%s unseals" % name, False, "verdict %s" % verdict.name)
+    body = b64_decode(text[len(SEAL_HEADER) :])[XWING_CIPHERTEXT_BYTES:]
+    expect_verdict(report, "%s body is not a cb2.local token" % name, lambda: local_open(LOCAL_HEADER + b64_encode(body), result["ss"], b"", b""), "invalid")
+    expect_verdict(report, "%s body is not a kcb2.local-wrap string" % name, lambda: key_unwrap(WRAP_HEADER + b64_encode(body), result["ss"]), "invalid")
+    for failure in doc["failures"]:
+        label = "%s (%s)" % (failure["name"], failure["reason"])
+        expect_verdict(report, label, lambda: unseal_key(utf8(failure["kcb2.seal"]), unhex(failure["recipient-secret"]), mlkem), "invalid")
+    report.section("seal.json", before)
+
+
 def load(directory, filename):
     """Read one vector file."""
     with open(os.path.join(directory, filename), "rb") as handle:
@@ -1347,6 +1527,9 @@ def main(argv):
     mldsa = load_mldsa()
     if mldsa is None:
         print("note: dilithium-py is not installed; the ML-DSA-65 half of cb2.public is not evaluated")
+    mlkem = load_mlkem()
+    if mlkem is None:
+        print("note: kyber-py is not installed; X-Wing and kcb2.seal are not evaluated")
     report = Report()
     before = report.snapshot()
     check_decoder(report)
@@ -1356,6 +1539,8 @@ def main(argv):
     check_claims(report, load(directory, "claims.json"), mldsa)
     check_paserk(report, load(directory, "paserk.json"), mldsa)
     check_proofs(report, load(directory, "proofs.json"), mldsa)
+    check_xwing(report, load(directory, os.path.join("xwing", "xwing.json")), mlkem)
+    check_seal(report, load(directory, "seal.json"), mlkem)
     for note in report.notes:
         print(note)
     print("total: %d passed, %d failed, %d skipped" % (report.passed, report.failed, report.skipped))

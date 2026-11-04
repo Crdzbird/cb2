@@ -121,7 +121,7 @@ jobs:
         run: |
           python3 --version
           python3 -m venv .venv
-          .venv/bin/pip install blake3==1.0.11 PyNaCl==1.6.2 dilithium-py==1.5.1
+          .venv/bin/pip install blake3==1.0.11 PyNaCl==1.6.2 dilithium-py==1.5.1 kyber-py==1.2.0
       - name: Check every vector against PROTOCOL.md
         run: |
           .venv/bin/python -I tools/check_vectors.py tests/vectors | tee checker.log

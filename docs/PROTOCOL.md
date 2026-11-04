@@ -1033,10 +1033,11 @@ produces a different ML-DSA half that verifies equally.
 An implementation conforms when all of the following hold. A second
 implementation of this document exists for that purpose:
 `tools/check_vectors.py`, written in Python from this document alone,
-without reading the reference, runs items 1 to 7, 10 and 11 against
-the vectors with the blake3 and pynacl packages, and the ML-DSA-65
-half with dilithium-py when it is installed. The repository's CI runs it on
-every push with all three packages pinned, and fails when any check
+without reading the reference, runs items 1 to 7 and 10 to 12 against
+the vectors with the blake3 and pynacl packages, the ML-DSA-65 half
+with dilithium-py and X-Wing's ML-KEM-768 with kyber-py when they are
+installed. The repository's CI runs it on every push with all four
+packages pinned, and fails when any check
 fails or is skipped, so the reference and this document cannot drift
 apart unnoticed.
 
