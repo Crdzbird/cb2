@@ -39,6 +39,7 @@ enum class Error : uint8_t {
     expired,
     not_yet_valid,
     issued_in_future,
+    lifetime_exceeded,
     issuer_mismatch,
     audience_mismatch,
     subject_mismatch,
@@ -60,6 +61,7 @@ enum class Error : uint8_t {
         case Error::expired: return "expired";
         case Error::not_yet_valid: return "not_yet_valid";
         case Error::issued_in_future: return "issued_in_future";
+        case Error::lifetime_exceeded: return "lifetime_exceeded";
         case Error::issuer_mismatch: return "issuer_mismatch";
         case Error::audience_mismatch: return "audience_mismatch";
         case Error::subject_mismatch: return "subject_mismatch";

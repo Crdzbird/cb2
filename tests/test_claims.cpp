@@ -1,6 +1,7 @@
 #include "test_runner.hpp"
 #include "test_util.hpp"
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -310,6 +311,47 @@ TEST_CASE("claims/rules must name an audience and an issuer or allow any, before
     CHECK(Token::open(tok.value(), k, tu::lenient(NOW)).is_ok());
     auto other = Token::open(tok.value(), k, ValidationRules().at(NOW).expect_audience("other-service").allow_any_issuer());
     CHECK(other.is_err() && other.error() == Error::audience_mismatch);
+}
+
+TEST_CASE("claims/expectations that break the identifier policy are refused before the token is read") {
+    const LocalKey k = key_a();
+    const Claims c = good_claims();
+    auto tok = Token::seal(k, c);
+    REQUIRE(tok.is_ok());
+    const std::string zero_width = "api\xe2\x80\x8b";
+    CHECK(ValidationRules().expect_audience("api").expect_issuer("https://issuer.example").expectations_ok());
+    CHECK(!ValidationRules().expect_audience(zero_width).expectations_ok());
+    CHECK(ValidationRules().expect_issuer("a\xcc\x8d").expectations_ok());
+    CHECK(!ValidationRules().expect_subject("user\xe2\x80\xae" "1").expectations_ok());
+    auto direct = tu::lenient(NOW).expect_audience(zero_width).check(c);
+    CHECK(direct.is_err() && direct.error() == Error::argument);
+    auto opened = Token::open(tok.value(), k, ValidationRules().at(NOW).expect_audience(zero_width).allow_any_issuer());
+    CHECK(opened.is_err() && opened.error() == Error::argument);
+    auto garbage = Token::open(std::string(100000, 'A'), k, ValidationRules().at(NOW).expect_audience(zero_width).allow_any_issuer());
+    CHECK(garbage.is_err() && garbage.error() == Error::argument);
+    CHECK(Token::open(tok.value(), k, ValidationRules().at(NOW).expect_audience("api").allow_any_issuer()).is_ok());
+}
+
+TEST_CASE("claims/a maximum lifetime bounds exp relative to now, after the time checks") {
+    const LocalKey k = key_a();
+    const Claims c = good_claims();
+    auto tok = Token::seal(k, c);
+    REQUIRE(tok.is_ok());
+    CHECK(!tu::lenient(NOW).max_lifetime().has_value());
+    CHECK(tu::lenient(NOW).with_max_lifetime(3600).check(c).is_ok());
+    auto over = tu::lenient(NOW).with_max_lifetime(3599).check(c);
+    CHECK(over.is_err() && over.error() == Error::lifetime_exceeded);
+    auto opened = Token::open(tok.value(), k, tu::lenient(NOW).with_max_lifetime(600));
+    CHECK(opened.is_err() && opened.error() == Error::lifetime_exceeded);
+    CHECK(Token::open(tok.value(), k, tu::lenient(NOW + 3000).with_max_lifetime(600)).is_ok());
+    auto expired = tu::lenient(NOW + 7200).with_max_lifetime(1).check(c);
+    CHECK(expired.is_err() && expired.error() == Error::expired);
+    Claims no_exp = good_claims();
+    no_exp.exp.reset();
+    CHECK(tu::lenient(NOW).allow_missing_exp().with_max_lifetime(1).check(no_exp).is_ok());
+    CHECK(tu::lenient(NOW).with_max_lifetime(-5).max_lifetime() == std::optional<Seconds>(0));
+    auto zero = tu::lenient(NOW).with_max_lifetime(0).check(c);
+    CHECK(zero.is_err() && zero.error() == Error::lifetime_exceeded);
 }
 
 TEST_CASE("claims/the replay check runs last and sees the jti of tokens that passed everything else") {

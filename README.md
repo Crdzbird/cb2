@@ -180,7 +180,9 @@ Keys (`keys.hpp`)
   `from_paserk("kcb2.local...")`, `to_paserk()` (wiped string),
   `paserk_id()` (`kcb2.lid...`), `key_id()` / `set_key_id()` /
   `clear_key_id()`, `clone()`. Move-only; no implicit copies. The
-  importers refuse a key whose bytes are all equal.
+  importers refuse a key whose bytes are all equal. The key bytes are
+  locked in memory for the life of the object where the platform allows
+  and wiped when it dies; the same holds for `SecretKey`.
 - `PublicKey` (1984 bytes) and `SecretKey` (6048 bytes), with liboqs:
   `SecretKey::generate()`, `public_key()`, `consistent()`, the same
   PASERK functions with `kcb2.public`, `kcb2.secret` and `kcb2.pid`. Importing
@@ -212,7 +214,8 @@ Claims (`claims.hpp`)
 - `ValidationRules`: `expect_issuer`, `expect_audience`,
   `expect_subject`, `allow_any_issuer`, `allow_any_audience`,
   `with_replay_check(fn)`, `with_clock_skew`, `with_max_token_bytes`,
-  `allow_missing_exp`, `at(now)`; `complete()`, `check(claims)`.
+  `with_max_lifetime`, `allow_missing_exp`, `at(now)`; `complete()`,
+  `expectations_ok()`, `check(claims)`.
 - `Token::seal` / `open` / `sign` / `verify` / `peek_key_id` /
   `footer_for`.
 - `Rfc3339::parse` / `format`; `json::Reader` / `json::Writer`.

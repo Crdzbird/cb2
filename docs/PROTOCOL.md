@@ -468,6 +468,7 @@ A verifier holds a set of rules. The rules carry:
 | expected audience | required | aud MUST equal it, or the rules say explicitly that any audience is accepted |
 | expected issuer | required | iss MUST equal it, or the rules say explicitly that any issuer is accepted |
 | expected subject | none | when set, sub MUST equal it |
+| max lifetime | none | when set, exp MUST NOT lie more than this many seconds after now |
 | replay check | none | when installed, receives jti and may refuse it |
 | max token bytes | 16384 | tokens longer than this are refused unread |
 
@@ -483,8 +484,9 @@ Opening a claims token performs, in this order, stopping at the first
 failure:
 
 0. The rules MUST be complete (9.5); otherwise `rules_incomplete`. The
-   verifier's own key id, if any, MUST satisfy 9.4; otherwise `argument`.
-   Both verdicts depend on the verifier alone.
+   verifier's own key id, if any, and every expected issuer, audience and
+   subject MUST satisfy 9.4; otherwise `argument`. Both verdicts depend on
+   the verifier alone.
 1. A token longer than max token bytes is `too_large`. Nothing in it has
    been read.
 2. Authentication: section 5.3 or 6.3 with the footer rebuilt from the
@@ -496,6 +498,8 @@ failure:
    - exp present and exp <= t - s: `expired`
    - nbf present and nbf > t + s: `not_yet_valid`
    - iat present and iat > t + s: `issued_in_future`
+   - a maximum lifetime L set, exp present and exp > t + L:
+     `lifetime_exceeded`
    - an expected issuer, audience or subject absent from the token or
      different from the expectation: `issuer_mismatch`,
      `audience_mismatch`, `subject_mismatch`, in that order
@@ -517,12 +521,12 @@ MUST NOT split `invalid`.
 |---|---|---|
 | invalid | the token | any failure of 5.3, 6.3 or the footer and key id binding |
 | too_large | the token's length only | longer than the limit in force |
-| argument | the caller | wrong key size, weak key, inconsistent secret key, an identifier or key id that breaks 9.4 on the issuing side, oversize inputs, a bad buffer |
+| argument | the caller | wrong key size, weak key, inconsistent secret key, an identifier or key id that breaks 9.4 on the issuing side, a verifier expectation that breaks 9.4, oversize inputs, a bad buffer |
 | rules_incomplete | the verifier | no audience or issuer expectation and no explicit allowance |
 | internal | the implementation | a primitive failed |
 | unavailable | the build | ML-DSA-65 is not present |
 | claims_malformed | the authenticated payload | 9.2 or 9.4 failed after authentication |
-| missing_exp, expired, not_yet_valid, issued_in_future, issuer_mismatch, audience_mismatch, subject_mismatch, missing_jti, replayed | the authenticated claims and the rules | 9.6 step 4 |
+| missing_exp, expired, not_yet_valid, issued_in_future, lifetime_exceeded, issuer_mismatch, audience_mismatch, subject_mismatch, missing_jti, replayed | the authenticated claims and the rules | 9.6 step 4 |
 
 ## 11. Versioning
 
@@ -547,7 +551,11 @@ steps above.
   payload MUST be parsed only after authentication; the size limit MUST
   be applied before anything is read.
 - Wiping. Derived keys, hasher states, secret keys and any plaintext
-  produced on a path that then fails MUST be wiped.
+  produced on a path that then fails MUST be wiped. Key material SHOULD
+  also be locked against swapping and excluded from core dumps where the
+  platform allows. Claims handed to the application are the
+  application's data; an implementation need not wipe them, and MUST say
+  so if it does not.
 - Nonces. 32 random bytes per token from the operating system. No
   counters, no batching that keeps a nonce buffer in process memory, no
   fallback.

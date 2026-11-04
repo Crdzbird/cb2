@@ -38,8 +38,11 @@ assertion.
    key-id comparisons are constant time for equal lengths; the lengths
    are already public in the token text.
 6. Wiping. Derived keys, hasher states and the plaintext on any failed
-   path are wiped with sodium_memzero. Plaintext returned to the caller
-   lives in memory that is wiped when freed.
+   path are wiped with sodium_memzero. The message Local::open returns
+   lives in memory that is wiped when freed. The claims layer parses
+   that buffer into ordinary strings and hands them to the caller: they
+   are the application's data, not key material, and are not wiped.
+   An application that treats a claim as a secret must wipe it itself.
 
 ### cb2.public
 
@@ -84,7 +87,15 @@ implicit assertion.
    equal); a key derived from a password or any other low-entropy source
    is the caller's error, and such a key should at least carry an
    explicit opaque key id instead of the default.
-5. Secret key import. A secret key imported from bytes or from its
+5. Locked memory. The bytes of a LocalKey and a SecretKey are locked
+   with sodium_mlock for the life of the object, so they are not swapped
+   out and, where the platform supports it, not written to a core dump,
+   and are wiped and unlocked when the object dies. The lock is best
+   effort: a platform or a resource limit that refuses it leaves the key
+   wiped on release but swappable in between, and unlocking one key
+   unlocks the whole page it shares with any other. Exported key strings
+   (to_paserk) are wiped but not locked.
+6. Secret key import. A secret key imported from bytes or from its
    kcb2.secret form is checked before use: its Ed25519 public half must be
    the one its seed derives and its ML-DSA public half must verify a
    signature its secret half makes. A corrupted or tampered key file is
@@ -99,8 +110,13 @@ implicit assertion.
    only for choosing a candidate key.
 2. Expiry is required unless the verifier opts out explicitly with
    allow_missing_exp(). nbf and iat are checked against the verifier's
-   clock with a skew that defaults to zero. Issuer, audience and subject
-   are bound when the verifier expects them, compared in constant time.
+   clock with a skew that defaults to zero. A maximum lifetime, when the
+   verifier sets one, refuses a token whose exp lies further ahead than
+   that, so an issuer's over-long expiry is worth no more than the
+   verifier allows. Issuer, audience and subject are bound when the
+   verifier expects them, compared in constant time; an expectation that
+   breaks the identifier policy is refused as argument before the token
+   is read, since it could never match.
 3. Size limit before parsing. A token longer than max_token_bytes
    (default 16384) is refused before any byte of it is examined.
 4. Strict JSON. Duplicate member names, invalid escapes, invalid UTF-8,

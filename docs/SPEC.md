@@ -374,11 +374,15 @@ the first failure:
 
 0. The rules must be complete: they name an expected audience or allow
    any audience explicitly, and the same for the issuer; else
-   `rules_incomplete`. Then the verifier's own key id, if any, must
-   satisfy the identifier policy of 8.4; else `argument`. Both depend on
-   the verifier alone, so a token minted for one service is never
-   accepted by another through a verifier that forgot to say which
-   audience it serves.
+   `rules_incomplete`. Then the verifier's own key id, if any, and every
+   expected issuer, audience and subject must satisfy the identifier
+   policy of 8.4; else `argument`. An expectation the policy refuses
+   could never equal a claim the policy accepts, so a verifier configured
+   with an invisible character in its issuer would otherwise refuse every
+   token with a misleading `issuer_mismatch`. All of this depends on the
+   verifier alone, so a token minted for one service is never accepted
+   by another through a verifier that forgot to say which audience it
+   serves.
 1. Length: `len(token) > max_token_bytes` is `too_large`. Nothing in the
    token has been read. The same limit is passed down to the raw layer.
 2. Authentication: section 4.3 or 5.3 with the footer rebuilt from the
@@ -390,6 +394,8 @@ the first failure:
    - `exp <= now - skew`: `expired`
    - `nbf > now + skew`: `not_yet_valid`
    - `iat > now + skew`: `issued_in_future`
+   - with a maximum lifetime set: `exp > now + max_lifetime`:
+     `lifetime_exceeded`
    - expected issuer, audience or subject absent or different (constant
      time): `issuer_mismatch`, `audience_mismatch`, `subject_mismatch`
    - with a replay check installed: `jti` absent is `missing_jti`; the
@@ -399,7 +405,10 @@ the first failure:
      reason. An exception out of the check is `internal`.
 5. Only then are the claims returned.
 
-`skew` defaults to 0. `max_token_bytes` defaults to 16384. The audience
+`skew` defaults to 0. `max_token_bytes` defaults to 16384. `max_lifetime`
+is unset by default; a verifier that sets it bounds how long any token it
+accepts stays usable from now, whatever expiry the issuer wrote, which is
+the usual issuer mistake. The audience
 and issuer expectations are required unless `allow_any_audience()` and
 `allow_any_issuer()` say otherwise; `exp` is required unless
 `allow_missing_exp()`.

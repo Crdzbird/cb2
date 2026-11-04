@@ -308,7 +308,10 @@ private:
 /// allow_missing_exp() is called; an expected audience and issuer are
 /// required unless allow_any_audience() and allow_any_issuer() are
 /// called, and rules that name neither are rules_incomplete before the
-/// token is read; the size limit is enforced before any parsing; every
+/// token is read; an expectation that breaks the identifier policy is
+/// argument before the token is read, since it could never match; the
+/// size limit is enforced before any parsing; a maximum lifetime, when
+/// set, bounds how far ahead of now an accepted exp may lie; every
 /// string comparison is constant time. A replay check, when installed,
 /// runs last: it receives the jti of a token that passed every other
 /// rule and returns true to accept it, so a denylist never records a
@@ -329,6 +332,10 @@ public:
     ValidationRules& with_replay_check(ReplayCheck check) { replay_ = std::move(check); return *this; }
     ValidationRules& with_clock_skew(Seconds s) noexcept { skew_ = s < 0 ? 0 : s; return *this; }
     ValidationRules& with_max_token_bytes(std::size_t n) noexcept { max_token_ = n; return *this; }
+    /// Refuses a token whose exp is more than s seconds after now, so a
+    /// long-lived token is worth no more than s seconds to whoever holds
+    /// it, whatever the issuer wrote.
+    ValidationRules& with_max_lifetime(Seconds s) noexcept { max_lifetime_ = s < 0 ? 0 : s; return *this; }
     ValidationRules& expect_issuer(std::string s) { issuer_ = std::move(s); return *this; }
     ValidationRules& expect_audience(std::string s) { audience_ = std::move(s); return *this; }
     ValidationRules& expect_subject(std::string s) { subject_ = std::move(s); return *this; }
@@ -346,8 +353,18 @@ public:
     [[nodiscard]] bool complete() const noexcept {
         return (audience_ || !require_audience_) && (issuer_ || !require_issuer_);
     }
+    /// Whether every expected issuer, audience and subject satisfies the
+    /// identifier policy the claims themselves must satisfy. One that
+    /// breaks it could never match a claim and is refused as argument
+    /// before any token is read.
+    [[nodiscard]] bool expectations_ok() const noexcept {
+        return (!issuer_ || text::identifier_ok(*issuer_)) &&
+               (!audience_ || text::identifier_ok(*audience_)) &&
+               (!subject_ || text::identifier_ok(*subject_));
+    }
     [[nodiscard]] Seconds clock_skew() const noexcept { return skew_; }
     [[nodiscard]] std::size_t max_token_bytes() const noexcept { return max_token_; }
+    [[nodiscard]] const std::optional<Seconds>& max_lifetime() const noexcept { return max_lifetime_; }
     [[nodiscard]] const std::optional<std::string>& issuer() const noexcept { return issuer_; }
     [[nodiscard]] const std::optional<std::string>& audience() const noexcept { return audience_; }
     [[nodiscard]] const std::optional<std::string>& subject() const noexcept { return subject_; }
@@ -362,11 +379,14 @@ public:
     /// of Token::open or Token::verify, or that are otherwise trusted.
     [[nodiscard]] Result<void> check(const Claims& c) const noexcept {
         if (!complete()) return Result<void>::err(Error::rules_incomplete);
+        if (!expectations_ok()) return Result<void>::err(Error::argument);
         const Seconds t = now();
         if (require_exp_ && !c.exp) return Result<void>::err(Error::missing_exp);
         if (c.exp && *c.exp <= t - skew_) return Result<void>::err(Error::expired);
         if (c.nbf && *c.nbf > t + skew_) return Result<void>::err(Error::not_yet_valid);
         if (c.iat && *c.iat > t + skew_) return Result<void>::err(Error::issued_in_future);
+        if (max_lifetime_ && c.exp && *c.exp > t + *max_lifetime_)
+            return Result<void>::err(Error::lifetime_exceeded);
         if (issuer_ && (!c.iss || !detail::ct_equal(*c.iss, *issuer_)))
             return Result<void>::err(Error::issuer_mismatch);
         if (audience_ && (!c.aud || !detail::ct_equal(*c.aud, *audience_)))
@@ -393,6 +413,7 @@ private:
     ReplayCheck replay_;
     Seconds skew_ = 0;
     std::size_t max_token_ = DEFAULT_MAX_TOKEN_BYTES;
+    std::optional<Seconds> max_lifetime_;
     std::optional<std::string> issuer_;
     std::optional<std::string> audience_;
     std::optional<std::string> subject_;
@@ -464,7 +485,7 @@ public:
     open(std::string_view token, const LocalKey& key, const ValidationRules& rules,
          std::string_view implicit = {}) {
         if (!rules.complete()) return Result<Claims>::err(Error::rules_incomplete);
-        if (!key_id_ok(key.key_id())) return Result<Claims>::err(Error::argument);
+        if (!key_id_ok(key.key_id()) || !rules.expectations_ok()) return Result<Claims>::err(Error::argument);
         if (token.size() > rules.max_token_bytes()) return Result<Claims>::err(Error::too_large);
         try {
             const std::string footer = footer_for(key.key_id());
@@ -498,7 +519,7 @@ public:
     verify(std::string_view token, const PublicKey& key, const ValidationRules& rules,
            std::string_view implicit = {}) {
         if (!rules.complete()) return Result<Claims>::err(Error::rules_incomplete);
-        if (!key_id_ok(key.key_id())) return Result<Claims>::err(Error::argument);
+        if (!key_id_ok(key.key_id()) || !rules.expectations_ok()) return Result<Claims>::err(Error::argument);
         if (token.size() > rules.max_token_bytes()) return Result<Claims>::err(Error::too_large);
         try {
             const std::string footer = footer_for(key.key_id());

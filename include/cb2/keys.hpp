@@ -31,6 +31,12 @@
  * tested against one token at the cost of one short hash per guess. The
  * importers refuse the one weak key they can recognise, a key whose bytes
  * are all equal; everything else is the caller's responsibility.
+ *
+ * The bytes of a LocalKey and of a SecretKey are locked in memory for the
+ * life of the object (sodium_mlock: no swapping, and no core dump where
+ * the platform supports it) and wiped and unlocked when it dies. The lock
+ * is best effort: a platform without it, or a limit that refuses it,
+ * leaves the key wiped on release but swappable in between.
  */
 
 #include "detail/base64url.hpp"
@@ -118,7 +124,7 @@ public:
         }
         return *this;
     }
-    ~LocalKey() { detail::wipe(k_, BYTES); }
+    ~LocalKey() { detail::unlock(k_, BYTES); }
 
     /// A fresh key from libsodium's CSPRNG.
     [[nodiscard]] static Result<LocalKey> generate() {
@@ -177,7 +183,7 @@ public:
 
 private:
     friend struct detail::KeyAccess;
-    LocalKey() noexcept : k_{} {}
+    LocalKey() noexcept : k_{} { detail::lock(k_, BYTES); }
     uint8_t k_[BYTES];
     std::optional<std::string> kid_;
 };
@@ -245,8 +251,15 @@ public:
     SecretKey(const SecretKey&) = delete;
     SecretKey& operator=(const SecretKey&) = delete;
     SecretKey(SecretKey&&) noexcept = default;
-    SecretKey& operator=(SecretKey&&) noexcept = default;
-    ~SecretKey() = default;
+    SecretKey& operator=(SecretKey&& o) noexcept {
+        if (this != &o) {
+            release();
+            sk_ = std::move(o.sk_);
+            kid_ = std::move(o.kid_);
+        }
+        return *this;
+    }
+    ~SecretKey() { release(); }
 
     /// A fresh pair from libsodium (Ed25519) and liboqs (ML-DSA-65).
     [[nodiscard]] static Result<SecretKey> generate() {
@@ -254,6 +267,7 @@ public:
         if (!detail::MlDsa65::available()) return Result<SecretKey>::err(Error::unavailable);
         SecretKey k;
         k.sk_.resize(BYTES);
+        k.lock();
         uint8_t ed_pk[crypto_sign_PUBLICKEYBYTES];
         if (crypto_sign_keypair(ed_pk, k.sk_.data()) != 0 ||
             !detail::MlDsa65::keypair(k.sk_.data() + ED_BYTES + ML_BYTES, k.sk_.data() + ED_BYTES))
@@ -270,6 +284,7 @@ public:
         if (bytes.size() != BYTES) return Result<SecretKey>::err(Error::argument);
         SecretKey k;
         k.sk_.assign(bytes.begin(), bytes.end());
+        k.lock();
         return finish_import(std::move(k));
     }
 
@@ -277,6 +292,7 @@ public:
     [[nodiscard]] static Result<SecretKey> from_paserk(std::string_view text) {
         SecretKey k;
         k.sk_.resize(BYTES);
+        k.lock();
         if (!detail::paserk_decode(PASERK_HEADER, text, k.sk_.data(), BYTES))
             return Result<SecretKey>::err(Error::argument);
         return finish_import(std::move(k));
@@ -322,6 +338,7 @@ public:
     [[nodiscard]] SecretKey clone() const {
         SecretKey k;
         k.sk_ = sk_;
+        k.lock();
         k.kid_ = kid_;
         return k;
     }
@@ -339,6 +356,14 @@ private:
         if (!k.consistent()) return Result<SecretKey>::err(Error::argument);
         k.kid_ = k.public_key().paserk_id();
         return Result<SecretKey>::ok(std::move(k));
+    }
+
+    void lock() noexcept {
+        if (!sk_.empty()) detail::lock(sk_.data(), sk_.size());
+    }
+
+    void release() noexcept {
+        if (!sk_.empty()) detail::unlock(sk_.data(), sk_.size());
     }
 
     SecureBytes sk_;

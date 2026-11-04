@@ -97,3 +97,21 @@ TEST_CASE("keys/a key whose bytes are all equal is refused on import") {
     CHECK(LocalKey::from_bytes(tu::pattern(32, 0x00)).is_ok());
     CHECK(cb2::detail::constant_bytes(almost.data(), 31) && !cb2::detail::constant_bytes(almost.data(), 32));
 }
+
+#ifdef CB2_HAS_PQ
+TEST_CASE("keys/a secret key survives moves and clones with its memory lock") {
+    auto gen = cb2::SecretKey::generate();
+    REQUIRE(gen.is_ok());
+    const cb2::PublicKey pk = gen.value().public_key();
+    cb2::SecretKey moved(std::move(gen.value()));
+    cb2::SecretKey assigned = cb2::SecretKey::generate().value();
+    assigned = std::move(moved);
+    const cb2::SecretKey cloned = assigned.clone();
+    assigned = cb2::SecretKey::generate().value();
+    auto tok = cb2::Public::sign(cloned, cb2::bytes("m"));
+    REQUIRE(tok.is_ok());
+    CHECK(cb2::Public::verify(tok.value(), pk).is_ok());
+    CHECK(cloned.public_key().paserk_id() == pk.paserk_id());
+    CHECK(assigned.public_key().paserk_id() != pk.paserk_id());
+}
+#endif

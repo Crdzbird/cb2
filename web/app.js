@@ -28,6 +28,7 @@
         expired: "The token authenticated but its exp is in the past, beyond any clock skew allowed.",
         not_yet_valid: "The token authenticated but its nbf is still in the future.",
         issued_in_future: "The token authenticated but its iat is in the future.",
+        lifetime_exceeded: "The token authenticated but its exp lies further ahead than the maximum lifetime the rules allow.",
         issuer_mismatch: "The token authenticated but its iss is not the expected issuer.",
         audience_mismatch: "The token authenticated but its aud is not the expected audience.",
         subject_mismatch: "The token authenticated but its sub is not the expected subject.",

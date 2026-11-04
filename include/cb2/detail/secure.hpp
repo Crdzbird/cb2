@@ -52,6 +52,16 @@ namespace detail {
 /// Wipes n bytes at p.
 inline void wipe(void* p, std::size_t n) noexcept { sodium_memzero(p, n); }
 
+/// Keeps n bytes at p out of swap and, where the platform allows, out of
+/// core dumps. Best effort: a platform or a limit that refuses is
+/// ignored, and the memory is wiped on release either way.
+inline void lock(void* p, std::size_t n) noexcept { (void)sodium_mlock(p, n); }
+
+/// Wipes n bytes at p and releases the lock taken by lock().
+inline void unlock(void* p, std::size_t n) noexcept {
+    if (sodium_munlock(p, n) != 0) sodium_memzero(p, n);
+}
+
 /// Initialises libsodium once; returns false if the library cannot start.
 [[nodiscard]] inline bool ensure_sodium() noexcept {
     static const bool ok = sodium_init() >= 0;

@@ -302,7 +302,7 @@ inline void help(Session& s) {
         "                                 [name:=json]... [implicit=]  seal (local key) or\n"
         "                                 sign (secret key); times: +3600, Unix seconds or RFC 3339\n"
         "  check <key> <token> [iss=] [aud=] [sub=] [any-iss] [any-aud] [skew=] [now=]\n"
-        "                                 [replay] [no-exp] [max=] [implicit=]  open or verify\n"
+        "                                 [replay] [no-exp] [max=] [lifetime=] [implicit=]  open or verify\n"
         "  peek <token>                   header, body size, footer and kid, nothing verified;\n"
         "                                 for cb2.public the message and claims, in clear, unverified\n"
         "  lookup <token>                 the stored keys whose id matches the footer's kid, unverified\n"
@@ -735,7 +735,7 @@ inline bool cmd_claims(Session& s, const Args& a) {
 }
 
 inline bool cmd_check(Session& s, const Args& a) {
-    if (a.size() < 3) return fail(s, "check <key> <token> [iss=] [aud=] [sub=] [any-iss] [any-aud] [skew=] [now=] [replay] [no-exp] [max=] [implicit=]");
+    if (a.size() < 3) return fail(s, "check <key> <token> [iss=] [aud=] [sub=] [any-iss] [any-aud] [skew=] [now=] [replay] [no-exp] [max=] [lifetime=] [implicit=]");
     cb2::ValidationRules rules;
     std::string implicit;
     for (std::size_t i = 3; i < a.size(); ++i) {
@@ -770,6 +770,8 @@ inline bool cmd_check(Session& s, const Args& a) {
             rules.with_clock_skew(std::atoll(value.c_str()));
         } else if (name == "max" && all_digits(value)) {
             rules.with_max_token_bytes(static_cast<std::size_t>(std::atoll(value.c_str())));
+        } else if (name == "lifetime" && all_digits(value)) {
+            rules.with_max_lifetime(std::atoll(value.c_str()));
         } else if (name == "now") {
             cb2::Seconds t = 0;
             if (!parse_time(value, t)) return fail(s, "bad time " + value);
