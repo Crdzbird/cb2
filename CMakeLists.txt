@@ -15,6 +15,7 @@ option(CB2_BUILD_EXAMPLES "Build the runnable examples under examples/" ON)
 option(CB2_BUILD_PLAYGROUND "Build the interactive playground under playground/" ON)
 option(CB2_FUZZ "Build the libFuzzer targets (LLVM clang only)" OFF)
 option(CB2_SANITIZE "Build tests and bench with AddressSanitizer + UBSan" OFF)
+option(CB2_BUILD_BINDINGS "Build the C ABI (bindings/c), the surface the language bridges use" ON)
 option(CB2_OPENSSL_CHACHA "Use OpenSSL's ChaCha20 for messages of 512 bytes or more (same keystream, vector unit)" ON)
 
 find_package(PkgConfig REQUIRED)
@@ -164,3 +165,7 @@ if(CB2_FUZZ)
 endif()
 
 install(DIRECTORY include/ DESTINATION include)
+
+if(CB2_BUILD_BINDINGS)
+    add_subdirectory(bindings/c)
+endif()

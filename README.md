@@ -269,6 +269,34 @@ verdict), `too_large`, `argument`, `rules_incomplete`, `internal`,
 `issuer_mismatch`, `audience_mismatch`, `subject_mismatch`,
 `missing_jti`, `replayed`.
 
+## Bridges
+
+Every language bridge sits on one C ABI, `bindings/c`: opaque key
+handles, malloc'd results, integer verdicts with their names, claims
+and rules as JSON text, and replay checks as callbacks (or a list of
+seen ids for simple cases). `bindings/c/include/cb2_c.h` is the whole
+surface and `bindings/c/test/test_c.c` exercises every call and
+verdict; `-DCB2_BUILD_BINDINGS=ON` (the default) builds `libcb2_c` as a
+shared and a static library and runs the test. Each bridge has its own
+README with the build and loading steps and one example, and its own
+tests mirroring the C test.
+
+| language | where | mechanism | verified here |
+|---|---|---|---|
+| Python | `bindings/python` | ctypes over `libcb2_c`, no compile step | 25 unittest cases |
+| Go | `bindings/go` | cgo, callbacks through exported trampolines | `go test`, `go vet`, `go test -race` |
+| JavaScript and Node | `bindings/js` | the C ABI compiled to WebAssembly with Emscripten, one module for Node and browsers, callbacks through the wasm table | `node --test`, and the same module in a browser |
+| Java | `bindings/java` | JNI glue over the C ABI, classes in `com.cipherbird.cb2` | a Java test program |
+| Kotlin | `bindings/java/src/main/kotlin` | a DSL and extensions over the Java classes | a Kotlin test program |
+| Swift | `bindings/swift` | a Swift package with a system library target for the C ABI | 9 XCTest cases |
+| Dart | `bindings/dart` | dart:ffi, callbacks through NativeCallable | `dart test` |
+| Flutter | `bindings/flutter/cb2_flutter` | an FFI plugin over the Dart package, native library per platform | `flutter analyze`; the mobile native builds are not verified here |
+
+CI runs the Swift, Python, Node and Go tests on macOS and the Python,
+Node and Go tests on Linux after building the C ABI; the Java, Kotlin,
+Dart and Flutter tests run locally with their build scripts, since those
+toolchains are not on the runners.
+
 ## Layout
 
 ```
@@ -292,6 +320,8 @@ fuzz/                              fuzz_local, fuzz_public, fuzz_claims
 bench/                             bench_main.cpp; reference.hpp, PASETO v1 to v4, JWS and JWE from their specifications, checked by tests/test_reference.cpp against the official vectors; bench_ref.cpp, CipherBird's v4.local and cb1.local when cryptolib is present
 docs/PROTOCOL.md                   the normative format for implementers, the vector file format, worked examples
 tools/check_vectors.py             an independent Python implementation that checks tests/vectors against docs/PROTOCOL.md alone
+bindings/c                         the C ABI (cb2_c.h, cb2_c.cpp) and its test; what every bridge below uses
+bindings/python, go, js, java, swift, dart, flutter   the language bridges, each with a README and tests
 docs/SPEC.md                       wire format, rationale, threat model
 docs/SECURITY.md                   claims and limits
 docs/SENDER_CONSTRAINT.md          sender-constrained tokens: the design, its decisions, the symmetric mode still to come

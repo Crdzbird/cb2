@@ -8,3 +8,5 @@ cmake-build-*/
 .idea/
 deps/
 .claude/
+__pycache__/
+node_modules/

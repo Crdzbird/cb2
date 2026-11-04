@@ -1,0 +1,53 @@
+group = "dev.cb2.cb2_flutter"
+version = "0.1.0"
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath("com.android.tools.build:gradle:9.1.0")
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: "com.android.library"
+
+android {
+    namespace = "dev.cb2.cb2_flutter"
+    compileSdk = 36
+    ndkVersion = android.ndkVersion
+
+    externalNativeBuild {
+        cmake {
+            path = "../src/CMakeLists.txt"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    defaultConfig {
+        minSdk = 24
+        externalNativeBuild {
+            cmake {
+                arguments(
+                    "-DCB2_DEPS_ROOT=" + (System.getenv("CB2_DEPS_ROOT") ?: ""),
+                    "-DCB2_PQ=" + (System.getenv("CB2_PQ") ?: "ON"),
+                    "-DANDROID_STL=c++_shared"
+                )
+                cppFlags("-std=c++20")
+            }
+        }
+    }
+}

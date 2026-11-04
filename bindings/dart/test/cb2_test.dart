@@ -1,0 +1,17 @@
+import 'package:test/test.dart';
+
+import 'checks/holder_checks.dart' as holder;
+import 'checks/local_key_checks.dart' as local_key;
+import 'checks/local_token_checks.dart' as local_token;
+import 'checks/public_checks.dart' as public;
+import 'checks/seal_checks.dart' as seal;
+
+/// The checks of bindings/c/test/test_c.c, one group per area, run against
+/// the library named by CB2_C_LIBRARY.
+void main() {
+  group('local keys', local_key.run);
+  group('local tokens', local_token.run);
+  group('public', public.run);
+  group('holder', holder.run);
+  group('seal', seal.run);
+}

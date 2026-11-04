@@ -1,0 +1,32 @@
+{
+  "name": "cb2",
+  "version": "0.1.0",
+  "description": "cb2 tokens for Node and browsers: the C ABI compiled to WebAssembly",
+  "license": "MIT",
+  "type": "module",
+  "main": "./cb2.cjs",
+  "module": "./src/cb2.js",
+  "exports": {
+    ".": {
+      "import": "./src/cb2.js",
+      "require": "./cb2.cjs"
+    },
+    "./core": "./dist/cb2_core.js",
+    "./core.wasm": "./dist/cb2_core.wasm",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "dist",
+    "cb2.cjs",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bash ./build.sh",
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "dependencies": {}
+}
