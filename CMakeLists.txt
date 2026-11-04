@@ -30,6 +30,17 @@ target_link_directories(cb2 INTERFACE ${SODIUM_LIBRARY_DIRS} ${BLAKE3_LIBRARY_DI
 target_link_libraries(cb2 INTERFACE ${SODIUM_LIBRARIES} ${BLAKE3_LIBRARIES})
 target_compile_features(cb2 INTERFACE cxx_std_20)
 
+# libcrypto is a dependency of liboqs and of the reference constructions
+# the tests and the benchmark compare cb2 with (bench/reference.hpp). With
+# cb2.public it reaches every consumer through the cb2 target; without it
+# the tests and the benchmark link it themselves.
+pkg_check_modules(OPENSSL REQUIRED libcrypto>=3.0)
+if(CB2_PQ)
+    set(CB2_REFERENCE_LIBS "")
+else()
+    set(CB2_REFERENCE_LIBS ${OPENSSL_LIBRARIES})
+endif()
+
 if(CB2_PQ)
     pkg_check_modules(OQS liboqs)
     if(NOT OQS_FOUND)
@@ -49,17 +60,6 @@ if(CB2_PQ)
     message(STATUS "cb2: cb2.public enabled (liboqs)")
 else()
     message(STATUS "cb2: cb2.public disabled; only cb2.local is built")
-endif()
-
-# libcrypto is a dependency of liboqs and of the reference constructions
-# the tests and the benchmark compare cb2 with (bench/reference.hpp). With
-# cb2.public it already comes through the cb2 target; without it the
-# tests and the benchmark link it themselves.
-pkg_check_modules(OPENSSL REQUIRED libcrypto>=3.0)
-if(CB2_PQ)
-    set(CB2_REFERENCE_LIBS "")
-else()
-    set(CB2_REFERENCE_LIBS ${OPENSSL_LIBRARIES})
 endif()
 
 set(CB2_WARNINGS -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow)
