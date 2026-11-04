@@ -254,6 +254,7 @@ docs/PROTOCOL.md                   the normative format for implementers, the ve
 tools/check_vectors.py             an independent Python implementation that checks tests/vectors against docs/PROTOCOL.md alone
 docs/SPEC.md                       wire format, rationale, threat model
 docs/SECURITY.md                   claims and limits
+docs/SENDER_CONSTRAINT.md          design draft: sender-constrained tokens (cnf and per-request proofs), not implemented
 ```
 
 ## Benchmark

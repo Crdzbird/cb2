@@ -560,3 +560,7 @@ and generator executables only, never for the library interface.
    close the gap at the price of a nonce buffer that lives in process
    memory and a fork handler. This implementation follows the owner's
    instruction to use `randombytes_buf` only.
+6. Sender-constrained tokens: a `cnf` claim bound to a client key and a
+   per-request proof of a new purpose, so that a stolen token is useless
+   without the key. The design draft is docs/SENDER_CONSTRAINT.md; it is
+   not implemented and nothing in the format changes until it is.
