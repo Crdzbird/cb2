@@ -355,6 +355,7 @@ parsing at all: the verifier knows its algorithm, as a safe JWT verifier
 must, which favours JWT, not cb2.
 
 | implementation | token at 64 B | seal 64 B | seal 1 KiB | seal 64 KiB | open 64 B | open 1 KiB | open 64 KiB |
+|---|---:|---:|---:|---:|---:|---:|---:|
 | cb2.local | 246 | 2713 ns | 5261 ns | 121.2 us | 1328 ns | 4280 ns | 128.0 us |
 | PASETO v4.local | 245 | 3779 ns | 7758 ns | 266.9 us | 2386 ns | 6364 ns | 266.8 us |
 | PASETO v3.local | 266 | 8995 ns | 10.6 us | 113.1 us | 7499 ns | 9095 ns | 114.2 us |
@@ -383,8 +384,11 @@ must, which favours JWT, not cb2.
 | PASETO v2.local | 208 | 291 |
 | PASETO v1.local | 363 | 528 |
 | JWE dir A256GCM | 1377 | 1401 |
+| cb2.public | 100 | 142 |
 | PASETO v4.public | 187 | 271 |
+| PASETO v3.public | 211 | 124 |
 | PASETO v2.public | 188 | 265 |
+| PASETO v1.public | 84 | 502 |
 | JWS EdDSA | 157 | 247 |
 | JWS ES256 | 639 | 461 |
 | JWS RS256 | 88 | 632 |
@@ -422,14 +426,15 @@ token in 1489 ns and a 1 KiB one in 4136 ns, against 2736 and 5332 with
 the kernel source in the same session; open does not change.
 
 Reading, public tokens. The post-quantum half is the whole difference:
-cb2.public signs in 180 us and verifies in 118 us where Ed25519 alone
-signs in 18 us and verifies in 50 us, and the token is 4659 bytes
+cb2.public signs in 167 us and verifies in 113 us where Ed25519 alone
+signs in 17 us and verifies in 50 us, and the token is 4659 bytes
 against 246. Against the rest of the field the hybrid is ordinary:
-signing is ten times cheaper than RSA-2048 (v1.public and RS256, over
-600 us) and equal to ECDSA P-384 (v3.public), and verifying is three
-times cheaper than ECDSA P-384 and within a factor of six of RSA, which
-verifies fast and signs slowly. A cb2.public verification costs about
-what two ECDSA P-256 verifications cost. The size is the price that
+signing is about 3.6 times cheaper than RSA-2048 (v1.public and RS256,
+around 600 us) and a little cheaper than ECDSA P-384 (v3.public, 196
+us), and verifying is 3.5 times cheaper than ECDSA P-384 and about five
+times slower than RSA, which verifies fast and signs slowly. A
+cb2.public verification costs about what two ECDSA P-256 verifications
+cost. The size is the price that
 matters: it is paid once per token in a service to service call, and
 it is why the local purpose is the one for sessions.
 
