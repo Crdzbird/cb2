@@ -1,6 +1,9 @@
 # cb2 specification
 
-Version 0.1.0. This document defines the cb2.local and cb2.public token
+Version 0.1.0. cb2 stands for Cryptographically Bound tokens, version 2,
+and the format is also called BRACE (Bound, Rule-checked, Authenticated,
+Committing Envelope); PROTOCOL.md says why the alias never appears on
+the wire. This document defines the cb2.local and cb2.public token
 formats, the kcb2 key strings and the claims layer, byte for byte, with the
 rationale for each decision and the threat model. It describes this
 implementation and why it is the way it is. The normative statement of

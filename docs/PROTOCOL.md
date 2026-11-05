@@ -2,6 +2,12 @@
 
 Version 0.1.0. Status: a CipherBird proposal, not a standard.
 
+cb2 stands for Cryptographically Bound tokens, version 2. The format is
+also called BRACE (Bound, Rule-checked, Authenticated, Committing
+Envelope). BRACE is a name, not an identifier: every header and key
+string in this document is spelled with cb2 or kcb2, and an
+implementation MUST NOT accept any other spelling.
+
 This document is the normative definition of the cb2.local and cb2.public
 token formats, the kcb2 key strings, the claims layer and the holder
 proofs of sender-constrained tokens (section 13). It is written

@@ -1,4 +1,12 @@
-# cb2
+# cb2 (BRACE)
+
+cb2 stands for **Cryptographically Bound tokens, version 2**: every token
+is bound to its key, to the context it was issued for, to the rules its
+verifier must declare and, when it carries a `cnf` claim, to the client
+that holds it. The format is also called **BRACE**, for **B**ound,
+**R**ule-checked, **A**uthenticated, **C**ommitting **E**nvelope. BRACE
+is a name only: on the wire every token and key string keeps its cb2
+header, because the format allows exactly one spelling of each.
 
 A header-only C++20 token library: cb2.local (XChaCha20 with a keyed
 BLAKE3 key split and a key-committing tag) and cb2.public (Ed25519 plus
