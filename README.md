@@ -446,6 +446,51 @@ cost. The size is the price that
 matters: it is paid once per token in a service to service call, and
 it is why the local purpose is the one for sessions.
 
+### One sender-constrained request
+
+The second table of `cb2_bench` measures one request to a resource that
+requires a bound token: the client makes a holder proof for
+`GET https://api.example/v1/me`, and the server checks the access token
+and that proof under the rules a resource sets (issuer, audience, the
+proof for this request, a proof replay check). The access token carries
+iss, aud, sub, exp and jti, plus cnf when it is bound. The DPoP rows are
+a JWT access token with `cnf.jkt` and an RFC 9449 proof signed with
+ES256, on the same reference code as the JWS rows: the server does the
+two signature checks, the `ath` hash and the `jkt` thumbprint, no JSON
+claim checks, and takes the client key as known instead of reading it
+from the proof header. They are a lower bound for JWT, as the JWS rows
+are. Same machine and libraries, 2026-11-06; in the same run the first
+table agreed with the one above within 8 percent in 92 of its 102 cells
+and within 12 percent in all.
+
+| request | token | proof | on the wire | client: make proof | server: check token and proof |
+|---|---:|---:|---:|---:|---:|
+| cb2.local bearer, no proof | 321 | 0 | 321 | - | 3187 ns |
+| cb2.local bound + holder proof | 3877 | 4770 | 8647 | 211.6 us | 185.6 us |
+| cb2.public bound + holder proof | 8290 | 4770 | 13060 | 252.5 us | 333.0 us |
+| JWT RS256 + DPoP ES256 | 582 | 479 | 1061 | 25.9 us | 85.8 us |
+| JWT ES256 + DPoP ES256 | 326 | 479 | 805 | 25.5 us | 128.0 us |
+
+Reading, bound tokens. The binding costs what the client's hybrid key
+costs. The cnf claim carries the whole kcb2.public key, which takes the
+local token from 321 to 3877 characters, and the proof is a hybrid
+signature over the request, 4770 more. On the server a bound request
+costs 186 us against 3.2 us for the bearer token, 1.5 times the
+ES256 + DPoP row and 2.2 times the RS256 + DPoP row; on the client the
+proof costs 212 us against 26 us for a DPoP proof; on the wire it is 8
+to 11 times the bytes. At scale, one core checks about 5,400 bound
+requests a second against 7,800 to 11,700 for DPoP, and a million
+requests cost about 3.1 core-minutes of checking against 1.4 to 2.1, and
+8.6 GB of headers against about 1 GB. The proof changes on every
+request, so HTTP/2 header compression cannot shrink it, and on a slow
+uplink the bytes cost more time than the checks. A bound cb2.public
+token is 8290 characters, more than the 8 KB nginx allows for one header
+line by default; with its proof it is close to the 16 KB Node allows for
+all headers. The local purpose is therefore the one for bound tokens as
+well. The size comes from the post-quantum client key, not from the
+format: the symmetric holder mode docs/SENDER_CONSTRAINT.md reserves is
+not defined yet, and nothing here measures it.
+
 ## What is covered and what is not
 
 Covered: cb2.local, cb2.public, the claims layer, key types

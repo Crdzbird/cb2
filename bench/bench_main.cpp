@@ -9,6 +9,15 @@
  * the RFC 7515 example by tests/test_reference.cpp. CipherBird's own
  * v4.local and cb1.local rows appear when cryptolib is found.
  *
+ * A second table measures one sender-constrained request: the client
+ * makes a holder proof for GET https://api.example/v1/me and the server
+ * checks the access token and that proof under the rules a resource would
+ * set, for cb2 bound tokens and for JWT access tokens with RFC 9449 DPoP
+ * proofs. The DPoP rows do the two signature checks, the ath hash and the
+ * jkt thumbprint and no JSON claim checks, and take the client key as
+ * known instead of reading it from the proof header: a lower bound for
+ * JWT, as the JWS rows of the first table are.
+ *
  * --fast-random selects libsodium's own userspace random generator for
  * every nonce in the run, the application opt-in README.md describes;
  * --only <text> measures only the rows whose name contains the text.
@@ -101,16 +110,17 @@ Row bench(const Scheme& s, Span footer_in) {
     return row;
 }
 
+std::string cell(double ns) {
+    char buf[32];
+    if (ns >= 1e6) std::snprintf(buf, sizeof buf, "%.2f ms", ns / 1e6);
+    else if (ns >= 1e4) std::snprintf(buf, sizeof buf, "%.1f us", ns / 1e3);
+    else std::snprintf(buf, sizeof buf, "%.0f ns", ns);
+    return std::string(buf);
+}
+
 void print(const std::vector<Row>& rows) {
     std::printf("\n| implementation | token at 64 B | seal 64 B | seal 1 KiB | seal 64 KiB | open 64 B | open 1 KiB | open 64 KiB |\n");
     std::printf("|---|---:|---:|---:|---:|---:|---:|---:|\n");
-    auto cell = [](double ns) {
-        char buf[32];
-        if (ns >= 1e6) std::snprintf(buf, sizeof buf, "%.2f ms", ns / 1e6);
-        else if (ns >= 1e4) std::snprintf(buf, sizeof buf, "%.1f us", ns / 1e3);
-        else std::snprintf(buf, sizeof buf, "%.0f ns", ns);
-        return std::string(buf);
-    };
     for (const Row& r : rows) {
         std::printf("| %s | %zu | %s | %s | %s | %s | %s | %s |\n", r.name.c_str(), r.bytes_at_64,
                     cell(r.seal_ns[0]).c_str(), cell(r.seal_ns[1]).c_str(), cell(r.seal_ns[2]).c_str(),
@@ -221,6 +231,130 @@ std::vector<Scheme> schemes(const Keys& keys, const cb2::LocalKey& local) {
     return v;
 }
 
+/// One sender-constrained request: prove makes the client's proof for
+/// the request, check verifies the access token with that proof on the
+/// server. A bearer row has no proof and an empty prove.
+struct Request {
+    std::string name;
+    std::string token;
+    std::string proof;
+    std::function<std::string()> prove;
+    std::function<bool(const std::string& proof)> check;
+};
+
+const cb2::Seconds REQ_NOW = 1700000000;
+const char* const REQ_TARGET = "https://api.example/v1/me";
+
+std::string sha256_b64(std::string_view in) {
+    uint8_t h[32];
+    crypto_hash_sha256(h, reinterpret_cast<const uint8_t*>(in.data()), in.size());
+    return ref::b64({h, 32});
+}
+
+/// The RFC 7638 canonical JWK of a P-256 public key, members in
+/// lexicographic order, so its SHA-256 is the jkt thumbprint.
+std::string p256_jwk(EVP_PKEY* key) {
+    uint8_t buf[200];
+    std::size_t n = 0;
+    if (EVP_PKEY_get_octet_string_param(key, OSSL_PKEY_PARAM_PUB_KEY, buf, sizeof buf, &n) != 1 || n != 65 || buf[0] != 0x04) return {};
+    return "{\"crv\":\"P-256\",\"kty\":\"EC\",\"x\":\"" + ref::b64({buf + 1, 32}) + "\",\"y\":\"" + ref::b64({buf + 33, 32}) + "\"}";
+}
+
+bool has_member(const Bytes& json, std::string_view name, std::string_view value) {
+    const std::string needle = "\"" + std::string(name) + "\":\"" + std::string(value) + "\"";
+    return std::search(json.begin(), json.end(), needle.begin(), needle.end()) != json.end();
+}
+
+/// A JWT access token signed by the issuer with cnf.jkt naming the
+/// client's P-256 key, and DPoP proofs signed by the client with ES256.
+template <class Sign, class Verify>
+Request dpop_request(const std::string& name, const char* alg, Sign issuer_sign, Verify issuer_verify, EVP_PKEY* client) {
+    const std::string jwk = p256_jwk(client);
+    const std::string jkt = sha256_b64(jwk);
+    const std::string claims = "{\"iss\":\"https://issuer.example\",\"aud\":\"api\",\"sub\":\"user-1\",\"exp\":" +
+                               std::to_string(REQ_NOW + 3600) + ",\"jti\":\"t-1\",\"cnf\":{\"jkt\":\"" + jkt + "\"}}";
+    const std::string token = ref::jws("{\"alg\":\"" + std::string(alg) + "\",\"typ\":\"at+jwt\"}", ref::sp(claims), issuer_sign);
+    const std::string header = "{\"typ\":\"dpop+jwt\",\"alg\":\"ES256\",\"jwk\":" + jwk + "}";
+    auto prove = [token, header, client] {
+        const std::string payload = "{\"jti\":\"p-1\",\"htm\":\"GET\",\"htu\":\"" + std::string(REQ_TARGET) + "\",\"iat\":" +
+                                    std::to_string(REQ_NOW) + ",\"ath\":\"" + sha256_b64(token) + "\"}";
+        return ref::jws(header, ref::sp(payload), [client](Span in, Bytes& sig) { return ref::es256_sign(client, in, sig); });
+    };
+    auto check = [token, jwk, issuer_verify, client](const std::string& proof) {
+        Bytes claims_out;
+        Bytes proof_out;
+        if (!ref::jws_verify(token, issuer_verify, claims_out)) return false;
+        if (!ref::jws_verify(proof, [client](Span in, Span sig) { return ref::es256_verify(client, in, sig); }, proof_out)) return false;
+        return has_member(proof_out, "ath", sha256_b64(token)) && has_member(claims_out, "jkt", sha256_b64(jwk));
+    };
+    return {name, token, prove(), prove, check};
+}
+
+std::vector<Request> requests(const Keys& keys, const cb2::LocalKey& local) {
+    std::vector<Request> v;
+    static const ref::Evp client_p256 = ref::keygen("EC", "P-256");
+    EVP_PKEY* rsa = keys.rsa.key;
+    EVP_PKEY* p256 = keys.p256.key;
+    auto rules = [] {
+        return cb2::ValidationRules().at(REQ_NOW).expect_issuer("https://issuer.example").expect_audience("api");
+    };
+    cb2::Claims c;
+    c.iss = "https://issuer.example";
+    c.aud = "api";
+    c.sub = "user-1";
+    c.exp = REQ_NOW + 3600;
+    c.jti = "t-1";
+    const std::string bearer = cb2::Token::seal(local, c).value();
+    v.push_back({"cb2.local bearer, no proof", bearer, "", [] { return std::string(); },
+                 [bearer, &local, rules](const std::string&) { return cb2::Token::open(bearer, local, rules()).is_ok(); }});
+#ifdef CB2_HAS_PQ
+    static const cb2::SecretKey client = cb2::SecretKey::generate().value();
+    static const cb2::SecretKey issuer = cb2::SecretKey::generate().value();
+    static const cb2::PublicKey issuer_public = issuer.public_key();
+    c.cnf = client.public_key().to_paserk();
+    const cb2::HolderRequest get{"GET", REQ_TARGET, std::nullopt};
+    auto with_proof = [rules, get](const std::string& proof) {
+        return rules().with_holder_proof(proof, get).with_proof_replay_check([](std::string_view) { return true; });
+    };
+    for (bool pub : {false, true}) {
+        const std::string token = pub ? cb2::Token::sign(issuer, c).value() : cb2::Token::seal(local, c).value();
+        auto prove = [token, get] { return cb2::HolderProof::make(client, get, token, "p-1", REQ_NOW, 60).value(); };
+        std::function<bool(const std::string&)> check;
+        if (pub) check = [token, with_proof](const std::string& p) { return cb2::Token::verify(token, issuer_public, with_proof(p)).is_ok(); };
+        if (!pub) check = [token, &local, with_proof](const std::string& p) { return cb2::Token::open(token, local, with_proof(p)).is_ok(); };
+        v.push_back({pub ? "cb2.public bound + holder proof" : "cb2.local bound + holder proof", token, prove(), prove, check});
+    }
+#endif
+    v.push_back(dpop_request("JWT RS256 + DPoP ES256", "RS256",
+                             [rsa](Span in, Bytes& sig) { return ref::rs256_sign(rsa, in, sig); },
+                             [rsa](Span in, Span sig) { return ref::rs256_verify(rsa, in, sig); }, client_p256.key));
+    v.push_back(dpop_request("JWT ES256 + DPoP ES256", "ES256",
+                             [p256](Span in, Bytes& sig) { return ref::es256_sign(p256, in, sig); },
+                             [p256](Span in, Span sig) { return ref::es256_verify(p256, in, sig); }, client_p256.key));
+    return v;
+}
+
+void print_requests(const std::vector<Request>& reqs, const std::string& only) {
+    std::printf("\n| request | token | proof | on the wire | client: make proof | server: check token and proof |\n");
+    std::printf("|---|---:|---:|---:|---:|---:|\n");
+    for (const Request& r : reqs) {
+        if (!only.empty() && r.name.find(only) == std::string::npos) continue;
+        std::fprintf(stderr, "measuring %s\n", r.name.c_str());
+        if (r.token.empty() || !r.check(r.proof)) {
+            std::fprintf(stderr, "%s: the request does not check\n", r.name.c_str());
+            std::exit(1);
+        }
+        const std::string client = r.proof.empty() ? std::string("-") : cell(measure([&] {
+            if (r.prove().empty()) std::abort();
+        }));
+        const double server = measure([&] {
+            if (!r.check(r.proof)) std::abort();
+        });
+        std::printf("| %s | %zu | %zu | %zu | %s | %s |\n", r.name.c_str(), r.token.size(), r.proof.size(),
+                    r.token.size() + r.proof.size(), client.c_str(), cell(server).c_str());
+    }
+}
+
 }
 
 int main(int argc, char** argv) {
@@ -255,5 +389,6 @@ int main(int argc, char** argv) {
         rows.push_back(bench(s, footer));
     }
     print(rows);
+    print_requests(requests(keys, local), only);
     return 0;
 }
