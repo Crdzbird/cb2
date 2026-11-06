@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>cb2 playground</title>
-<meta name="description" content="Try cb2 tokens in the browser: keys, claims, footers, rules, tampering, key wrapping. The library runs as WebAssembly on this page; nothing leaves it.">
+<meta name="description" content="Try cb2 tokens in the browser: keys, claims, footers, rules, tampering, key wrapping, and a heavy load run. The library runs as WebAssembly on this page; nothing leaves it.">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -233,6 +233,46 @@
     <dl id="text-result" class="peek"></dl>
   </section>
 
+  <section class="card" id="card-load">
+    <h2><span class="num">9</span> Heavy load</h2>
+    <p class="hint">Many requests against one resource, run here in the browser, to show that the time per request stays flat and every answer stays right. 256 users each hold their own token (and, for bound tokens, their own client key pair), and every hundredth request is an attack whose verdict is checked too: a changed character, an expired token, a token under another key, a replayed proof or a proof for another target. The run has its own keys and its own copy of the library, apart from the session above, and runs on one browser thread. The browser's clock is coarse, so the page times batches of about 40 ms and divides.</p>
+    <div class="grid3">
+      <label>workload <select id="load-kind">
+        <option value="bearer">cb2.local bearer tokens</option>
+        <option value="bound">cb2.local bound tokens, a holder proof per request</option>
+        <option value="signed">cb2.public signed tokens</option>
+      </select></label>
+      <label>requests <select id="load-count">
+        <option value="10000">10,000</option>
+        <option value="100000">100,000</option>
+        <option value="1000000">1,000,000</option>
+      </select></label>
+      <p class="row">
+        <button type="button" id="load-run" class="primary">run</button>
+        <button type="button" id="load-stop" disabled>stop</button>
+      </p>
+    </div>
+    <p id="load-state" class="hint"></p>
+    <div class="load-bar"><div id="load-bar"></div></div>
+    <dl id="load-live" class="peek"></dl>
+    <figure class="load-chart">
+      <div class="load-plot">
+        <svg id="load-chart" viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="time per request for each batch of the run"></svg>
+        <span class="axis ymax" id="load-ymax"></span>
+        <span class="axis ymid" id="load-ymid"></span>
+        <span class="axis y0">0</span>
+        <span class="axis xmax" id="load-xmax"></span>
+      </div>
+      <figcaption class="legend">
+        <span class="sw server">server: check the token (and its proof), per request</span>
+        <span class="sw client" id="legend-client" hidden>client: make the proof, per request</span>
+        <span class="sw median">server median</span>
+      </figcaption>
+      <p id="load-clipped" class="hint small"></p>
+    </figure>
+    <div id="load-result" class="result" hidden></div>
+  </section>
+
 </div>
 
 <aside class="side">
@@ -270,5 +310,6 @@
 
 <script src="dist/cb2.js"></script>
 <script src="app.js"></script>
+<script src="load.js"></script>
 </body>
 </html>

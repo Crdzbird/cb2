@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build the web playground: web/dist/cb2.js and cb2.wasm from
-# web/cb2_web.cpp and the shared interpreter in playground/session.hpp,
+# web/cb2_web.cpp, the shared interpreter in playground/session.hpp and
+# the heavy load run in web/load.hpp,
 # plus copies of the demo scripts under web/demo. The wasm32 dependencies
 # come from CB2_WASM_PREFIX (default web/deps/wasm32, built on demand by
 # web/build_deps.sh). cb2.public is included when liboqs is present.
@@ -27,7 +28,7 @@ em++ -std=c++20 -O2 -fwasm-exceptions \
     "${PQ_FLAGS[@]}" -I "$ROOT/include" -I "$PREFIX/include" \
     "$HERE/cb2_web.cpp" -L"$PREFIX/lib" -lsodium -lblake3 "${PQ_LIBS[@]}" \
     -sMODULARIZE=1 -sEXPORT_NAME=createCb2 \
-    -sEXPORTED_FUNCTIONS=_cb2_web_run,_cb2_web_reset,_cb2_web_failures,_cb2_web_has_pq \
+    -sEXPORTED_FUNCTIONS=_cb2_web_run,_cb2_web_reset,_cb2_web_failures,_cb2_web_has_pq,_cb2_web_load_setup,_cb2_web_load_batch \
     -sEXPORTED_RUNTIME_METHODS=ccall,cwrap \
     -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8MB -sENVIRONMENT=web,node \
     -sFILESYSTEM=0 -sASSERTIONS=0 -sTEXTDECODER=2 \
