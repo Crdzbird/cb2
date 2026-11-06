@@ -210,9 +210,16 @@ in docs/SENDER_CONSTRAINT.md is not yet implemented.
 - libsodium, BLAKE3 and liboqs are correct and their constant-time
   properties hold on the target, and so is OpenSSL's ChaCha20 in builds
   that use it for messages of 512 bytes or more (CB2_OPENSSL_CHACHA, the
-  default). cb2 composes them and adds no primitive of its own; the
-  test suite checks that the two ChaCha20 implementations produce the
-  same keystream on both sides of the threshold.
+  default). cb2 composes them; the test suite checks that the two
+  ChaCha20 implementations produce the same keystream on both sides of
+  the threshold.
+- cb2's own SHA3-256 and SHAKE256 (include/cb2/detail/sha3.hpp), the
+  one primitive it implements, used only inside X-Wing for kcb2.seal,
+  are correct. They are checked against hashlib's FIPS 202 outputs on
+  both sides of every block boundary and, through X-Wing, against the
+  draft's test vectors. They branch only on lengths, which are public,
+  and wipe their state; no dynamic constant-time probe has been run on
+  them.
 - The caller keeps the LocalKey and SecretKey secret and the PublicKey
   authentic. A key id is not a secret and not a proof of key possession.
 - The verifier's clock is correct to within the configured skew.

@@ -53,6 +53,7 @@ its cited definition states, with the parameters given.
 | base64url | RFC 4648 section 5, no padding; see 3.3 for the decoding rules | |
 | JSON | RFC 8259; see 9.2 for the reader rules | |
 | RFC 3339 | RFC 3339 section 5.6; see 9.3 for the accepted and produced forms | |
+| X-Wing (kcb2.seal only) | draft-connolly-cfrg-xwing-kem, on ML-KEM-768 (FIPS 203), X25519 (RFC 7748), SHA3-256 and SHAKE256 (FIPS 202); see 14.1 | 32-byte decapsulation key, 1216-byte encapsulation key, 1120-byte ciphertext, 32-byte shared secret |
 
 Two notes on XChaCha20. The ChaCha20 step MAY be the original 64-bit
 counter form or the RFC 8439 form with a 96-bit nonce whose first four

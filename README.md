@@ -15,8 +15,9 @@ trusts, key types that cannot be confused, PASERK-shaped key strings and
 ids, and local key wrapping. It is CipherBird's proposal for a successor
 to PASETO version 4; it is not a paseto-standard version (docs/SPEC.md,
 section 1). It lives in its own repository so that the format can be
-versioned, reviewed and audited on its own; CipherBird consumes it for
-its C ABI and language bindings.
+versioned, reviewed and audited on its own; CipherBird consumes it, and
+it carries its own C ABI and language bindings (see the Bridges
+section).
 
 Status: 0.1.0, built and verified as described at the end of this file. Not yet reviewed by anyone but its author.
 
@@ -500,7 +501,10 @@ and ids, kcb2.local-wrap, international text in claims, footers and key ids
 (with the self-checking example above), the hardening from the
 adversarial review (rules that must declare their audience and issuer,
 the raw-layer size limit, the replay check, the weak-key and secret-key
-import checks, the ML-DSA context string), the vector files, the official-v4 cross-check of
+import checks, the ML-DSA context string), sender-constrained tokens in
+the public holder mode, kcb2.seal on X-Wing with the draft's vectors,
+cb2's own SHA3-256 and SHAKE256 against FIPS 202 outputs, the C ABI and
+the language bindings with their own tests, the vector files, the official-v4 cross-check of
 PAE and base64url, tests under ASan and UBSan, the three fuzz targets, a
 build without liboqs, and the benchmark above. CI runs the same matrix
 on every push and pull request: the `macos` job (release with cb2.public,
@@ -513,13 +517,21 @@ independent Python implementation, against every vector with the ML-DSA
 half included, so the reference and docs/PROTOCOL.md cannot drift apart
 unnoticed).
 
-Not covered: a C ABI and language bindings (those are CipherBird's,
-which consumes this library), interoperability with any other
-implementation (there is none), a constant-time probe run under Valgrind
-(CipherBird has one; cb2 does not yet), review by a second person,
-and the open questions in docs/SPEC.md section 12.
+Not covered: interoperability with any other implementation (there is
+none), the symmetric holder mode (reserved, not implemented), fuzz
+targets for kcb2.seal and holder proofs, a constant-time probe run under
+Valgrind (CipherBird has one; cb2 does not yet), review by a second
+person, and the open questions in docs/SPEC.md section 12.
 
 ## Verification performed
+
+Rerun on 2026-11-06 after cb2 took over SHA3 from liboqs, on the same
+Mac: the release build passes 87 of 87 cases (about 25,600 checks), the
+ASan and UBSan build 87 of 87 with no reports, and the build without
+liboqs 63 of 63. The release build also links and passes against a
+shared liboqs 0.16.0 built as Homebrew builds it, which the tree before
+that change could not. The record below is the full run of 2026-11-03,
+with the case counts of that day.
 
 All on an Apple silicon Mac on 2026-11-03, from the tree as committed.
 

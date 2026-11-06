@@ -62,7 +62,13 @@ the change is justified in section 9.
   context string).
 
 Every primitive above is a vetted library call. cb2 defines no
-primitive of its own.
+primitive of its own. kcb2.seal adds X-Wing (PROTOCOL.md section 14) on
+liboqs's ML-KEM-768 and libsodium's X25519; its SHA3-256 and SHAKE256
+are the one exception to the library-call rule. liboqs keeps its SHA3
+internal and a shared liboqs does not export it, so cb2 implements
+FIPS 202 itself in include/cb2/detail/sha3.hpp, checked against
+hashlib's outputs across the block boundaries and, through X-Wing,
+against the draft's test vectors.
 
 ## 3. Common rules
 
@@ -612,5 +618,9 @@ and generator executables only, never for the library interface.
    README.md describes. No batch of cb2's own will be added.
 6. Sender-constrained tokens: a `cnf` claim bound to a client key and a
    per-request proof of a new purpose, so that a stolen token is useless
-   without the key. The design draft is docs/SENDER_CONSTRAINT.md; it is
-   not implemented and nothing in the format changes until it is.
+   without the key. Resolved on 2026-11-04 for the public mode: a `cnf`
+   holding the client's `kcb2.public` key and `cb2.holder-public.`
+   proofs, normative in PROTOCOL.md section 13 with vectors in
+   tests/vectors/proofs.json. The symmetric mode (`cb2.holder-local.`)
+   designed in docs/SENDER_CONSTRAINT.md is reserved and not
+   implemented; a `kcb2.local` cnf is refused with `unavailable`.
