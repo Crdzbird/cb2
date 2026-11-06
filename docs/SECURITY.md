@@ -3,7 +3,7 @@
 This document states what cb2 guarantees, under which assumptions, and
 what it does not do. The wire format and the rationale for each decision
 are in SPEC.md. The verification that was actually performed on this code
-is listed in README.md.
+is summarised in README.md and recorded in full in VERIFICATION.md.
 
 ## What is claimed
 

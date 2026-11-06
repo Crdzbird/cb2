@@ -1,65 +1,254 @@
 # cb2 (BRACE)
 
-cb2 stands for **Cryptographically Bound tokens, version 2**: every token
-is bound to its key, to the context it was issued for, to the rules its
-verifier must declare and, when it carries a `cnf` claim, to the client
-that holds the key it names. The format is also called **BRACE**, for **B**ound,
-**R**ule-checked, **A**uthenticated, **C**ommitting **E**nvelope. BRACE
-is a name only: on the wire every token and key string keeps its cb2
-header, because the format allows exactly one spelling of each.
+cb2 is a format and a C++ library for security tokens: the short strings
+a server hands out after a login and later accepts as proof of who is
+calling and what they may do. It does the job JWT and PASETO do, with
+more of the checks built in, post-quantum signatures, and tokens that
+can be tied to the client they were issued to.
 
-A header-only C++20 token library: cb2.local (XChaCha20 with a keyed
-BLAKE3 key split and a key-committing tag) and cb2.public (Ed25519 plus
-ML-DSA-65, both required), a typed claims layer that validates before it
-trusts, key types that cannot be confused, PASERK-shaped key strings and
-ids, and local key wrapping. It is CipherBird's proposal for a successor
-to PASETO version 4; it is not a paseto-standard version (docs/SPEC.md,
-section 1). It lives in its own repository so that the format can be
-versioned, reviewed and audited on its own; CipherBird consumes it, and
-it carries its own C ABI and language bindings (see the Bridges
-section).
+The name stands for **Cryptographically Bound tokens, version 2**: every
+token is bound to its key, to the context it was issued for, to the
+rules its verifier must declare and, when it carries a `cnf` claim, to
+the client that holds the key it names. The format is also called
+**BRACE**, for **B**ound, **R**ule-checked, **A**uthenticated,
+**C**ommitting **E**nvelope. BRACE is a name only: on the wire every
+token and key string keeps its cb2 header, because the format allows
+exactly one spelling of each.
 
-Status: 0.1.0, built and verified as described at the end of this file. Not yet reviewed by anyone but its author.
+Status: version 0.1.0. It is CipherBird's proposal for a successor to
+PASETO version 4, not an official PASETO version (docs/SPEC.md,
+section 1). It is tested as described under "Testing and verification"
+below, and it has not yet been reviewed by anyone but its author.
+
+Try it in the browser, with nothing to install:
+https://crdzbird.github.io/cb2/
+
+## What a cb2 token is
+
+A token is one line of text: a header such as `cb2.local.` that says
+what kind of token it is, then the body, then, after one more dot, an
+optional footer that names the key. The verifier reads the header,
+checks the body with its key and only then looks at what the token says.
+
+| kind | what it is for | key | size of a typical token |
+|---|---|---|---|
+| `cb2.local` | sessions and service to service calls inside one system; the claims are encrypted, so nobody without the key can read them | one 32-byte secret key shared by issuer and verifier | about 250 to 400 characters |
+| `cb2.public` | tokens many parties must verify without being able to issue them; the claims are signed and readable | a key pair: the issuer signs with the secret half, anyone with the public half verifies | about 4,700 characters |
+| `cb2.holder-local` and `cb2.holder-public` | a proof made by the client for each request, so a stolen token is useless without the client's key | the proof key the issuer put inside the token, or the client's own key pair | about 360 characters (local) or 4,800 (public) |
+| `kcb2.seal` | delivering a local key to a recipient, safe against a future quantum computer | the recipient's X-Wing key pair | about 1,600 characters |
+
+A few words that come up below:
+
+- **Claims** are the statements in a token: who issued it (`iss`), who
+  it is about (`sub`), who it is for (`aud`), when it expires (`exp`),
+  its id (`jti`) and anything the application adds.
+- **Rules** are what the verifier expects: the issuer and audience it
+  accepts, how much clock skew it allows, whether it checks for replays.
+  cb2 refuses to open a token until the rules name the issuer and
+  audience they accept, or say on purpose that any will do.
+- The **implicit assertion** is context the token is bound to but does
+  not carry, for example a request id; a token presented in another
+  context fails to verify.
+- **Key strings** (`kcb2.local...`, `kcb2.public...`) are the text form
+  of keys and key ids, shaped like PASETO's PASERK.
+
+## cb2, JWT and PASETO
+
+JWT (JSON Web Token, RFC 7519) is the standard most systems use today.
+PASETO version 4 is a newer format that removed JWT's algorithm choice.
+cb2 starts from PASETO v4 and changes what its rationale (docs/SPEC.md
+section 9) lists, each change closing a named attack.
+
+### At a glance
+
+| | JWT (JWS and JWE) | PASETO v4 | cb2 |
+|---|---|---|---|
+| who picks the algorithm | the token, in its `alg` header; a safe verifier must pin it | the version in the header | the header; one spelling per kind |
+| tokens with a shared secret | HS256 signs but anyone can read the claims; JWE encrypts | `v4.local`: encrypted, authenticated, key-committing | `cb2.local`: the same, with a single-call key split and the key id bound in |
+| tokens with a key pair | RSA, ECDSA or EdDSA | Ed25519 | Ed25519 and ML-DSA-65 together; both must verify |
+| safe against a future quantum computer | no | no | yes, for signatures and for sealing keys |
+| claims checks | up to the library and the application | up to the library and the application | in the library: issuer and audience rules required, `exp` required by default, a replay check hook, strict JSON, an identifier policy for international text |
+| key ids | `kid` in the header; matching it to a key is the application's job | in the footer by convention | bound into the footer by the library and compared in constant time |
+| tying a token to its client | DPoP (RFC 9449), a separate specification | not defined | built in, in two modes |
+| standard and ecosystem | IETF standards, OAuth and OpenID Connect, libraries in every language, support in gateways and identity providers | a published specification with libraries in many languages | one implementation, in C++, used from other languages through its C interface; no other implementation exists |
+
+### Speed and size
+
+Measured with `cb2_bench` on one core of an Apple silicon Mac (M3 Max).
+The PASETO and JWT rows are reference implementations written from
+their specifications on the same libraries, checked against the official
+test vectors; the JWT rows skip header parsing, which flatters JWT. The
+full tables and how they were taken are under "Benchmark in detail".
+
+Shared-key tokens, a 64-byte payload:
+
+| | open (verify) | create | token size | opens per second per core |
+|---|---:|---:|---:|---:|
+| cb2.local | 1.3 us | 2.7 us | 246 | about 750,000 |
+| PASETO v4.local | 2.4 us | 3.8 us | 245 | about 420,000 |
+| JWE dir A256GCM | 0.8 us | 2.7 us | 167 | about 1,300,000 |
+| JWS HS256 (readable, not encrypted) | 1.1 us | 1.2 us | 167 | about 870,000 |
+
+Through the claims layer, opening a typical cb2.local token and checking
+every rule takes about 3.4 us, about 290,000 tokens per second per core.
+
+Key-pair tokens, a 64-byte payload:
+
+| | verify | sign | token size | verifications per second per core |
+|---|---:|---:|---:|---:|
+| cb2.public (Ed25519 + ML-DSA-65) | 113 us | 167 us | 4,659 | about 8,900 |
+| PASETO v4.public (Ed25519) | 50 us | 17 us | 246 | about 20,000 |
+| JWS EdDSA (Ed25519) | 47 us | 17 us | 210 | about 21,000 |
+| JWS ES256 (ECDSA P-256) | 58 us | 22 us | 210 | about 17,000 |
+| JWS RS256 (RSA-2048) | 17 us | 593 us | 466 | about 58,000 |
+
+One request with a token tied to its client (the client makes a proof
+for `GET https://api.example/v1/me`, the server checks token and proof):
+
+| | bytes on the wire | client: make proof | server: check | checks per second per core |
+|---|---:|---:|---:|---:|
+| cb2.local bearer token, no proof | 321 | - | 3.0 us | about 340,000 |
+| cb2.local + local proof | 762 | 5.7 us | 7.8 us | about 128,000 |
+| JWT RS256 + DPoP ES256 | 1,061 | 25.7 us | 83 us | about 12,000 |
+| JWT ES256 + DPoP ES256 | 805 | 25.0 us | 129 us | about 7,800 |
+| cb2.local + public proof | 8,647 | 200 us | 172 us | about 5,800 |
+| cb2.public + public proof | 13,060 | 231 us | 323 us | about 3,100 |
+
+### Where cb2 is ahead
+
+- **Post-quantum.** `cb2.public` signatures need both Ed25519 and
+  ML-DSA-65 to verify, so a token stays unforgeable if either scheme is
+  broken, including by a quantum computer. `kcb2.seal` delivers keys
+  over X-Wing (ML-KEM-768 with X25519). Neither JWT nor PASETO v4 has a
+  post-quantum option in common use.
+- **Nothing to choose wrongly.** There is no algorithm field to attack,
+  key types cannot be swapped (a public key cannot be used as a shared
+  secret), and the library binds the key id itself. The JWT bugs where
+  `alg: none` or an RS256 key used as an HS256 secret is accepted cannot
+  happen.
+- **The common mistakes are refused by default.** The verifier must
+  name the issuer and audience it accepts, `exp` is required unless the
+  rules say otherwise, tokens longer than 16 KiB are refused before they
+  are read, the JSON reader is strict, and identifiers that hide
+  invisible or right-to-left characters are refused on both ends.
+- **Faster shared-key tokens than PASETO.** `cb2.local` opens a small
+  token in 1.3 us against 2.4 us for `v4.local` written the same way,
+  and at 64 KiB it is twice as fast.
+- **Stolen tokens can be made worthless, cheaply.** In the local holder
+  mode a request carries a 762-byte token and proof, smaller than JWT
+  with DPoP, and the server checks both in 7.8 us, 11 to 16 times
+  faster than the DPoP rows.
+- **Encrypted by default.** A `cb2.local` token hides its claims; a JWT
+  signed with HS256 shows them to anyone who sees the token.
+
+### Where cb2 is behind
+
+- **No ecosystem.** JWT is what OAuth, OpenID Connect, API gateways and
+  identity providers speak; none of them accept cb2. PASETO has
+  libraries in many languages. cb2 has one implementation, used from
+  other languages through its C interface, and there is no second
+  implementation to check it against.
+- **Not reviewed yet.** Version 0.1.0 has been tested, fuzzed and
+  checked against an independent Python implementation of the
+  specification, but nobody other than its author has reviewed it.
+  JWT and PASETO libraries have years of use and review behind them.
+- **Post-quantum tokens are big and slower.** A `cb2.public` token is
+  about 4,700 characters against 210 to 250 for an Ed25519 JWT or
+  PASETO, and verifying it takes 113 us against about 50 us. A
+  `cb2.public` token tied to a client key is 8,290 characters, more
+  than the 8 KB nginx allows for one header line by default.
+- **Some JWT forms are faster on small tokens.** JWE with AES-GCM and
+  HS256 open a 64-byte token in 0.8 and 1.1 us against 1.3 us for
+  `cb2.local`, because they do less (no key split, and HS256 does not
+  encrypt). RSA verifies in 17 us, much faster than any other signature
+  here, though it signs 35 times slower than Ed25519.
+- **More dependencies.** cb2 needs libsodium, BLAKE3, OpenSSL's
+  libcrypto and, for the post-quantum parts, liboqs.
+- **The local holder mode trusts every verifier.** Its proof key is
+  shared by the issuer, the client and every verifier that can open the
+  token, so it protects against a token that leaks without its key, not
+  against a verifier that turns on its clients. The public holder mode
+  covers that case at the size and cost shown above.
+
+### Which one to use
+
+- Use **JWT** when you need to interoperate: OAuth and OpenID Connect,
+  third-party identity providers, gateways, or clients you do not
+  control.
+- Use **PASETO v4** when you control both ends, want a mature library in
+  your language, and do not need post-quantum security yet.
+- Use **cb2** when you control both ends and want post-quantum
+  signatures now, claims checks you cannot forget, or cheap
+  sender-constrained tokens between your own services, and you can
+  accept a young, single implementation.
 
 ## Install
 
-Dependencies: libsodium 1.0.18 or later, BLAKE3 (libblake3), and, for
-cb2.public, liboqs with libcrypto. On macOS they come from Homebrew
-(`brew install libsodium blake3 liboqs openssl@3`); on Linux the CI job
-takes libsodium and libcrypto from the distribution and builds BLAKE3 and
-liboqs from pinned sources with `scripts/ci/linux_deps.sh`. All of them
-are found through pkg-config.
-The test suite compares the base64url decoder against libsodium's;
-that reference misreads bytes above 0x7f before libsodium 1.0.21 on
-platforms where `char` is signed, so the test feeds those bytes only to
-1.0.21 or later. The library itself does not use libsodium's codec.
+cb2 is header-only C++20. It needs:
 
+- libsodium 1.0.18 or later, BLAKE3 (libblake3) and OpenSSL's libcrypto
+  3.0 or later, always;
+- liboqs, for `cb2.public`, the public holder mode and `kcb2.seal`.
+  Without it the library builds with `cb2.local`, the claims layer, key
+  wrapping and the local holder mode only.
+
+On macOS:
+
+```bash
+brew install cmake ninja libsodium blake3 liboqs openssl@3
 ```
+
+On Linux, take libsodium and libcrypto from the distribution and build
+BLAKE3 and liboqs from pinned sources with `scripts/ci/linux_deps.sh`,
+as the CI job does. Everything is found through pkg-config.
+
+Build and run the tests:
+
+```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ./build/cb2_tests
 ```
 
-Options: `CB2_PQ` (default ON; OFF builds without liboqs and without
-cb2.public), `CB2_OPENSSL_CHACHA` (default ON; messages of 512 bytes or
-more go through OpenSSL's ChaCha20 after libsodium's HChaCha20, the same
-keystream from an implementation that uses the vector unit; OFF keeps
-every byte on libsodium), `CB2_BUILD_TESTS`, `CB2_BUILD_PLAYGROUND`,
-`CB2_BUILD_BENCH` (`CB2_CRYPTOLIB_INCLUDE`, default
-`../cryptolib/include`, adds CipherBird's own rows when present),
-`CB2_FUZZ` (LLVM clang), `CB2_SANITIZE` (ASan + UBSan), `CB2_CT_PROBE`
-(the constant-time probe, run under Valgrind on Linux). libcrypto is
-required in every configuration.
+To use the library in a project, add this repository with
+`add_subdirectory` or `FetchContent` and link `cb2::cb2`. Without CMake,
+add the `include` directory, define `CB2_HAS_PQ` when liboqs is linked,
+and link libsodium, libblake3, libcrypto and, for the post-quantum
+parts, liboqs.
 
-To use the library, add the `include` directory, define `CB2_HAS_PQ`
-when liboqs is linked, and link libsodium, libblake3 and (for PQ) liboqs
-and libcrypto; or add this repository with `add_subdirectory` or
-`FetchContent` and link `cb2::cb2`.
+Build options, all CMake booleans:
 
-## Thirty seconds
+| option | default | what it does |
+|---|---|---|
+| `CB2_PQ` | ON | the post-quantum parts, with liboqs; OFF builds without them |
+| `CB2_OPENSSL_CHACHA` | ON | messages of 512 bytes or more go through OpenSSL's vectorised ChaCha20 after libsodium's HChaCha20, the same keystream; OFF keeps every byte on libsodium |
+| `CB2_BUILD_TESTS` | ON | the test runner and the vector generator |
+| `CB2_BUILD_EXAMPLES` | ON | the runnable examples under `examples/` |
+| `CB2_BUILD_PLAYGROUND` | ON | the interactive playground |
+| `CB2_BUILD_BINDINGS` | ON | the C interface the language bridges use |
+| `CB2_BUILD_BENCH` | ON | the benchmark; `CB2_CRYPTOLIB_INCLUDE` (default `../cryptolib/include`) adds CipherBird's own rows when present |
+| `CB2_FUZZ` | OFF | the libFuzzer targets (LLVM clang only) |
+| `CB2_SANITIZE` | OFF | AddressSanitizer and UBSan on tests and benchmark |
+| `CB2_CT_PROBE` | OFF | the constant-time probe, to run under Valgrind |
+
+The test suite compares cb2's base64url decoder with libsodium's. That
+reference misreads bytes above 0x7f before libsodium 1.0.21 on platforms
+where `char` is signed, so the test feeds those bytes only to 1.0.21 or
+later; the library itself does not use libsodium's codec.
+
+## Quick start
+
+Issue a token and check it:
 
 ```cpp
 #include <cb2/cb2.hpp>
+
+#include <ctime>
+#include <set>
+#include <string>
+
+const int64_t now = std::time(nullptr);
+std::set<std::string> seen;
 
 auto key = cb2::LocalKey::generate().value();
 
@@ -67,60 +256,110 @@ cb2::Claims claims;
 claims.iss = "https://issuer.example";
 claims.aud = "api";
 claims.sub = "user-1";
-claims.exp = now + 3600;
 claims.iat = now;
+claims.exp = now + 3600;
+claims.jti = "token-1";
 (void)claims.set("role", "admin");
 
-auto token = cb2::Token::seal(key, claims, "request-context");
+auto token = cb2::Token::seal(key, claims).value();
 
 auto rules = cb2::ValidationRules()
     .expect_issuer("https://issuer.example")
     .expect_audience("api")
-    .with_replay_check([&](std::string_view jti) { return seen.insert(jti); });
-auto opened = cb2::Token::open(token.value(), key, rules, "request-context");
-if (opened.is_ok()) use(opened.value().sub);
-else log(cb2::error_name(opened.error()));
+    .with_replay_check([&](std::string_view jti) { return seen.insert(std::string(jti)).second; });
+
+auto opened = cb2::Token::open(token, key, rules);
+if (opened.is_ok()) std::printf("hello, %s\n", opened.value().sub->c_str());
+else std::printf("refused: %s\n", cb2::error_name(opened.error()));
 ```
 
-The token carries the key's id in its footer; `Token::open` rebuilds that
-footer from the key and refuses any other. `exp` is required unless the
-rules say `allow_missing_exp()`; an expected audience and issuer are
+This prints `hello, user-1`; opening the same token a second time
+prints `refused: replayed`, because the replay check has seen its `jti`.
+
+The token carries the key's id in its footer, and `Token::open` rebuilds
+that footer from the key and refuses any other. `exp` is required unless
+the rules say `allow_missing_exp()`. An expected audience and issuer are
 required unless the rules say `allow_any_audience()` and
-`allow_any_issuer()`, and rules that say neither are `rules_incomplete`
-before the token is read. The replay check is optional; installed, it
-receives the `jti` of every token that passed every other rule and may
-refuse it. A token longer than 16 KiB is refused before it is read.
+`allow_any_issuer()`; rules that say neither are refused as
+`rules_incomplete` before the token is read. The replay check is
+optional; when installed, it receives the `jti` of every token that
+passed every other rule and may refuse it. A token longer than 16 KiB is
+refused before it is read.
 
-For cb2.public, `SecretKey::generate()`, `Token::sign(sk, claims)` and
-`Token::verify(token, sk.public_key(), rules)`.
+Tie a token to its client, so that a stolen copy is useless:
 
-## Examples
-
-`examples/international_text.cpp` builds as `cb2_example_text` and
-answers one question: does the text policy make a token safer than the
-same token through a library without one? It seals eight tokens and
-looks at each twice, once with a legacy check (authenticate, parse the
-JSON, take every string as it comes) and once with `Token::open`. Same
-key, same cipher, same tag; only the text handling differs. The
-scenarios are a subject that renders as `admin` but carries a zero-width
-space, a bidi override that makes a log line read `useradmin`, a
-`\u200b` escape that a scan of the raw payload does not see, a key id
-that displays as `prod` and is not, overlong UTF-8 that a lenient
-decoder reads as `../`, the same issuer written raw and escaped (one
-identity) against its composed and decomposed forms (two), and a
-tampered token, which gets `invalid` and nothing more. In every spoof
-the legacy check accepts and cb2 refuses on both the issuing side
-(`argument`) and the verifying side (`claims_malformed`), and the
-program asserts exactly that, exits non-zero otherwise, and runs in CI
-as a test. Run it and look at how the spoofed strings render:
-
-```
-./build/cb2_example_text
+```cpp
+auto proof_key = cb2::HolderProof::bind_local(claims).value();
+auto bound = cb2::Token::seal(key, claims).value();
 ```
 
-`CB2_BUILD_EXAMPLES` (default ON) controls the target.
+The issuer sends `bound` and `proof_key` to the client. For each request
+the client makes a proof, a few hundred bytes:
 
-## Playground
+```cpp
+cb2::HolderRequest request{"GET", "https://api.example/v1/me", std::nullopt};
+auto proof = cb2::HolderProof::make_local(proof_key, request, bound, "proof-1", now).value();
+```
+
+and the server checks the token and the proof together:
+
+```cpp
+std::set<std::string> seen_proofs;
+auto server_rules = cb2::ValidationRules()
+    .expect_issuer("https://issuer.example")
+    .expect_audience("api")
+    .with_holder_proof(proof, request)
+    .with_proof_replay_check([&](std::string_view jti) { return seen_proofs.insert(std::string(jti)).second; });
+auto checked = cb2::Token::open(bound, key, server_rules);
+```
+
+Without a proof the bound token is refused as `missing_proof`; a proof
+for another method or address is `proof_mismatch`, and the same proof
+twice is `proof_replayed`.
+
+For signed tokens, `SecretKey::generate()`, `Token::sign(secret_key,
+claims)` and `Token::verify(token, secret_key.public_key(), rules)`.
+
+## Try it
+
+### In the browser
+
+https://crdzbird.github.io/cb2/ runs the library compiled to
+WebAssembly, and nothing typed into the page leaves it. The page walks
+through the library in numbered cards:
+
+1. keys: generate local keys and signing pairs;
+2. issue a token: registered claims, custom claims of any JSON type, a
+   footer and an implicit assertion, or a raw message;
+3. the token: its header, body and footer in colour, read without
+   verifying, and for a public token the claims in clear with a warning
+   that nothing in them is trusted yet;
+4. verify, with every rule;
+5. key lookup by the footer's kid, with a forged kid to follow;
+6. key wrapping and unwrapping;
+7. import and export of keys as kcb2 strings, or of every key as a
+   script that restores the ids too;
+8. an international-text checker;
+9. heavy load: up to a million requests in a row, with every answer
+   checked and the time per request charted, to show that the speed
+   holds steady.
+
+A row of scenarios fills the forms and runs them. Every button runs a
+playground command, and the transcript beside the forms shows the
+command and the library's answer, so anything the page does can be
+repeated in `cb2_playground` by pasting the transcript.
+
+The page is `web/`: the module (`web/dist/cb2.js` and `cb2.wasm`) is
+built by `web/build.sh` with Emscripten against wasm32 builds of the
+pinned dependencies from `web/build_deps.sh`, and drives the
+interpreter of `playground/session.hpp` through a small C shim. The
+Pages workflow publishes it on every push that touches `web/`. To run it
+locally, serve the directory with any static server, for example
+`python3 -m http.server -d web`. `node web/smoke.cjs` runs the demo
+scripts and a short load run through the built module, and the `web` CI
+job rebuilds the module from source and runs the same smoke test.
+
+### The playground
 
 `cb2_playground` is a line-oriented session with the library: generate
 and import keys, seal and open, sign and verify, build claims and check
@@ -128,7 +367,7 @@ them under rules, wrap keys, peek at a footer, tamper with a token and
 watch the verdict change. Run it with no arguments for a prompt, or give
 it a script; `help` lists the commands and `$` stands for the last token.
 `--fast-random` before the script selects libsodium's userspace random
-generator for the nonces (the opt-in described under API below); `time`
+generator for the nonces (the opt-in described under API reference below); `time`
 reports which source is in use.
 
 ```
@@ -160,34 +399,33 @@ token bound to a proof key, and its holder proofs), and
 (with liboqs) are scripted sessions whose `assert` lines make them
 tests; CTest and the web smoke test run them.
 
-### In the browser
+### The international text example
 
-The same session runs in the browser: `web/` holds a page that loads the
-library compiled to WebAssembly (`web/dist/cb2.js` and `cb2.wasm`, built
-by `web/build.sh` with Emscripten against wasm32 builds of the pinned
-dependencies from `web/build_deps.sh`) and drives the interpreter of
-`playground/session.hpp` through a four-function C shim. The page is a
-guided builder: keys, a token form (registered claims, custom claims of
-any JSON type, footer and implicit assertion, or a raw message), a token
-inspector that colours the header, body and footer, reads them
-without verifying and, for a public token, decodes the claims in clear
-with a warning that nothing in them is trusted yet, a verifier with every rule, key lookup by the
-footer's kid (with a forged kid to follow), key wrapping and
-unwrapping, key import and export (one key as its kcb2 string, a
-signing pair as its public half only, or every key as a script that
-restores the ids too), and an international-text checker, plus scenarios that fill the forms and run them. Every button
-runs a playground command, and the transcript beside the forms shows
-the command and the library's answer, with any code point outside
-printable ASCII written as a `\u{...}` escape, so what the page does
-can be repeated in `cb2_playground` by pasting the transcript. Nothing typed
-into the page leaves it. It is published at https://crdzbird.github.io/cb2/
-by the Pages workflow on every push that touches `web/`; to run it
-locally, serve the directory with any static server, for example
-`python3 -m http.server -d web`. `node web/smoke.cjs` runs the demo scripts
-through the built module; the `web` CI job rebuilds the module from
-source and runs the same smoke test.
+`examples/international_text.cpp` builds as `cb2_example_text` and
+answers one question: does the text policy make a token safer than the
+same token through a library without one? It seals eight tokens and
+looks at each twice, once with a legacy check (authenticate, parse the
+JSON, take every string as it comes) and once with `Token::open`. Same
+key, same cipher, same tag; only the text handling differs. The
+scenarios are a subject that renders as `admin` but carries a zero-width
+space, a bidi override that makes a log line read `useradmin`, a
+`\u200b` escape that a scan of the raw payload does not see, a key id
+that displays as `prod` and is not, overlong UTF-8 that a lenient
+decoder reads as `../`, the same issuer written raw and escaped (one
+identity) against its composed and decomposed forms (two), and a
+tampered token, which gets `invalid` and nothing more. In every spoof
+the legacy check accepts and cb2 refuses on both the issuing side
+(`argument`) and the verifying side (`claims_malformed`), and the
+program asserts exactly that, exits non-zero otherwise, and runs in CI
+as a test. Run it and look at how the spoofed strings render:
 
-## API
+```
+./build/cb2_example_text
+```
+
+`CB2_BUILD_EXAMPLES` (default ON) controls the target.
+
+## API reference
 
 Everything is in namespace `cb2` and reached through
 `<cb2/cb2.hpp>`. Every function returns `Result<T>` (value or
@@ -289,7 +527,7 @@ verdict), `too_large`, `argument`, `rules_incomplete`, `internal`,
 `issuer_mismatch`, `audience_mismatch`, `subject_mismatch`,
 `missing_jti`, `replayed`.
 
-## Bridges
+## Other languages
 
 Every language bridge sits on one C ABI, `bindings/c`: opaque key
 handles, malloc'd results, integer verdicts with their names, claims
@@ -317,7 +555,7 @@ Node and Go tests on Linux after building the C ABI; the Java, Kotlin,
 Dart and Flutter tests run locally with their build scripts, since those
 toolchains are not on the runners.
 
-## Layout
+## Repository layout
 
 ```
 include/cb2/cb2.hpp        single include
@@ -347,9 +585,10 @@ docs/SPEC.md                       wire format, rationale, threat model
 docs/SECURITY.md                   claims and limits
 docs/SENDER_CONSTRAINT.md          sender-constrained tokens: the design of both modes, its decisions, how it was built
 docs/MIGRATION.md                  moving a cb1 or PASETO v4 deployment to cb2
+docs/VERIFICATION.md               the dated record of every verification run
 ```
 
-## Benchmark
+## Benchmark in detail
 
 `cb2_bench` (`-DCB2_BUILD_BENCH=ON`), Release build, Apple clang 21,
 this Mac (Apple silicon), macOS 26.6, idle machine, 2026-11-04, after
@@ -442,7 +681,7 @@ Through the claims layer, `Token::open` of a typical token costs
 about 3.4 us, of which the strict JSON parse is one; the footer the key
 id is bound into is kept with the key, which took 0.3 us off that path.
 With `cb2_bench --fast-random`, the application opt-in for libsodium's
-own generator described under API, the same cb2.local row seals a 64 B
+own generator described under API reference, the same cb2.local row seals a 64 B
 token in 1489 ns and a 1 KiB one in 4136 ns, against 2736 and 5332 with
 the kernel source in the same session; open does not change.
 
@@ -523,119 +762,45 @@ well. The size comes from the post-quantum client key, not from the
 format, and the local mode above, which has no such key, is the answer
 where the client key need not be asymmetric.
 
-## What is covered and what is not
+## Testing and verification
 
-Covered: cb2.local, cb2.public, the claims layer, key types
-and ids, kcb2.local-wrap, international text in claims, footers and key ids
-(with the self-checking example above), the hardening from the
-adversarial review (rules that must declare their audience and issuer,
-the raw-layer size limit, the replay check, the weak-key and secret-key
-import checks, the ML-DSA context string), sender-constrained tokens in
-both holder modes, kcb2.seal on X-Wing with the draft's vectors,
-cb2's own SHA3-256 and SHAKE256 against FIPS 202 outputs, the C ABI and
-the language bindings with their own tests, the vector files, the official-v4 cross-check of
-PAE and base64url, tests under ASan and UBSan, six fuzz targets (one of
-them differential, cb2's SHA3 against OpenSSL's), a build without liboqs, and the benchmark above. CI runs the same matrix
-on every push and pull request: the `macos` job (release with cb2.public,
-ASan and UBSan, a build without liboqs, one minute of each fuzz target)
-and the `linux` job (Ubuntu 24.04 with gcc, BLAKE3 and liboqs built from
-pinned sources, release with cb2.public, a build without liboqs, ASan and
-UBSan, and the constant-time probe under Valgrind), plus the `web` job (the module rebuilt from source and the demos
-run under node) and the `vectors` job (`tools/check_vectors.py`, the
-independent Python implementation, against every vector with the ML-DSA
-half included, so the reference and docs/PROTOCOL.md cannot drift apart
-unnoticed).
+What is checked, on every push and pull request, by CI:
 
-Not covered: interoperability with any other implementation (there is
-none); in the constant-time probe, the ML-DSA-65 secret (FIPS 204
+- **macos job:** the release build with `cb2.public`, the tests under
+  AddressSanitizer and UBSan, a build without liboqs, the Swift, Python,
+  Node and Go bridges, and one minute of each of the six fuzz targets.
+- **linux job** (Ubuntu 24.04, gcc, BLAKE3 and liboqs built from pinned
+  sources): the release build, a build without liboqs, ASan and UBSan,
+  the Python, Node and Go bridges, and the constant-time probe under
+  Valgrind, which marks keys and secrets as undefined and requires that
+  no branch or memory address depends on them.
+- **web job:** the WebAssembly module rebuilt from source and the
+  playground demos run through it under Node.
+- **vectors job:** `tools/check_vectors.py`, an independent Python
+  implementation written from docs/PROTOCOL.md alone, checks every test
+  vector, so the library and the specification cannot drift apart
+  unnoticed.
+
+What the tests cover: `cb2.local`, `cb2.public`, the claims layer, key
+types and ids, `kcb2.local-wrap`, international text in claims, footers
+and key ids, the hardening from the adversarial review (rules that must
+declare their audience and issuer, the size limit, the replay check,
+the weak-key and secret-key import checks, the ML-DSA context string),
+sender-constrained tokens in both holder modes, `kcb2.seal` on X-Wing
+with the draft's test vectors, cb2's own SHA3-256 and SHAKE256 against
+FIPS 202 outputs, the C interface and every language bridge, the
+official PASETO v4 vectors for the building blocks cb2 shares with v4,
+and six fuzz targets, one of them comparing cb2's SHA3 with OpenSSL's.
+
+What is not covered: interoperability with another implementation (there
+is none); in the constant-time probe, the ML-DSA-65 secret (FIPS 204
 signing rejection-samples on it by design and liboqs does not mark that
 verdict public), key generation, and the holder proof paths; review by a
 second person; and the open questions in docs/SPEC.md section 12. One
 known secret-dependent memory access is accepted, not fixed: the
-kcb2.local PASERK text of a secret key, and so the kcb2.lid of a key,
-is written by the table-driven base64url encoder (tests/ct/ct_probe.supp
-gives the reason and the bound).
+`kcb2.local` text of a secret key, and so its `kcb2.lid`, is written by
+the table-driven base64url encoder (tests/ct/ct_probe.supp gives the
+reason and the bound).
 
-## Verification performed
-
-Rerun on 2026-11-06 after the local holder mode, on the same Mac: the
-release build passes 97 of 97 cases, the ASan and UBSan build 97 of 97,
-the build without liboqs 72 of 72 (the local mode included), the C ABI
-test in all three, the six playground demos, the web module's smoke
-test, the Python, Go, JavaScript, Java, Kotlin, Swift and Dart binding
-tests, and tools/check_vectors.py with 629 checks and none skipped.
-
-Rerun on 2026-11-06 after cb2 took over SHA3 from liboqs, on the same
-Mac: the release build passes 87 of 87 cases (about 25,600 checks), the
-ASan and UBSan build 87 of 87 with no reports, and the build without
-liboqs 63 of 63. The release build also links and passes against a
-shared liboqs 0.16.0 built as Homebrew builds it, which the tree before
-that change could not.
-
-Fuzz targets and the constant-time probe, 2026-11-06, on the tree with
-the local holder mode and the unrolled Keccak. The three new fuzz
-targets ran 181 s each from an empty corpus with no crash, leak or
-timeout: `fuzz_seal` 576,181 runs, `fuzz_sha3` 1,277,837 runs (every
-SHA3-256 and SHAKE256 output equal to OpenSSL's), `fuzz_holder` 77,092
-runs over both holder modes. The constant-time probe ran in the `linux`
-CI job (Ubuntu 24.04, x86-64, Valgrind 3.22.0, gcc, RelWithDebInfo): 0
-errors. Its first run reported 43 secret-dependent addresses from 7
-places and no secret-dependent branch; all 7 are the base64url alphabet
-lookup on a secret key's PASERK text, now the one suppression, and
-nothing else in Keccak, cb2.local, Ed25519 signing, verification,
-X-Wing or ML-KEM decapsulation was reported.
-
-`fuzz_holder` found within its first minute that holder target
-normalisation was not idempotent: it split host and port at the last
-colon, so `https://h:1:443/x` and `https://h:1/x` normalised to the same
-target. docs/PROTOCOL.md 13.2 now refuses a host that holds a colon or a
-bracket outside one bracketed IP literal, the library, the vectors and
-tools/check_vectors.py follow it, and the target checks idempotence on
-every input again: 121,381 runs in five minutes from seeds of exactly
-that shape, no report.
-
-The record below is the full run of 2026-11-03, with the case counts of
-that day.
-
-All on an Apple silicon Mac on 2026-11-03, from the tree as committed.
-
-- Release build (`cmake -S . -B build -G Ninja`, Apple
-  clang 21, `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
-  -Wshadow`): zero warnings. `cb2_tests`: 59 cases, 59 passed,
-  about 24,600 checks (the exact count varies with the random lengths in
-  the codec agreement test).
-- The same with `-DCB2_SANITIZE=ON` (AddressSanitizer + UBSan, no
-  recovery): 59 of 59, no reports. The sanitizer build caught one bug
-  during development, an iterator pair taken from two temporaries in
-  the vector generator, which is fixed; the library itself produced no
-  report at any point.
-- `-DCB2_PQ=OFF` (no liboqs): builds, 47 of 47 cases, cb2.public
-  absent as specified.
-- `cb2_example_text`: zero warnings, all eight scenarios hold their
-  expectations in the release, the sanitizer and the no-liboqs builds.
-- Known-answer vectors under `tests/vectors`: 11 cb2.local success
-  vectors reproduced byte for byte and 15 failure vectors rejected, 99
-  single-character tamper cases of a 99-character token all rejected;
-  6 cb2.public success vectors verified and 14 failure vectors rejected,
-  38 sampled tamper cases rejected and every byte of a 4512-character
-  token swept live; 40 claims-layer vectors with the recorded verdicts
-  (among them incomplete rules, replayed and missing token ids); 3 weak
-  local keys and 5 corrupted secret keys refused on import;
-  the PASERK vectors reproduced.
-- Official PASETO v4 vectors (`tests/vectors/paseto/v4.json` in the
-  repository): all 9 v4.local tokens reproduced byte for byte and all
-  3 v4.public tokens reproduced and verified through cb2's own PAE,
-  base64url, token splitting and footer comparison, and the 5 failure
-  vectors rejected. This validates the two building blocks cb2
-  shares with v4.
-- libFuzzer (`/opt/homebrew/opt/llvm/bin/clang++`, `-fsanitize=fuzzer,
-  address,undefined`): `fuzz_local` 146,067 runs in 131 s, `fuzz_public`
-  143,169 runs in 131 s, `fuzz_claims` 10,489,676 runs in 121 s; no
-  crash, leak or timeout. A one-minute confirmation campaign per target
-  was run again from the saved corpora after the last header edit.
-- Benchmark: the table above, two runs.
-
-Not verified on this Mac: behaviour on Windows, the constant-time
-property under a dynamic probe (Valgrind is not available here; the
-probe runs in the `linux` CI job, see the 2026-11-06 rerun above), and
-any review by a second person.
+The dated record of every local run, with case counts, fuzz runs and
+what each one found, is docs/VERIFICATION.md.

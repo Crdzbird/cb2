@@ -59,7 +59,7 @@ and the secret key carrying its public half. In code:
    `ValidationRules`, which refuses to run until told the expected
    audience and issuer, and requires exp unless told otherwise.
 5. If cb1's per-thread nonce batch mattered for throughput, read the
-   nonce source note in README.md under API: the same effect is one
+   nonce source note in README.md under API reference: the same effect is one
    libsodium call at process start, by the application's choice.
 
 ## Moving from PASETO v4
