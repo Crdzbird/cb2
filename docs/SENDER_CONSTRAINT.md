@@ -171,7 +171,9 @@ The rule is RFC 9449 section 4.3 made explicit: the target is the
 request URI with the query and the fragment removed, the scheme and the
 host lowercased, a port that is the scheme's default removed, and
 nothing else changed; the path is kept exactly as sent, percent-encoding
-included. The result is compared byte for byte in constant time. The
+included. A host with a colon or a bracket outside one bracketed IP
+literal has no normal form (PROTOCOL.md 13.2 has the exact rule). The
+result is compared byte for byte in constant time. The
 rule is in the protocol rather than left to each verifier so that it is
 a vector in proofs.json and the checker exercises it.
 

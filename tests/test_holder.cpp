@@ -45,6 +45,21 @@ TEST_CASE("holder/target normalisation follows RFC 9449") {
     CHECK(!Holder::normalize_target("").has_value());
 }
 
+TEST_CASE("holder/a host with a colon or a stray bracket has no normal form") {
+    CHECK(norm("https://h:1/x") == "https://h:1/x");
+    CHECK(!Holder::normalize_target("https://h:1:443/x").has_value());
+    CHECK(!Holder::normalize_target("https://h:1:/x").has_value());
+    CHECK(!Holder::normalize_target("https://::1/x").has_value());
+    CHECK(!Holder::normalize_target("https://[::1/x").has_value());
+    CHECK(!Holder::normalize_target("https://::1]/x").has_value());
+    CHECK(!Holder::normalize_target("https://[::1]x/").has_value());
+    CHECK(!Holder::normalize_target("https://[[::1]]/").has_value());
+    CHECK(!Holder::normalize_target("https://a[b]/").has_value());
+    CHECK(!Holder::normalize_target("https://[]/").has_value());
+    CHECK(norm("https://[::1]:/x") == "https://[::1]/x");
+    CHECK(norm("https://[FE80::1]:8443/x") == "https://[fe80::1]:8443/x");
+}
+
 TEST_CASE("holder/cnf is a registered claim written after jti and read back") {
     Claims c;
     c.jti = "id-1";

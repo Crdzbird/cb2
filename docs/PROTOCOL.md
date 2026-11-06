@@ -660,13 +660,19 @@ replayed against anything.
 Target normalisation, applied by the client before writing `htu` and by
 the verifier to its own request before comparing: the query and the
 fragment are removed; the scheme and the host are lowercased; a port
-that is the scheme's default (80 for http, 443 for https) is removed; an
-empty path is written as `/`; the path is otherwise kept exactly as
-sent, percent-encoding included; nothing else changes. A URI without a
-scheme and a host, with userinfo, or with a port that is not all digits
-has no normal form and MUST be refused: by the client as `argument`, by
-the verifier as `argument` before the proof is read. The result is
-compared byte for byte in constant time.
+that is empty or the scheme's default (80 for http, 443 for https) is
+removed; an empty path is written as `/`; the path is otherwise kept
+exactly as sent, percent-encoding included; nothing else changes. The
+port is what follows the last colon of the authority that is not inside
+brackets, and the host is what precedes it. A URI without a scheme and a
+host, with userinfo, with a port that is not all digits, or whose host
+is neither free of colons and brackets nor exactly one IP literal (`[`,
+at least one character with no bracket, `]`) has no normal form and
+MUST be refused: by the client as `argument`, by the verifier as
+`argument` before the proof is read. The host rule keeps two targets
+from sharing a normal form: without it `https://h:1:443/x` would read as
+host `h:1` with the default port and normalise to `https://h:1/x`. The
+result is compared byte for byte in constant time.
 
 ### 13.3 Proof claims
 

@@ -586,12 +586,13 @@ nothing else in Keccak, cb2.local, Ed25519 signing, verification,
 X-Wing or ML-KEM decapsulation was reported.
 
 `fuzz_holder` found within its first minute that holder target
-normalisation is not idempotent: it splits host and port at the last
-colon, so `https://h:1:443/x` and `https://h:1/x` normalise to the same
-target. docs/PROTOCOL.md 13.2 does not yet refuse a colon in a host
-outside brackets; the fix belongs to the protocol and is tracked on its
-own, and until then the target skips that one check for exactly that
-shape of authority.
+normalisation was not idempotent: it split host and port at the last
+colon, so `https://h:1:443/x` and `https://h:1/x` normalised to the same
+target. docs/PROTOCOL.md 13.2 now refuses a host that holds a colon or a
+bracket outside one bracketed IP literal, the library, the vectors and
+tools/check_vectors.py follow it, and the target checks idempotence on
+every input again: 121,381 runs in five minutes from seeds of exactly
+that shape, no report.
 
 The record below is the full run of 2026-11-03, with the case counts of
 that day.

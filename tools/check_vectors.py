@@ -873,26 +873,23 @@ def normalise_target(uri):
     authority, path = rest[:cut], rest[cut:]
     if not authority or b"@" in authority:
         raise Verdict("argument")
-    if authority.startswith(b"["):
-        close = authority.find(b"]")
-        if close < 0:
-            raise Verdict("argument")
-        host, port_part = authority[: close + 1], authority[close + 1 :]
+    colon = authority.rfind(b":")
+    if colon > authority.rfind(b"]"):
+        host, port = authority[:colon], authority[colon + 1 :]
     else:
-        host, _, port = authority.rpartition(b":")
-        port_part = b":" + port if host else b""
-        host = host or authority
-    port = None
-    if port_part:
-        if not port_part.startswith(b":") or not re.fullmatch(rb"[0-9]+", port_part[1:]):
-            raise Verdict("argument")
-        port = port_part[1:]
+        host, port = authority, b""
+    literal = len(host) >= 3 and host.startswith(b"[") and host.endswith(b"]")
+    inner = host[1:-1] if literal else host
+    if not host or b"[" in inner or b"]" in inner or (not literal and b":" in host):
+        raise Verdict("argument")
+    if not re.fullmatch(rb"[0-9]*", port):
+        raise Verdict("argument")
     scheme, host = scheme.lower(), host.lower()
     if port == DEFAULT_PORTS.get(scheme):
-        port = None
+        port = b""
     for mark in (b"#", b"?"):
         path = path.split(mark, 1)[0]
-    return scheme + b"://" + host + (b":" + port if port is not None else b"") + (path or b"/")
+    return scheme + b"://" + host + (b":" + port if port else b"") + (path or b"/")
 
 
 class Request:

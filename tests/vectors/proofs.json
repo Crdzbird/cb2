@@ -90,6 +90,15 @@
     {"input":"api.example/v1","output":null},
     {"input":"https://user@api.example/","output":null},
     {"input":"https://api.example:4a3/","output":null},
-    {"input":"https:///x","output":null}
+    {"input":"https:///x","output":null},
+    {"input":"https://h:1/x","output":"https://h:1/x"},
+    {"input":"https://api.example:/x","output":"https://api.example/x"},
+    {"input":"https://[::1]:/x","output":"https://[::1]/x"},
+    {"input":"https://h:1:443/x","output":null},
+    {"input":"https://::1/x","output":null},
+    {"input":"https://[::1/x","output":null},
+    {"input":"https://[::1]x/","output":null},
+    {"input":"https://a[b]/","output":null},
+    {"input":"https://[]/","output":null}
   ]
 }

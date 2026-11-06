@@ -14,11 +14,10 @@
  * replaced with a value the input chooses and the proof must then be
  * proof_invalid, as must the valid proof of the other mode.
  *
- * Target normalisation must be idempotent, except on an authority with
- * more than one colon outside brackets: the normalisation reads such a
- * host as containing a colon today, which makes "https://h:1:443/x" and
- * "https://h:1/x" one target (a known gap, docs/PROTOCOL.md 13.2 does
- * not yet refuse it).
+ * Target normalisation must be idempotent on every input it accepts, and
+ * its output must carry no query or fragment. An authority with more
+ * than one colon outside brackets has no normal form (PROTOCOL.md 13.2),
+ * so "https://h:1:443/x" and "https://h:1/x" never share one.
  *
  * Build with -DCB2_FUZZ=ON (LLVM clang); run:
  *   ./cb2_fuzz_holder -max_total_time=120
@@ -26,7 +25,6 @@
 
 #include <cb2/cb2.hpp>
 
-#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
@@ -153,16 +151,6 @@ void request_from(const Mode& m, std::string_view text) {
     require(verdict(m, proof.value(), HolderRequest{method + "X", target, std::nullopt}) == Error::proof_mismatch);
 }
 
-bool colon_in_host(std::string_view uri) {
-    const std::size_t sep = uri.find("://");
-    if (sep == std::string_view::npos) return false;
-    std::string_view authority = uri.substr(sep + 3);
-    authority = authority.substr(0, authority.find_first_of("/?#"));
-    const std::size_t bracket = authority.rfind(']');
-    if (bracket != std::string_view::npos) authority = authority.substr(bracket + 1);
-    return std::count(authority.begin(), authority.end(), ':') > 1;
-}
-
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
@@ -185,7 +173,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         if (&other != &m) require(verdict(m, other.valid, get_me()) == Error::proof_invalid);
     }
 
-    if (const auto once = Holder::normalize_target(text); once && !colon_in_host(text)) {
+    if (const auto once = Holder::normalize_target(text); once) {
         require(once->find_first_of("?#") == std::string::npos);
         const auto twice = Holder::normalize_target(*once);
         require(twice.has_value() && *twice == *once);

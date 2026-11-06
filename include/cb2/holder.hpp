@@ -63,9 +63,10 @@ public:
 
     /// The target as both ends write and compare it: the query and the
     /// fragment removed, the scheme and the host lowercased, a port that
-    /// is the scheme's default removed, an empty path written as "/",
-    /// nothing else changed. Nothing for a URI without a scheme and a
-    /// host, with userinfo, or with a port that is not digits.
+    /// is empty or the scheme's default removed, an empty path written as
+    /// "/", nothing else changed. Nothing for a URI without a scheme and a
+    /// host, with userinfo, with a port that is not digits, or with a host
+    /// that holds a colon or a bracket outside one bracketed IP literal.
     [[nodiscard]] static std::optional<std::string> normalize_target(std::string_view uri) {
         const std::size_t sep = uri.find("://");
         if (sep == 0 || sep == std::string_view::npos) return std::nullopt;
@@ -90,7 +91,7 @@ public:
             host = authority.substr(0, colon);
             port = authority.substr(colon + 1);
         }
-        if (host.empty()) return std::nullopt;
+        if (!plain_host(host)) return std::nullopt;
         for (const char c : port) {
             if (c < '0' || c > '9') return std::nullopt;
         }
@@ -102,6 +103,16 @@ public:
     }
 
 private:
+    /// A host is a name or address with no colon and no bracket, or one IP
+    /// literal: a bracket, at least one character, the closing bracket.
+    [[nodiscard]] static bool plain_host(std::string_view host) noexcept {
+        if (host.empty()) return false;
+        const bool literal = host.size() >= 3 && host.front() == '[' && host.back() == ']';
+        const std::string_view inner = literal ? host.substr(1, host.size() - 2) : host;
+        if (inner.find_first_of("[]") != std::string_view::npos) return false;
+        return literal || host.find(':') == std::string_view::npos;
+    }
+
     [[nodiscard]] static std::string lower(std::string_view s) {
         std::string out(s);
         for (char& c : out) {

@@ -914,6 +914,15 @@ void write_holder(const std::string& dir) {
         {"https://user@api.example/", nullptr},
         {"https://api.example:4a3/", nullptr},
         {"https:///x", nullptr},
+        {"https://h:1/x", "https://h:1/x"},
+        {"https://api.example:/x", "https://api.example/x"},
+        {"https://[::1]:/x", "https://[::1]/x"},
+        {"https://h:1:443/x", nullptr},
+        {"https://::1/x", nullptr},
+        {"https://[::1/x", nullptr},
+        {"https://[::1]x/", nullptr},
+        {"https://a[b]/", nullptr},
+        {"https://[]/", nullptr},
     };
     for (const auto& c : cases) {
         Value v = object();
