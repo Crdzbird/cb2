@@ -8,9 +8,10 @@ on:
 # Two runners, the same matrix on both: a release build with the hybrid
 # cb2.public, tests, the self-checking example and the v4 cross-check, the
 # tests under ASan and UBSan, and a build without liboqs. macOS also runs
-# the three libFuzzer targets time-boxed; it mirrors the known-good local
+# the six libFuzzer targets time-boxed; it mirrors the known-good local
 # build with Homebrew dependencies. Linux takes libsodium and libcrypto
-# from Ubuntu and builds BLAKE3 and liboqs from pinned sources. Two more
+# from Ubuntu, builds BLAKE3 and liboqs from pinned sources, and runs the
+# constant-time probe under Valgrind (tests/ct/ct_probe.cpp). Two more
 # jobs cover what the C++ cannot check about itself: the web build, and
 # the independent Python implementation run against every vector.
 jobs:
@@ -69,7 +70,7 @@ jobs:
             -DCB2_BUILD_TESTS=OFF -DCB2_BUILD_BENCH=OFF -DCB2_BUILD_EXAMPLES=OFF -DCB2_BUILD_PLAYGROUND=OFF \
             -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=/opt/homebrew/opt/lld/bin/ld64.lld
           cmake --build build-fuzz
-          for fz in fuzz_local fuzz_public fuzz_claims; do
+          for fz in fuzz_local fuzz_public fuzz_claims fuzz_seal fuzz_holder fuzz_sha3; do
             test -x "build-fuzz/cb2_$fz"
             "build-fuzz/cb2_$fz" -max_total_time=60 -print_final_stats=1
           done
@@ -83,8 +84,9 @@ jobs:
       - name: Install build tools and the packaged dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build pkg-config libsodium-dev libssl-dev
+          sudo apt-get install -y cmake ninja-build pkg-config libsodium-dev libssl-dev valgrind
           cmake --version
+          valgrind --version
       - name: Cache the pinned dependencies
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
@@ -131,6 +133,30 @@ jobs:
           CB2_C_LIBRARY="$GITHUB_WORKSPACE/build/bindings/c/libcb2_c.so" python3 -m unittest discover -s bindings/python/tests
           node --test bindings/js/test/test.mjs
           (cd bindings/go && go test ./...)
+      # Secrets are marked undefined and memcheck must report nothing:
+      # verdicts and outgoing token bytes are declassified in the library
+      # (detail::declassify), and the one accepted lookup is listed with
+      # its reason in tests/ct/ct_probe.supp. The log is kept as an artifact.
+      - name: Constant-time probe under Valgrind
+        run: |
+          cmake -S . -B build-ct -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCB2_CT_PROBE=ON \
+            -DCB2_BUILD_TESTS=OFF -DCB2_BUILD_BENCH=OFF -DCB2_BUILD_EXAMPLES=OFF \
+            -DCB2_BUILD_PLAYGROUND=OFF -DCB2_BUILD_BINDINGS=OFF
+          cmake --build build-ct --target cb2_ct_probe
+          valgrind --tool=memcheck --error-exitcode=1 --track-origins=yes \
+            --suppressions=tests/ct/ct_probe.supp --log-file=ct_probe.valgrind.log \
+            ./build-ct/cb2_ct_probe | tee ct_probe.out || status=$?
+          cat ct_probe.valgrind.log
+          grep -q 'ran under Valgrind' ct_probe.out
+          grep 'ERROR SUMMARY: 0 errors' ct_probe.valgrind.log
+          exit "${status:-0}"
+      - name: Keep the Valgrind log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ct_probe-valgrind-log
+          path: ct_probe.valgrind.log
+          if-no-files-found: ignore
 
   # The second implementation. tools/check_vectors.py was written from
   # docs/PROTOCOL.md alone and must still pass every committed vector with

@@ -261,6 +261,7 @@ public:
             return Status::internal;
         }
         mac(k, c + msg.size(), h, nonce, {c, msg.size()}, footer, implicit);
+        declassify(raw, raw_len);
         out_len = finish_token(out, h, raw, raw_len, footer);
         return Status::ok;
     }
@@ -334,7 +335,9 @@ public:
         LocalKeys k;
         derive(k, key, h, n);
         mac(k, k.tag, h, n, c, footer, implicit);
-        if (crypto_verify_32(t, k.tag) != 0) return Status::invalid;
+        const int forged = crypto_verify_32(t, k.tag);
+        declassify(&forged, sizeof forged);
+        if (forged != 0) return Status::invalid;
         if (!xchacha20_xor(out.data(), c.data(), c.size(), k.n2(), k.ek())) {
             wipe(out.data(), out.size());
             return Status::internal;
@@ -383,7 +386,9 @@ private:
         LocalKeys k;
         derive(k, key, h, n);
         mac(k, k.tag, h, n, {c, clen}, expected_footer, implicit);
-        if (crypto_verify_32(t, k.tag) != 0) return Status::invalid;
+        const int forged = crypto_verify_32(t, k.tag);
+        declassify(&forged, sizeof forged);
+        if (forged != 0) return Status::invalid;
         std::memmove(work.data(), c, clen);
         if (!xchacha20_xor(work.data(), work.data(), clen, k.n2(), k.ek())) return Status::internal;
         wipe(work.data() + clen, work.size() - clen);

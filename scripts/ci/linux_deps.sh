@@ -3,7 +3,7 @@
 # given as the first argument, for the Linux CI job. libsodium and libcrypto
 # come from the distribution packages. Both libraries are built static and
 # install pkg-config files, which is how CMakeLists.txt finds them; liboqs is
-# reduced to ML-DSA-65, the only algorithm v5.public uses.
+# reduced to ML-DSA-65 and ML-KEM-768, what cb2.public and kcb2.seal use.
 set -euo pipefail
 PREFIX="${1:?usage: linux_deps.sh <prefix>}"
 BLAKE3_VERSION="1.5.4"
@@ -38,7 +38,7 @@ if [[ ! -f "$PREFIX/lib/pkgconfig/liboqs.pc" ]]; then
     tar -xf "$A" -C "$WORK/liboqs" --strip-components=1
     cmake -S "$WORK/liboqs" -B "$WORK/liboqs/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOQS_BUILD_ONLY_LIB=ON \
-        -DOQS_USE_OPENSSL=ON -DOQS_DIST_BUILD=ON -DOQS_MINIMAL_BUILD="SIG_ml_dsa_65" \
+        -DOQS_USE_OPENSSL=ON -DOQS_DIST_BUILD=ON -DOQS_MINIMAL_BUILD="SIG_ml_dsa_65;KEM_ml_kem_768" \
         -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_INSTALL_LIBDIR=lib
     cmake --build "$WORK/liboqs/build" --target install -j"$JOBS"
 fi

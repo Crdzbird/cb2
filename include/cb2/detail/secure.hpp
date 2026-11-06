@@ -5,9 +5,23 @@
  * SecureString containers built on it, fixed-size wiped arrays and the
  * constant-time comparison used for every secret or key-id comparison.
  * Every primitive is libsodium's; nothing here is hand-rolled.
+ *
+ * declassify() is the hook of the constant-time probe (tests/ct): built
+ * with CB2_CT_PROBE and run under Valgrind, the probe marks secrets
+ * undefined and memcheck reports every branch on them. A verdict decided
+ * in constant time and the bytes of a token about to leave the library
+ * are public by construction, so the code declares them defined right
+ * where they are decided. Outside the probe the hook compiles to nothing.
  */
 
 #include <sodium.h>
+
+#if defined(CB2_CT_PROBE) && defined(__has_include)
+#if __has_include(<valgrind/memcheck.h>)
+#include <valgrind/memcheck.h>
+#define CB2_CT_HAVE_MEMCHECK 1
+#endif
+#endif
 
 #include <cstddef>
 #include <cstdint>
@@ -51,6 +65,17 @@ namespace detail {
 
 /// Wipes n bytes at p.
 inline void wipe(void* p, std::size_t n) noexcept { sodium_memzero(p, n); }
+
+/// Declares n bytes at p public for the constant-time probe: a verdict
+/// already decided in constant time, or output that leaves the library.
+inline void declassify(const void* p, std::size_t n) noexcept {
+#ifdef CB2_CT_HAVE_MEMCHECK
+    (void)VALGRIND_MAKE_MEM_DEFINED(p, n);
+#else
+    (void)p;
+    (void)n;
+#endif
+}
 
 /// Keeps n bytes at p out of swap and, where the platform allows, out of
 /// core dumps. Best effort: a platform or a limit that refuses is

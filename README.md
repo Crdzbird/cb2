@@ -47,7 +47,8 @@ keystream from an implementation that uses the vector unit; OFF keeps
 every byte on libsodium), `CB2_BUILD_TESTS`, `CB2_BUILD_PLAYGROUND`,
 `CB2_BUILD_BENCH` (`CB2_CRYPTOLIB_INCLUDE`, default
 `../cryptolib/include`, adds CipherBird's own rows when present),
-`CB2_FUZZ` (LLVM clang), `CB2_SANITIZE` (ASan + UBSan). libcrypto is
+`CB2_FUZZ` (LLVM clang), `CB2_SANITIZE` (ASan + UBSan), `CB2_CT_PROBE`
+(the constant-time probe, run under Valgrind on Linux). libcrypto is
 required in every configuration.
 
 To use the library, add the `include` directory, define `CB2_HAS_PQ`
@@ -332,10 +333,11 @@ include/cb2/holder.hpp         HolderRequest and the target normalisation of hol
 include/cb2/seal.hpp           X-Wing recipient keys and kcb2.seal
 include/cb2/detail/            base64url, PAE, BLAKE3 and liboqs wrappers, SHA3-256 and SHAKE256, the local core, secure memory
 tests/                             runner, cases, gen_vectors.cpp, vectors/*.json, vectors/paseto-v1 to v4 (the official PASETO vectors, ISC)
+tests/ct/                          ct_probe.cpp, the Valgrind constant-time probe, and its one suppression with the reason
 examples/international_text.cpp    the text policy against a legacy check, eight scenarios, self-checking
 playground/                        cb2_playground and the two scripted, self-checking demo sessions
 web/                               the browser playground: page, C shim, Emscripten build, the built module, node smoke test
-fuzz/                              fuzz_local, fuzz_public, fuzz_claims
+fuzz/                              fuzz_local, fuzz_public, fuzz_claims, fuzz_seal, fuzz_holder, fuzz_sha3 (cb2's SHA3 against OpenSSL)
 bench/                             bench_main.cpp; reference.hpp, PASETO v1 to v4, JWS and JWE from their specifications, checked by tests/test_reference.cpp against the official vectors; bench_ref.cpp, CipherBird's v4.local and cb1.local when cryptolib is present
 docs/PROTOCOL.md                   the normative format for implementers, the vector file format, worked examples
 tools/check_vectors.py             an independent Python implementation that checks tests/vectors against docs/PROTOCOL.md alone
@@ -532,22 +534,27 @@ import checks, the ML-DSA context string), sender-constrained tokens in
 both holder modes, kcb2.seal on X-Wing with the draft's vectors,
 cb2's own SHA3-256 and SHAKE256 against FIPS 202 outputs, the C ABI and
 the language bindings with their own tests, the vector files, the official-v4 cross-check of
-PAE and base64url, tests under ASan and UBSan, the three fuzz targets, a
-build without liboqs, and the benchmark above. CI runs the same matrix
+PAE and base64url, tests under ASan and UBSan, six fuzz targets (one of
+them differential, cb2's SHA3 against OpenSSL's), a build without liboqs, and the benchmark above. CI runs the same matrix
 on every push and pull request: the `macos` job (release with cb2.public,
 ASan and UBSan, a build without liboqs, one minute of each fuzz target)
 and the `linux` job (Ubuntu 24.04 with gcc, BLAKE3 and liboqs built from
 pinned sources, release with cb2.public, a build without liboqs, ASan and
-UBSan), plus the `web` job (the module rebuilt from source and the demos
+UBSan, and the constant-time probe under Valgrind), plus the `web` job (the module rebuilt from source and the demos
 run under node) and the `vectors` job (`tools/check_vectors.py`, the
 independent Python implementation, against every vector with the ML-DSA
 half included, so the reference and docs/PROTOCOL.md cannot drift apart
 unnoticed).
 
 Not covered: interoperability with any other implementation (there is
-none), fuzz targets for kcb2.seal and holder proofs, a constant-time probe run under
-Valgrind (CipherBird has one; cb2 does not yet), review by a second
-person, and the open questions in docs/SPEC.md section 12.
+none); in the constant-time probe, the ML-DSA-65 secret (FIPS 204
+signing rejection-samples on it by design and liboqs does not mark that
+verdict public), key generation, and the holder proof paths; review by a
+second person; and the open questions in docs/SPEC.md section 12. One
+known secret-dependent memory access is accepted, not fixed: the
+kcb2.local PASERK text of a secret key, and so the kcb2.lid of a key,
+is written by the table-driven base64url encoder (tests/ct/ct_probe.supp
+gives the reason and the bound).
 
 ## Verification performed
 
@@ -563,8 +570,31 @@ Mac: the release build passes 87 of 87 cases (about 25,600 checks), the
 ASan and UBSan build 87 of 87 with no reports, and the build without
 liboqs 63 of 63. The release build also links and passes against a
 shared liboqs 0.16.0 built as Homebrew builds it, which the tree before
-that change could not. The record below is the full run of 2026-11-03,
-with the case counts of that day.
+that change could not.
+
+Fuzz targets and the constant-time probe, 2026-11-06, on the tree with
+the local holder mode and the unrolled Keccak. The three new fuzz
+targets ran 181 s each from an empty corpus with no crash, leak or
+timeout: `fuzz_seal` 576,181 runs, `fuzz_sha3` 1,277,837 runs (every
+SHA3-256 and SHAKE256 output equal to OpenSSL's), `fuzz_holder` 77,092
+runs over both holder modes. The constant-time probe ran in the `linux`
+CI job (Ubuntu 24.04, x86-64, Valgrind 3.22.0, gcc, RelWithDebInfo): 0
+errors. Its first run reported 43 secret-dependent addresses from 7
+places and no secret-dependent branch; all 7 are the base64url alphabet
+lookup on a secret key's PASERK text, now the one suppression, and
+nothing else in Keccak, cb2.local, Ed25519 signing, verification,
+X-Wing or ML-KEM decapsulation was reported.
+
+`fuzz_holder` found within its first minute that holder target
+normalisation is not idempotent: it splits host and port at the last
+colon, so `https://h:1:443/x` and `https://h:1/x` normalise to the same
+target. docs/PROTOCOL.md 13.2 does not yet refuse a colon in a host
+outside brackets; the fix belongs to the protocol and is tracked on its
+own, and until then the target skips that one check for exactly that
+shape of authority.
+
+The record below is the full run of 2026-11-03, with the case counts of
+that day.
 
 All on an Apple silicon Mac on 2026-11-03, from the tree as committed.
 
@@ -604,6 +634,7 @@ All on an Apple silicon Mac on 2026-11-03, from the tree as committed.
   was run again from the saved corpora after the last header edit.
 - Benchmark: the table above, two runs.
 
-Not verified here: behaviour on Linux or Windows, the constant-time
-property under a dynamic probe (Valgrind is not available on this Mac),
-and any review by a second person.
+Not verified on this Mac: behaviour on Windows, the constant-time
+property under a dynamic probe (Valgrind is not available here; the
+probe runs in the `linux` CI job, see the 2026-11-06 rerun above), and
+any review by a second person.

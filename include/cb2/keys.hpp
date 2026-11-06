@@ -92,7 +92,9 @@ template <class Str>
 [[nodiscard]] inline bool constant_bytes(const uint8_t* p, std::size_t n) noexcept {
     unsigned diff = 0;
     for (std::size_t i = 1; i < n; ++i) diff |= static_cast<unsigned>(p[i] ^ p[0]);
-    return diff == 0;
+    const bool weak = diff == 0;
+    declassify(&weak, sizeof weak);
+    return weak;
 }
 
 /// The footer a key id is bound into: {"kid":"..."}; empty for no id.
@@ -110,6 +112,7 @@ template <class Str>
     h.update(reinterpret_cast<const uint8_t*>(id_header.data()), id_header.size());
     h.update(reinterpret_cast<const uint8_t*>(paserk.data()), paserk.size());
     h.finalize(digest, sizeof digest);
+    declassify(digest, sizeof digest);
     return paserk_encode<std::string>(id_header, {digest, sizeof digest});
 }
 

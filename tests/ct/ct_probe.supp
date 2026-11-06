@@ -1,0 +1,19 @@
+# Valgrind suppressions for the constant-time probe (tests/ct/ct_probe.cpp).
+# Every entry names one accepted report and why it is accepted; anything
+# else memcheck reports fails the probe.
+#
+# The kcb2.local PASERK text of a secret key is written by the
+# table-driven base64url encoder (detail/base64url.hpp), which indexes a
+# 64-character alphabet with six secret bits at a time. memcheck reports
+# the secret-dependent address, not a branch. The probe reaches it when an
+# unsealed key computes its kcb2.lid. The alphabet spans at most two cache
+# lines, so the leak is at most one bit per character at cache-line
+# granularity; an arithmetic encoder for secret keys is the fix, and until
+# then the report is accepted only on this path: the encoder called from
+# paserk_encode with the wiped string type that only secret keys use.
+{
+   cb2 base64url alphabet lookup on the PASERK text of a secret key
+   Memcheck:Value8
+   fun:*b64*encode*
+   fun:*paserk_encode<*ZeroizingAllocator*
+}

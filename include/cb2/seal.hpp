@@ -98,9 +98,10 @@ public:
         uint8_t* ct_x = ct + ML_CT_BYTES;
         SecureArray<32> ss_m;
         SecureArray<32> ss_x;
-        if (crypto_scalarmult_curve25519_base(ct_x, eseed + 32) != 0 ||
-            crypto_scalarmult_curve25519(ss_x.v, eseed + 32, pk_x) != 0 ||
-            OQS_KEM_ml_kem_768_encaps_derand(ct_m, ss_m.v, pk_m, eseed) != OQS_SUCCESS)
+        if (crypto_scalarmult_curve25519_base(ct_x, eseed + 32) != 0) return false;
+        const int zero = crypto_scalarmult_curve25519(ss_x.v, eseed + 32, pk_x);
+        declassify(&zero, sizeof zero);
+        if (zero != 0 || OQS_KEM_ml_kem_768_encaps_derand(ct_m, ss_m.v, pk_m, eseed) != OQS_SUCCESS)
             return false;
         combine(ss_m.v, ss_x.v, ct_x, pk_x, ss);
         return true;
@@ -116,9 +117,10 @@ public:
         const uint8_t* ct_x = ct + ML_CT_BYTES;
         SecureArray<32> ss_m;
         SecureArray<32> ss_x;
-        if (OQS_KEM_ml_kem_768_decaps(ss_m.v, ct_m, sk_m) != OQS_SUCCESS ||
-            crypto_scalarmult_curve25519(ss_x.v, sk_x, ct_x) != 0)
-            return false;
+        if (OQS_KEM_ml_kem_768_decaps(ss_m.v, ct_m, sk_m) != OQS_SUCCESS) return false;
+        const int zero = crypto_scalarmult_curve25519(ss_x.v, sk_x, ct_x);
+        declassify(&zero, sizeof zero);
+        if (zero != 0) return false;
         combine(ss_m.v, ss_x.v, ct_x, pk_x, ss);
         return true;
     }
@@ -239,6 +241,12 @@ public:
     /// The kcb2.rid of the public key.
     [[nodiscard]] std::string paserk_id() const { return public_key().paserk_id(); }
 
+#ifdef CB2_TEST_NONCE
+    /// The expanded decapsulation key sk_M || sk_X || pk, for the
+    /// constant-time probe to mark its secret parts.
+    [[nodiscard]] std::span<const uint8_t> expanded_for_testing() const noexcept { return expanded_; }
+#endif
+
     [[nodiscard]] RecipientKey clone() const {
         RecipientKey k;
         k.seed_ = seed_;
@@ -330,6 +338,7 @@ private:
                                                      {detail::KeyAccess::local(key), LocalKey::BYTES}, {},
                                                      {body, CT_BYTES}, nonce);
         if (s != Status::ok) return Result<std::string>::err(to_error(s));
+        detail::declassify(body, BODY_BYTES);
         std::string out(TEXT_BYTES, '\0');
         std::memcpy(out.data(), HEADER.data(), HEADER.size());
         detail::b64::encode(out.data() + HEADER.size(), body, BODY_BYTES);

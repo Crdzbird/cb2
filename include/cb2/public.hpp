@@ -106,6 +106,7 @@ public:
             wipe(out.data(), plen > out.size() ? need : (plen > need ? plen : need));
             return Status::internal;
         }
+        declassify(sig, SIG_BYTES);
         const std::size_t raw_len = msg.size() + SIG_BYTES;
         uint8_t* raw = out.data() + h.size() + b64::encoded_len(raw_len) - raw_len;
         if (!msg.empty()) std::memmove(raw, msg.data(), msg.size());

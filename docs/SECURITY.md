@@ -237,9 +237,11 @@ it must not, and this library does not strip the claim for it.
   one primitive it implements, used only inside X-Wing for kcb2.seal,
   are correct. They are checked against hashlib's FIPS 202 outputs on
   both sides of every block boundary and, through X-Wing, against the
-  draft's test vectors. They branch only on lengths, which are public,
-  and wipe their state; no dynamic constant-time probe has been run on
-  them.
+  draft's test vectors, and fuzzed against OpenSSL's SHA3-256 and
+  SHAKE256 (fuzz/fuzz_sha3.cpp). They branch only on lengths, which are
+  public, and wipe their state; the Valgrind constant-time probe
+  (tests/ct) runs them on secret input, alone and inside X-Wing, with no
+  report.
 - The caller keeps the LocalKey and SecretKey secret and the PublicKey
   authentic. A key id is not a secret and not a proof of key possession.
 - The verifier's clock is correct to within the configured skew.
