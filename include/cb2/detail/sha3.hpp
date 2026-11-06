@@ -11,6 +11,9 @@
  * differ only in the domain byte, 0x06 for SHA3 and 0x1f for SHAKE.
  * Nothing branches on the data, only on lengths, which are public; the
  * state is wiped after use because it holds seeds and shared secrets.
+ * The round loops carry unroll pragmas: without them a compiler keeps
+ * the lane loops and the table walk of rho and pi as loops, and a call
+ * takes three to four times as long as liboqs's own SHA3.
  * Checked by tests/test_sha3.cpp against hashlib's FIPS 202 outputs and,
  * through X-Wing, against the draft's test vectors.
  */
@@ -49,19 +52,26 @@ private:
     static void permute(uint64_t a[25]) noexcept {
         uint64_t c[5];
         for (int round = 0; round < 24; ++round) {
+#pragma GCC unroll 5
             for (int x = 0; x < 5; ++x) c[x] = a[x] ^ a[x + 5] ^ a[x + 10] ^ a[x + 15] ^ a[x + 20];
+#pragma GCC unroll 5
             for (int x = 0; x < 5; ++x) {
                 const uint64_t d = c[(x + 4) % 5] ^ std::rotl(c[(x + 1) % 5], 1);
+#pragma GCC unroll 5
                 for (int y = 0; y < 25; y += 5) a[y + x] ^= d;
             }
             uint64_t carry = a[1];
+#pragma GCC unroll 24
             for (int i = 0; i < 24; ++i) {
                 const uint64_t next = a[LANE[i]];
                 a[LANE[i]] = std::rotl(carry, ROT[i]);
                 carry = next;
             }
+#pragma GCC unroll 5
             for (int y = 0; y < 25; y += 5) {
+#pragma GCC unroll 5
                 for (int x = 0; x < 5; ++x) c[x] = a[y + x];
+#pragma GCC unroll 5
                 for (int x = 0; x < 5; ++x) a[y + x] = c[x] ^ (~c[(x + 1) % 5] & c[(x + 2) % 5]);
             }
             a[0] ^= RC[round];
