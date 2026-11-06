@@ -38,6 +38,7 @@
 
 #include "detail/local_core.hpp"
 #include "detail/secure.hpp"
+#include "detail/sha3.hpp"
 #include "keys.hpp"
 #include "result.hpp"
 
@@ -50,19 +51,12 @@
 #include <string>
 #include <string_view>
 
-/// liboqs exports its SHA3 (common/sha3/sha3.h, OQS_API) but does not
-/// install that header; these are its declarations, unchanged.
-extern "C" {
-void OQS_SHA3_sha3_256(uint8_t* output, const uint8_t* input, size_t inplen);
-void OQS_SHA3_shake256(uint8_t* output, size_t outlen, const uint8_t* input, size_t inplen);
-}
-
 namespace cb2 {
 
 namespace detail {
 
 /// X-Wing as draft-connolly-cfrg-xwing-kem defines it, on liboqs's
-/// ML-KEM-768 and SHA3 and libsodium's X25519.
+/// ML-KEM-768, cb2's own SHA3 (detail/sha3.hpp) and libsodium's X25519.
 class XWing {
 public:
     static constexpr std::size_t SEED_BYTES = 32;
@@ -84,7 +78,7 @@ public:
     /// expandDecapsulationKey: writes sk_M || sk_X || pk_M || pk_X.
     [[nodiscard]] static bool expand(const uint8_t seed[SEED_BYTES], uint8_t* expanded) noexcept {
         SecureArray<96> e;
-        OQS_SHA3_shake256(e.v, 96, seed, SEED_BYTES);
+        Keccak::shake256(e.v, 96, seed, SEED_BYTES);
         uint8_t* sk_m = expanded;
         uint8_t* sk_x = expanded + ML_SK_BYTES;
         uint8_t* pk_m = expanded + ML_SK_BYTES + 32;
@@ -139,7 +133,7 @@ private:
         std::memcpy(in.v + 64, ct_x, 32);
         std::memcpy(in.v + 96, pk_x, 32);
         std::memcpy(in.v + 128, LABEL, 6);
-        OQS_SHA3_sha3_256(ss, in.v, sizeof in.v);
+        Keccak::sha3_256(ss, in.v, sizeof in.v);
     }
 };
 

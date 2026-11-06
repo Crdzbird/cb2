@@ -206,7 +206,9 @@ Keys (`keys.hpp`)
 - `KeyWrap::wrap(wrapping, key)` / `unwrap(text, wrapping)`:
   `kcb2.local-wrap`.
 - `RecipientKey` and `RecipientPublicKey` (with liboqs ML-KEM-768): an
-  X-Wing pair, `generate()`, `from_bytes`, `from_paserk`, `to_paserk`
+  X-Wing pair, on liboqs's ML-KEM-768, libsodium's X25519 and cb2's own
+  SHA3-256 and SHAKE256 (liboqs keeps its SHA3 internal, so a shared
+  liboqs such as Homebrew's does not export it), `generate()`, `from_bytes`, `from_paserk`, `to_paserk`
   (`kcb2.recipient-secret`, `kcb2.recipient`), `public_key()`,
   `paserk_id()` (`kcb2.rid`). `Seal::seal(recipient_public, key)` returns
   the `kcb2.seal` string of a local key sealed to that recipient and
@@ -319,7 +321,7 @@ include/cb2/json.hpp           strict JSON reader and writer
 include/cb2/claims.hpp         Claims, ValidationRules, HolderProof, Token, Rfc3339
 include/cb2/holder.hpp         HolderRequest and the target normalisation of holder proofs
 include/cb2/seal.hpp           X-Wing recipient keys and kcb2.seal
-include/cb2/detail/            base64url, PAE, BLAKE3 and liboqs wrappers, the local core, secure memory
+include/cb2/detail/            base64url, PAE, BLAKE3 and liboqs wrappers, SHA3-256 and SHAKE256, the local core, secure memory
 tests/                             runner, cases, gen_vectors.cpp, vectors/*.json, vectors/paseto-v1 to v4 (the official PASETO vectors, ISC)
 examples/international_text.cpp    the text policy against a legacy check, eight scenarios, self-checking
 playground/                        cb2_playground and the two scripted, self-checking demo sessions
