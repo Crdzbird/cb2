@@ -90,7 +90,7 @@ Shared-key tokens, a 64-byte payload:
 | JWS HS256 (readable, not encrypted) | 1.1 us | 1.2 us | 167 | about 870,000 |
 
 Through the claims layer, opening a typical cb2.local token and checking
-every rule takes about 3.4 us, about 290,000 tokens per second per core.
+every rule takes about 2.8 us, about 350,000 tokens per second per core.
 
 Key-pair tokens, a 64-byte payload:
 
@@ -107,12 +107,12 @@ for `GET https://api.example/v1/me`, the server checks token and proof):
 
 | | bytes on the wire | client: make proof | server: check | checks per second per core |
 |---|---:|---:|---:|---:|
-| cb2.local bearer token, no proof | 321 | - | 3.0 us | about 340,000 |
-| cb2.local + local proof | 762 | 5.7 us | 7.8 us | about 128,000 |
-| JWT RS256 + DPoP ES256 | 1,061 | 25.7 us | 83 us | about 12,000 |
-| JWT ES256 + DPoP ES256 | 805 | 25.0 us | 129 us | about 7,800 |
-| cb2.local + public proof | 8,647 | 200 us | 172 us | about 5,800 |
-| cb2.public + public proof | 13,060 | 231 us | 323 us | about 3,100 |
+| cb2.local bearer token, no proof | 321 | - | 2.7 us | about 370,000 |
+| cb2.local + local proof | 762 | 5.8 us | 7.3 us | about 137,000 |
+| JWT RS256 + DPoP ES256 | 1,061 | 25.9 us | 79 us | about 12,600 |
+| JWT ES256 + DPoP ES256 | 805 | 23.1 us | 120 us | about 8,400 |
+| cb2.local + public proof | 8,647 | 215 us | 167 us | about 6,000 |
+| cb2.public + public proof | 13,060 | 244 us | 313 us | about 3,200 |
 
 ### Where cb2 is ahead
 
@@ -136,7 +136,7 @@ for `GET https://api.example/v1/me`, the server checks token and proof):
   and at 64 KiB it is twice as fast.
 - **Stolen tokens can be made worthless, cheaply.** In the local holder
   mode a request carries a 762-byte token and proof, smaller than JWT
-  with DPoP, and the server checks both in 7.8 us, 11 to 16 times
+  with DPoP, and the server checks both in 7.3 us, 11 to 16 times
   faster than the DPoP rows.
 - **Encrypted by default.** A `cb2.local` token hides its claims; a JWT
   signed with HS256 shows them to anyone who sees the token.
@@ -678,8 +678,11 @@ token is not what the format is for. Seal costs 1.4 us more than open at
 the design requires in place of a nonce batch (docs/SPEC.md section
 12, question 5); cb1.local shows the same construction with the batch.
 Through the claims layer, `Token::open` of a typical token costs
-about 3.4 us, of which the strict JSON parse is one; the footer the key
-id is bound into is kept with the key, which took 0.3 us off that path.
+about 2.8 us, of which the strict JSON parse is 0.8; the footer the key
+id is bound into is kept with the key, which took 0.3 us off that path,
+and the JSON reader and the text checks copy and skip runs of plain
+ASCII in one step, which took 0.5 us off it and 17 us off a bound
+request whose cnf carries a 2.6 KB key.
 With `cb2_bench --fast-random`, the application opt-in for libsodium's
 own generator described under API reference, the same cb2.local row seals a 64 B
 token in 1489 ns and a 1 KiB one in 4136 ns, against 2736 and 5332 with
@@ -713,27 +716,28 @@ ES256, on the same reference code as the JWS rows: the server does the
 two signature checks, the `ath` hash and the `jkt` thumbprint, no JSON
 claim checks, and takes the client key as known instead of reading it
 from the proof header. They are a lower bound for JWT, as the JWS rows
-are. Same machine and libraries, 2026-11-06; in the same run the first
-table agreed with the one above within 8 percent in 94 of its 102 cells
-and within 10 percent in all.
+are. Same machine and libraries, 2026-11-06, after the ASCII fast path
+of the claims layer; in the same run the first table agreed with the
+one above within 8 percent in 101 of its 102 cells and within 9 percent
+in all.
 
 | request | token | proof | on the wire | client: make proof | server: check token and proof |
 |---|---:|---:|---:|---:|---:|
-| cb2.local bearer, no proof | 321 | 0 | 321 | - | 2954 ns |
-| cb2.local bound + local proof | 405 | 357 | 762 | 5727 ns | 7816 ns |
-| cb2.local bound + holder proof | 3877 | 4770 | 8647 | 199.5 us | 172.4 us |
-| cb2.public bound + holder proof | 8290 | 4770 | 13060 | 230.9 us | 323.3 us |
-| JWT RS256 + DPoP ES256 | 582 | 479 | 1061 | 25.7 us | 83.0 us |
-| JWT ES256 + DPoP ES256 | 326 | 479 | 805 | 25.0 us | 128.7 us |
+| cb2.local bearer, no proof | 321 | 0 | 321 | - | 2670 ns |
+| cb2.local bound + local proof | 405 | 357 | 762 | 5812 ns | 7325 ns |
+| cb2.local bound + holder proof | 3877 | 4770 | 8647 | 215.2 us | 166.7 us |
+| cb2.public bound + holder proof | 8290 | 4770 | 13060 | 244.3 us | 313.0 us |
+| JWT RS256 + DPoP ES256 | 582 | 479 | 1061 | 25.9 us | 79.2 us |
+| JWT ES256 + DPoP ES256 | 326 | 479 | 805 | 23.1 us | 119.6 us |
 
 Reading, the local mode. A cb2.local token bound to a proof key is 84
 characters longer than the bearer token (the cnf claim, inside the
 encryption) and its proof is 357: 762 on the wire, less than either
-DPoP row. The client makes a proof in 5.7 us, a quarter of a DPoP
-proof; the server checks token and proof in 7.8 us, 4.9 us more than
+DPoP row. The client makes a proof in 5.8 us, a quarter of a DPoP
+proof; the server checks token and proof in 7.3 us, 4.7 us more than
 the bearer token and 11 to 16 times less than the DPoP rows. One core
-checks about 128,000 such requests a second, and a million cost about
-8 core-seconds and 0.8 GB of headers. The proof is a keyed BLAKE3
+checks about 137,000 such requests a second, and a million cost about
+7 core-seconds and 0.8 GB of headers. The proof is a keyed BLAKE3
 derivation and tag over the request claims and the access token text,
 with no signature, and the price is the one the local mode states: the
 proof key is shared by the issuer, the client and every verifier that
@@ -746,13 +750,13 @@ Reading, tokens bound to a client key pair. The binding costs what the
 client's hybrid key costs. The cnf claim carries the whole kcb2.public
 key, which takes the local token from 321 to 3877 characters, and the
 proof is a hybrid signature over the request, 4770 more. On the server
-a bound request costs 172 us against 3.0 us for the bearer token, 1.3
+a bound request costs 167 us against 2.7 us for the bearer token, 1.4
 times the ES256 + DPoP row and 2.1 times the RS256 + DPoP row; on the
-client the proof costs 200 us against 25 us for a DPoP proof; on the
-wire it is 8 to 11 times the bytes. At scale, one core checks about
-5,800 such requests a second against 7,800 to 12,000 for DPoP, and a
-million requests cost about 2.9 core-minutes of checking against 1.4 to
-2.1, and 8.6 GB of headers against about 1 GB. The proof changes on every
+client the proof costs 215 us against 23 to 26 us for a DPoP proof; on
+the wire it is 8 to 11 times the bytes. At scale, one core checks about
+6,000 such requests a second against 8,400 to 12,600 for DPoP, and a
+million requests cost about 2.8 core-minutes of checking against 1.3 to
+2.0, and 8.6 GB of headers against about 1 GB. The proof changes on every
 request, so HTTP/2 header compression cannot shrink it, and on a slow
 uplink the bytes cost more time than the checks. A bound cb2.public
 token is 8290 characters, more than the 8 KB nginx allows for one header

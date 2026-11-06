@@ -49,9 +49,28 @@ namespace cb2::text {
     return true;
 }
 
+/// The length of the longest prefix of s, in whole blocks of 16 bytes,
+/// made only of printable ASCII (0x20 to 0x7E). Every such byte is valid
+/// UTF-8 and an identifier character, so the checks below start after
+/// it and give the verdict they would give byte by byte. A block is
+/// tested without an early exit, which compilers vectorise.
+[[nodiscard]] inline std::size_t printable_ascii_prefix(std::string_view s) noexcept {
+    constexpr std::size_t BLOCK = 16;
+    std::size_t i = 0;
+    for (; i + BLOCK <= s.size(); i += BLOCK) {
+        unsigned bad = 0;
+        for (std::size_t k = 0; k < BLOCK; ++k) {
+            const auto c = static_cast<unsigned char>(s[i + k]);
+            bad |= static_cast<unsigned>(c < 0x20) | static_cast<unsigned>(c > 0x7E);
+        }
+        if (bad != 0) break;
+    }
+    return i;
+}
+
 /// Whether s is well-formed UTF-8.
 [[nodiscard]] inline bool valid_utf8(std::string_view s) noexcept {
-    std::size_t i = 0;
+    std::size_t i = printable_ascii_prefix(s);
     unsigned cp = 0;
     while (i < s.size()) {
         if (!decode(s, i, cp)) return false;
@@ -94,7 +113,7 @@ namespace cb2::text {
 
 /// Whether s is well-formed UTF-8 made only of identifier characters.
 [[nodiscard]] inline bool identifier_ok(std::string_view s) noexcept {
-    std::size_t i = 0;
+    std::size_t i = printable_ascii_prefix(s);
     unsigned cp = 0;
     while (i < s.size()) {
         if (!decode(s, i, cp) || !identifier_char(cp)) return false;

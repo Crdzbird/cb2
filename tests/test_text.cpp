@@ -205,3 +205,48 @@ TEST_CASE("text/the raw token layer carries any bytes in message, footer and imp
     CHECK(tu::str_of(back.value()) == msg);
     CHECK(cb2::Local::open(tok.value(), k, tu::bytes_of(cat(ARABIC)), tu::bytes_of(implicit)).is_err());
 }
+
+TEST_CASE("text/a refused character is found at every offset of a long ASCII run") {
+    const std::string base(70, 'k');
+    CHECK(text::identifier_ok(base));
+    CHECK(text::valid_utf8(base));
+    for (std::size_t at = 0; at <= base.size(); ++at) {
+        for (const std::string_view bad : {std::string_view("\x01"), std::string_view("\x7f"), ZWSP, RLO, C1_NEL}) {
+            std::string s = base;
+            s.insert(at, bad);
+            CHECK(!text::identifier_ok(s));
+        }
+        std::string broken = base;
+        broken.insert(at, "\xc3");
+        CHECK(!text::valid_utf8(broken));
+        CHECK(!text::identifier_ok(broken));
+        std::string tab = base;
+        tab.insert(at, "\t");
+        CHECK(text::valid_utf8(tab));
+        CHECK(!text::identifier_ok(tab));
+        std::string accented = base;
+        accented.insert(at, N_TILDE);
+        CHECK(text::identifier_ok(accented));
+    }
+}
+
+TEST_CASE("text/JSON strings round trip with an escape at every offset of a long ASCII run") {
+    const std::string base(70, 'q');
+    for (std::size_t at = 0; at <= base.size(); ++at) {
+        for (const std::string_view special : {std::string_view("\""), std::string_view("\\"), std::string_view("\n"),
+                                               std::string_view("\x01"), JAPANESE}) {
+            std::string s = base;
+            s.insert(at, special);
+            std::string doc;
+            cb2::json::Writer::string(doc, s);
+            cb2::json::Value v;
+            REQUIRE(cb2::json::Reader::parse(doc, v));
+            CHECK(v.is_string());
+            CHECK(v.text == s);
+        }
+        std::string raw = "\"" + base + "\"";
+        raw.insert(1 + at, "\x1f");
+        cb2::json::Value v;
+        CHECK(!cb2::json::Reader::parse(raw, v));
+    }
+}

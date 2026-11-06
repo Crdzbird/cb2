@@ -213,9 +213,21 @@ private:
             if (c == '"') { ++i; return true; }
             if (c == '\\') { ++i; if (!escape(o)) return false; continue; }
             if (c < 0x20) return false;
-            if (c < 0x80) { o += static_cast<char>(c); ++i; continue; }
+            if (c < 0x80) { plain_run(o); continue; }
             if (!utf8_sequence(o)) return false;
         }
+    }
+
+    /// Appends the run of ASCII bytes at i that need no handling (0x20 to
+    /// 0x7F except the quote and the backslash) in one step.
+    void plain_run(std::string& o) {
+        const std::size_t start = i;
+        while (!at_end()) {
+            const auto c = static_cast<unsigned char>(in[i]);
+            if (c < 0x20 || c > 0x7F || c == '"' || c == '\\') break;
+            ++i;
+        }
+        o.append(in.data() + start, i - start);
     }
 
     [[nodiscard]] bool digits(std::size_t& n) noexcept {
@@ -256,8 +268,12 @@ public:
     static void string(std::string& out, std::string_view s) {
         static constexpr char HEX[] = "0123456789abcdef";
         out += '"';
-        for (const char ch : s) {
-            const auto c = static_cast<unsigned char>(ch);
+        std::size_t run = 0;
+        for (std::size_t k = 0; k < s.size(); ++k) {
+            const auto c = static_cast<unsigned char>(s[k]);
+            if (c >= 0x20 && c != '"' && c != '\\') continue;
+            out.append(s.data() + run, k - run);
+            run = k + 1;
             switch (c) {
                 case '"': out += "\\\""; break;
                 case '\\': out += "\\\\"; break;
@@ -267,15 +283,12 @@ public:
                 case '\r': out += "\\r"; break;
                 case '\t': out += "\\t"; break;
                 default:
-                    if (c < 0x20) {
-                        out += "\\u00";
-                        out += HEX[c >> 4];
-                        out += HEX[c & 15];
-                    } else {
-                        out += ch;
-                    }
+                    out += "\\u00";
+                    out += HEX[c >> 4];
+                    out += HEX[c & 15];
             }
         }
+        out.append(s.data() + run, s.size() - run);
         out += '"';
     }
 

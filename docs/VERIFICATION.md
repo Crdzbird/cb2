@@ -4,6 +4,32 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-06, ASCII fast path in the claims layer
+
+The identifier and UTF-8 checks skip a leading run of printable ASCII
+in blocks of 16 bytes, and the JSON reader and writer copy runs of
+plain ASCII in one step. Against the code before the change, on 10
+million random strings mixing ASCII, multi-byte UTF-8, controls,
+invisible and bidi characters, escapes, surrogate pairs and invalid
+bytes, the text checks, the JSON reader and the JSON writer gave the
+same verdict and the same output every time. Two new test cases put a
+refused or escaped character at every offset of a 70-byte ASCII run;
+with the fast path deliberately broken to let 0x7F through they fail,
+and restored they pass. The release build passes 100 of 100 cases, the
+ASan and UBSan build 100 of 100, the build without liboqs 75 of 75,
+tools/check_vectors.py 638 checks, the C, Python, Go and JavaScript
+bridges, the six playground demos and the web smoke test; `fuzz_claims`
+ran 6,753,301 inputs in 121 s with no report.
+
+Measured on the same machine against the previous commit: `Claims::from_json`
+of a 2.7 KB payload carrying a kcb2.public key in cnf went from 19.8 to
+2.9 us and its text check from 11.3 to 0.2 us; opening that bound token
+before its proof from 29.1 to 11.9 us; the whole bound request from
+171.5 to 154.5 us; `Token::open` of a typical 391-character token from
+3.35 to 2.84 us. In `cb2_bench`, run alternately with the previous
+commit's build, the bearer check went from 3.2 to 2.7 us and the local
+holder request from 8.5 to 6.7 to 7.3 us.
+
 ## 2026-11-06, holder target normalisation fixed
 
 `fuzz_holder` had found that holder target normalisation was not
