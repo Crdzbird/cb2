@@ -174,6 +174,34 @@ object Cb2KtTest {
         check(e != null && e.code() == 19 && e.message == "cb2: missing_proof (19)", "exception carries code and name")
     }
 
+    private fun testHolderLocal() {
+        LocalKey.generate().use { k ->
+            LocalKey.generate().use { issued ->
+                val cnf = issued.toPaserk()
+                val access = k.sealClaims(claims("iss" to "https://issuer.example", "aud" to "api", "exp" to exp, "cnf" to cnf))
+                expect("missing_proof", "local-bound token without a proof") { k.openClaims(access, base()) }
+                LocalKey.fromPaserk(cnf).use { client ->
+                    val proof = client.prove("GET", "https://api.example/v1/me", access, "p-1", 1700000000L)
+                    check(proof.startsWith("cb2.holder-local."), "local proof prefix")
+                    val proofs = mutableSetOf<String>()
+                    k.openClaims(access, base().proof(proof).request("GET", "HTTPS://API.EXAMPLE:443/v1/me?x=1").onProofReplay { proofs.add(it) })
+                    expect("proof_replayed", "local proof id already seen by the lambda") {
+                        k.openClaims(access, base().proof(proof).request("GET", "https://api.example/v1/me").onProofReplay { proofs.add(it) })
+                    }
+                    expect("proof_mismatch", "local proof for another request") {
+                        k.openClaims(access, base().proof(proof).request("POST", "https://api.example/v1/me").proofSeenJti())
+                    }
+                }
+                LocalKey.generate().use { stranger ->
+                    val forged = stranger.prove("GET", "https://api.example/v1/me", access, "p-2", 1700000000L)
+                    expect("proof_invalid", "local proof under another key") {
+                        k.openClaims(access, base().proof(forged).request("GET", "https://api.example/v1/me").proofSeenJti())
+                    }
+                }
+            }
+        }
+    }
+
     private fun testSeal() {
         if (!Cb2.hasSeal()) {
             println("kcb2.seal unavailable in this build; skipping")
@@ -200,6 +228,7 @@ object Cb2KtTest {
         println("cb2 ${Cb2.version()} from Kotlin, public ${Cb2.hasPublic()}, seal ${Cb2.hasSeal()}")
         testJson()
         testLocal()
+        testHolderLocal()
         testPublic()
         testSeal()
         println("Cb2KtTest: all checks passed")

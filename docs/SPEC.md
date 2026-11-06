@@ -486,9 +486,21 @@ string in the PAE, the ML-DSA context string and the text, so a proof is
 never a cb2.public token and a cb2.public token is never a proof under
 the same key; the footer binds the client key's kcb2.pid and the
 implicit assertion is the access token text, so a proof is worthless
-with any other token. The normative statement is PROTOCOL.md section
-13; the design, its decisions and the symmetric mode still to come are
-docs/SENDER_CONSTRAINT.md.
+with any other token.
+
+The local mode is the symmetric counterpart for cb2.local tokens. The
+issuer generates a fresh 32-byte proof key for the token, writes its
+`kcb2.local` string into `cnf`, where the token's encryption hides it,
+and returns the same string to the client with the token. The proof is a
+`cb2.holder-local.` token: the cb2.local construction of section 4 under
+the proof key, with the holder header in the key derivation input, the
+PAE and the text, the proof key's kcb2.lid in the footer and the access
+token text as the implicit assertion. It is about 360 bytes and costs a
+keyed BLAKE3 derivation and a tag on each side instead of a hybrid
+signature. A `kcb2.local` cnf in a cb2.public token, whose payload is in
+clear, is refused, and the issuing side refuses to sign one. The
+normative statement of both modes is PROTOCOL.md section 13; the design
+and its decisions are docs/SENDER_CONSTRAINT.md.
 
 The rationale for carrying the key rather than its id: the verifier
 then trusts nothing the client presents and needs no key store, since
@@ -513,7 +525,7 @@ access token itself (3.6 and 8.3).
 | key types | raw byte spans | raw byte spans | LocalKey, PublicKey, SecretKey; no byte spans in the token API | algorithm and purpose confusion by passing one key to the other function |
 | key id | footer by convention | footer by convention | bound by the library into `{"kid":...}` and compared in constant time | tokens accepted under a rotated or mis-selected key; timing on the id comparison |
 | claims | none in the token layer | none | typed claims with a validator that requires exp by default | missing-expiry and missing-audience bugs, the most common real token failures |
-| sender constraint | none (bearer) | none | cnf carries the client key; a holder proof per request, bound to the access token by the implicit assertion | a stolen token used from anywhere; a captured proof replayed against another token, target or method |
+| sender constraint | none (bearer) | none | cnf carries the client key, or a fresh proof key inside a cb2.local token; a holder proof per request, bound to the access token by the implicit assertion | a stolen token used from anywhere; a captured proof replayed against another token, target or method |
 | size limit | caller's problem | caller's problem | before any parsing | decompression-style and parser-cost denial of service |
 | JSON | caller's problem | caller's problem | strict reader, numbers never converted | duplicate-key and coercion ambiguities between issuer and verifier |
 | international text | UTF-8 accepted by the JSON grammar, nothing more | same | UTF-8 raw on the wire, escapes resolved before comparison, an identifier policy on both sides, no normalisation | identifiers that differ by an invisible or bidi character; tokens minted with text the verifier will refuse |
@@ -616,11 +628,12 @@ and generator executables only, never for the library interface.
    generator through `randombytes_set_implementation` before its first
    cb2 call, a vetted generator with its state owned by libsodium, as
    README.md describes. No batch of cb2's own will be added.
-6. Sender-constrained tokens: a `cnf` claim bound to a client key and a
-   per-request proof of a new purpose, so that a stolen token is useless
-   without the key. Resolved on 2026-11-04 for the public mode: a `cnf`
-   holding the client's `kcb2.public` key and `cb2.holder-public.`
-   proofs, normative in PROTOCOL.md section 13 with vectors in
-   tests/vectors/proofs.json. The symmetric mode (`cb2.holder-local.`)
-   designed in docs/SENDER_CONSTRAINT.md is reserved and not
-   implemented; a `kcb2.local` cnf is refused with `unavailable`.
+6. Resolved: sender-constrained tokens. A `cnf` claim binds the token
+   to a key and a per-request holder proof of a new purpose shows
+   possession of it, so that a stolen token is useless without the key.
+   Both modes of docs/SENDER_CONSTRAINT.md are implemented and normative
+   in PROTOCOL.md section 13: the public mode (`cnf` carries the client's
+   kcb2.public key, `cb2.holder-public.` proofs) since 2026-11-04, and
+   the local mode (`cnf` of a cb2.local token carries a fresh kcb2.local
+   proof key, `cb2.holder-local.` proofs) since 2026-11-06. A verifier
+   that never sees `cnf` behaves exactly as before.

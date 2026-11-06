@@ -116,7 +116,7 @@ function pairResult(m, fn, first, second) {
     });
 }
 
-function prove(m, client, request, accessToken, jti, now, lifetime) {
+function prove(m, fn, key, request, accessToken, jti, now, lifetime) {
     return withArena(m, (a) => {
         const htm = a.bytes(request.htm);
         const htu = a.bytes(request.htu);
@@ -126,7 +126,7 @@ function prove(m, client, request, accessToken, jti, now, lifetime) {
         const out = a.out();
         const len = a.out();
         const at = BigInt(now ?? Math.floor(Date.now() / 1000));
-        check(m, m._cb2_holder_prove(client.ptr, htm.ptr, htm.len, htu.ptr, htu.len, nonce.ptr, nonce.len,
+        check(m, fn(key.ptr, htm.ptr, htm.len, htu.ptr, htu.len, nonce.ptr, nonce.len,
             access.ptr, access.len, id.ptr, id.len, at, BigInt(lifetime ?? 60), out, len));
         return takeText(m, a.pointerAt(out));
     });
@@ -165,9 +165,12 @@ export function makeTokens(m, keys) {
         peekKeyId: (token) => textResult(m, m._cb2_peek_key_id, token),
     };
     const Holder = {
-        /** A proof by the client's SecretKey for one request and one access token. */
+        /** A public-mode proof by the client's SecretKey for one request and one access token. */
         prove: (clientSecret, request, accessToken, jti, now, lifetime) =>
-            prove(m, clientSecret, request, accessToken, jti, now, lifetime),
+            prove(m, m._cb2_holder_prove, clientSecret, request, accessToken, jti, now, lifetime),
+        /** A local-mode proof under the kcb2.local proof key the issuer put in cnf of a cb2.local access token. */
+        proveLocal: (proofKey, request, accessToken, jti, now, lifetime) =>
+            prove(m, m._cb2_holder_prove_local, proofKey, request, accessToken, jti, now, lifetime),
         /** The normalized form of a request target (argument when it is not a URI). */
         normalizeTarget: (uri) => textResult(m, m._cb2_holder_normalize_target, uri),
     };

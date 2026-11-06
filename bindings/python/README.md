@@ -59,8 +59,10 @@ paths it tried. From a fresh build of this repository:
 Every verdict of the library is a `cb2.Cb2Error` with `.code` and `.name`
 (`"expired"`, `"audience_mismatch"`, `"replayed"`, ...). `cb2.has_public()`
 and `cb2.has_seal()` tell whether this build carries cb2.public (`SecretKey`,
-`PublicKey`, `Token.sign`, `Token.verify`, `Holder`) and kcb2.seal
-(`RecipientKey`, `Seal`).
+`PublicKey`, `Token.sign`, `Token.verify`, `Holder.prove`) and kcb2.seal
+(`RecipientKey`, `Seal`). `Holder.prove_local`, the holder proof of the local
+mode under the `kcb2.local` proof key the issuer put in `cnf` of a cb2.local
+token, is in every build.
 
 ## Tests
 

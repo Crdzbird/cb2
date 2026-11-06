@@ -45,6 +45,7 @@ import nacl.signing
 LOCAL_HEADER = b"cb2.local."
 PUBLIC_HEADER = b"cb2.public."
 HOLDER_HEADER = b"cb2.holder-public."
+LOCAL_HOLDER_HEADER = b"cb2.holder-local."
 WRAP_HEADER = b"kcb2.local-wrap."
 SEAL_HEADER = b"kcb2.seal."
 XWING_LABEL = b"\\.//^\\"
@@ -992,15 +993,18 @@ class Rules:
 
 
 def classify_cnf(cnf, purpose):
-    """Section 13.1 and 13.5 step 2: the client key, or a verdict."""
+    """Section 13.1 and 13.5 step 2: the mode and the bound key, or a verdict."""
     text = cnf.encode("utf-8")
     if text.startswith(b"kcb2.public.") and len(text) == 2658:
         try:
-            return parse_key_string(text, b"kcb2.public.", 2658)
+            return "public", parse_key_string(text, b"kcb2.public.", 2658)
         except Verdict:
             raise Verdict("claims_malformed")
-    if text.startswith(b"kcb2.local.") and len(text) == 54:
-        raise Verdict("unavailable" if purpose == "local" else "claims_malformed")
+    if text.startswith(b"kcb2.local.") and purpose == "local":
+        try:
+            return "local", import_local_key(parse_key_string(text, b"kcb2.local.", 54))
+        except Verdict:
+            raise Verdict("claims_malformed")
     raise Verdict("claims_malformed")
 
 
@@ -1023,14 +1027,18 @@ def check_constraint(claims, rules, token, purpose, mldsa):
     if rules.proof is None:
         return "missing_proof", True
     try:
-        client_key = classify_cnf(cnf, purpose)
+        mode, bound_key = classify_cnf(cnf, purpose)
     except Verdict as verdict:
         return verdict.name, True
     if len(rules.proof) > rules.max_token_bytes:
         return "proof_invalid", True
-    footer = footer_for(kcb2_pid(client_key).decode("ascii"))
     try:
-        payload, ml_checked = public_verify(rules.proof, client_key, footer, token, mldsa, HOLDER_HEADER)
+        if mode == "local":
+            footer = footer_for(kcb2_lid(bound_key).decode("ascii"))
+            payload, ml_checked = local_open(rules.proof, bound_key, footer, token, LOCAL_HOLDER_HEADER), True
+        else:
+            footer = footer_for(kcb2_pid(bound_key).decode("ascii"))
+            payload, ml_checked = public_verify(rules.proof, bound_key, footer, token, mldsa, HOLDER_HEADER)
     except Verdict:
         return "proof_invalid", True
     try:
@@ -1423,11 +1431,42 @@ def check_proof_intermediates(report, doc, mldsa):
     expect_verdict(report, "cb2-H-1 proof is not a cb2.public token", lambda: public_verify(as_public, client_key, footer, implicit, mldsa), "invalid")
 
 
+def check_local_proofs(report, doc):
+    """Appendix A.5 local-proofs and local-intermediates: reproduce every local proof from its inputs."""
+    proof_key = import_local_key(unhex(doc["proof-key"]))
+    bound = utf8(doc["access-tokens"]["local-bound"]["payload"])
+    report.check("local-bound carries the proof key", b'"cnf":"' + kcb2_local(proof_key) + b'"' in bound)
+    for entry in doc["local-proofs"]:
+        name = entry["name"]
+        key = import_local_key(unhex(entry["key"]))
+        footer = utf8(entry["footer"])
+        report.check("%s footer is the key's default id" % name, footer == footer_for(kcb2_lid(key).decode("ascii")))
+        sealed = local_seal(key, unhex(entry["nonce"]), utf8(entry["payload"]), footer, utf8(entry["implicit-assertion"]), utf8(entry["header"]))
+        report.check("%s reproduce" % name, sealed["token"] == utf8(entry["proof"]), "got %s" % sealed["token"][:80].decode())
+    inter = doc["local-intermediates"]
+    claims, footer, implicit = utf8(inter["claims"]), utf8(inter["footer"]), utf8(inter["implicit-assertion"])
+    report.check("cb2-H-27 footer is the proof key's default id", footer == footer_for(kcb2_lid(proof_key).decode("ascii")))
+    report.check("cb2-H-27 implicit assertion is the local-bound access token", implicit == utf8(doc["access-tokens"]["local-bound"]["token"]))
+    sealed = local_seal(proof_key, unhex(inter["nonce"]), claims, footer, implicit, LOCAL_HOLDER_HEADER)
+    for field in ("ek", "n2", "ak", "ciphertext", "pae", "tag"):
+        report.check("cb2-H-27 %s" % field, sealed[field] == unhex(inter[field]), "got %s" % sealed[field].hex())
+    proof = utf8(inter["proof"])
+    report.check("cb2-H-27 proof", sealed["token"] == proof)
+    report.check("cb2-H-27 proof claims are canonical", parse_claims(claims).to_json() == claims)
+    try:
+        report.check("cb2-H-27 proof opens as cb2.holder-local", local_open(proof, proof_key, footer, implicit, LOCAL_HOLDER_HEADER) == claims)
+    except Verdict as verdict:
+        report.check("cb2-H-27 proof opens as cb2.holder-local", False, "verdict %s" % verdict.name)
+    as_local = LOCAL_HEADER + proof[len(LOCAL_HOLDER_HEADER) :]
+    expect_verdict(report, "cb2-H-27 proof is not a cb2.local token", lambda: local_open(as_local, proof_key, footer, implicit), "invalid")
+
+
 def check_proofs(report, doc, mldsa):
     """Every member of proofs.json."""
     before = report.snapshot()
     verifiers = check_access_tokens(report, doc, mldsa)
     check_proof_intermediates(report, doc, mldsa)
+    check_local_proofs(report, doc)
     for vector in doc["tests"]:
         token, purpose, authenticate, verifier_id = verifiers[vector["access-token"]]
         spec = dict(vector["rules"])

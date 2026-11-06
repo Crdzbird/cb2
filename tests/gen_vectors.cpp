@@ -51,6 +51,8 @@ const char* const KEY2_HEX = "808182838485868788898a8b8c8d8e8f909192939495969798
 const char* const NONCE_ZERO = "0000000000000000000000000000000000000000000000000000000000000000";
 const char* const NONCE_A = "df654812bac492663825520ba2f6e67cf5ca5bdc13d4e7507a98cc4c2fcc3ad8";
 const char* const NONCE_B = "26f7553354482a1d91d4784627854b8da6b8042a7966523c2b404e8dbbe7f7f2";
+const char* const PROOF_KEY_HEX = "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f";
+const char* const OTHER_PROOF_KEY_HEX = "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f";
 const char* const PAYLOAD_A = "{\"data\":\"this is a secret message\",\"exp\":\"2022-01-01T00:00:00+00:00\"}";
 const char* const PAYLOAD_B = "{\"data\":\"this is a hidden message\",\"exp\":\"2022-01-01T00:00:00+00:00\"}";
 const char* const FOOTER_KID = "{\"kid\":\"kcb2.lid.example\"}";
@@ -163,10 +165,10 @@ Bytes pae_of(std::initializer_list<std::span<const uint8_t>> pieces) {
 /// recorded token must be exactly nonce, ciphertext and tag.
 void local_intermediates(Value& v, std::string_view key_hex, std::string_view nonce_hex,
                          std::string_view payload, std::string_view footer,
-                         std::string_view implicit, std::string_view token) {
+                         std::string_view implicit, std::string_view token,
+                         std::string_view h = Local::HEADER) {
     const Bytes key = tu::unhex(key_hex);
     const Bytes nonce = tu::unhex(nonce_hex);
-    const std::string_view h = Local::HEADER;
     Bytes split(88);
     cb2::detail::Blake3Keyed hk(key.data());
     hk.update(reinterpret_cast<const uint8_t*>(h.data()), h.size());
@@ -620,9 +622,11 @@ void write_public_and_paserk(const std::string& dir, Value& paserk_root) {
 }
 
 #ifdef CB2_HAS_PQ
-/// proofs.json: three access tokens (a local one and a public one bound to
-/// the client's key, and a bearer one), the proofs the client makes for
-/// them, and what a verifier says for each request and rule set.
+/// proofs.json: access tokens bound to the client's key (a local one and a
+/// public one), a local one bound to a proof key, two whose kcb2.local cnf
+/// is refused (in a public token, and a weak key) and a bearer one; the
+/// proofs of both modes made for them, the local ones reproducible; and
+/// what a verifier says for each request and rule set.
 void write_holder(const std::string& dir) {
     const LocalKey k = LocalKey::from_bytes(tu::unhex(KEY_HEX)).value();
     const cb2::SecretKey issuer = cb2::SecretKey::generate().value();
@@ -646,23 +650,23 @@ void write_holder(const std::string& dir) {
     Value root = object();
     put(root, "name", str("cb2 holder proof vectors"));
     put(root, "generator", str("cb2_gen_vectors " + std::string(cb2::VERSION)));
-    put(root, "note", str("ML-DSA-65 signing is randomised; proofs verify under the client key but are not reproduced byte for byte"));
+    put(root, "note", str("ML-DSA-65 signing is randomised, so public proofs verify under the client key but are not reproduced byte for byte; local proofs are reproduced byte for byte from local-proofs"));
     put(root, "issuer", str(ISSUER));
     put(root, "audience", str("api"));
     put(root, "client-public-key", str(tu::hex(client.public_key().bytes())));
     put(root, "stranger-public-key", str(tu::hex(stranger.public_key().bytes())));
     Value tokens = object();
-    auto local_entry = [&](const std::string& token, const Claims& c) {
+    auto local_entry_with = [&](const std::string& token, const Claims& c, const char* nonce) {
         Value v = object();
         put(v, "purpose", str("local"));
         put(v, "key", str(KEY_HEX));
-        put(v, "nonce", str(NONCE_A));
+        put(v, "nonce", str(nonce));
         put(v, "payload", str(c.to_json()));
         put(v, "token", str(token));
         return v;
     };
-    put(tokens, "local", local_entry(local_token, bound));
-    put(tokens, "bearer", local_entry(bearer_token, bearer));
+    put(tokens, "local", local_entry_with(local_token, bound, NONCE_A));
+    put(tokens, "bearer", local_entry_with(bearer_token, bearer, NONCE_A));
     Value pub = object();
     put(pub, "purpose", str("public"));
     put(pub, "issuer-public-key", str(tu::hex(issuer.public_key().bytes())));
@@ -750,6 +754,120 @@ void write_holder(const std::string& dir) {
     add("cb2-H-24", "public", p_public, get_me, NOW, 0, 60, {}, nullptr, "ok");
     add("cb2-H-25", "public", p1, get_me, NOW, 0, 60, {}, nullptr, "proof_invalid");
     add("cb2-H-26", "local", p1, get_me, NOW + 7200, 0, 60, {}, nullptr, "expired");
+
+    const LocalKey proof_key = LocalKey::from_bytes(tu::unhex(PROOF_KEY_HEX)).value();
+    const LocalKey other_key = LocalKey::from_bytes(tu::unhex(OTHER_PROOF_KEY_HEX)).value();
+    const std::string proof_footer = Token::footer_for(proof_key.paserk_id());
+    Claims local_bound = bound;
+    local_bound.sub = "service-a";
+    const cb2::SecureString proof_text = proof_key.to_paserk();
+    local_bound.cnf = std::string(proof_text.data(), proof_text.size());
+    Claims weak_bound = local_bound;
+    weak_bound.cnf = "kcb2.local.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    const std::string local_bound_token = seal_local(k, NONCE_B, local_bound.to_json(), local_footer, "");
+    const std::string weak_token = seal_local(k, NONCE_B, weak_bound.to_json(), local_footer, "");
+    const std::string issuer_footer = Token::footer_for(issuer.public_key().paserk_id());
+    const std::string public_local_token = cb2::Public::sign(issuer, cb2::bytes(local_bound.to_json()), cb2::bytes(issuer_footer)).value();
+    if (Token::sign(issuer, local_bound).is_ok()) { std::fprintf(stderr, "a kcb2.local cnf was signed\n"); std::exit(1); }
+    put(root, "proof-key", str(PROOF_KEY_HEX));
+    {
+        Value* at = nullptr;
+        for (auto& [name, value] : root.members) if (name == "access-tokens") at = &value;
+        put(*at, "local-bound", local_entry_with(local_bound_token, local_bound, NONCE_B));
+        put(*at, "local-weak-cnf", local_entry_with(weak_token, weak_bound, NONCE_B));
+        Value pl = object();
+        put(pl, "purpose", str("public"));
+        put(pl, "issuer-public-key", str(tu::hex(issuer.public_key().bytes())));
+        put(pl, "payload", str(local_bound.to_json()));
+        put(pl, "token", str(public_local_token));
+        put(*at, "public-local-cnf", std::move(pl));
+    }
+
+    Value local_proofs = array();
+    const char* const nonces[] = {
+        "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+        "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf",
+        "e0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+    };
+    auto local_proof = [&](const char* name, std::string_view header, const char* key_hex, const char* nonce_hex,
+                           const std::string& payload, const std::string& footer, const std::string& access) {
+        const LocalKey key = LocalKey::from_bytes(tu::unhex(key_hex)).value();
+        std::string out(cb2::detail::LocalCore::token_len(header, payload.size(), footer.size()), '\0');
+        size_t n = 0;
+        const Bytes nonce = tu::unhex(nonce_hex);
+        const Status s = cb2::detail::LocalCore::seal(header, {reinterpret_cast<uint8_t*>(out.data()), out.size()}, n,
+                                                      cb2::detail::KeyAccess::local(key), cb2::bytes(payload),
+                                                      cb2::bytes(footer), cb2::bytes(access), nonce.data());
+        if (s != Status::ok) { std::fprintf(stderr, "local proof failed\n"); std::exit(1); }
+        Value v = object();
+        put(v, "name", str(name));
+        put(v, "header", str(header));
+        put(v, "key", str(key_hex));
+        put(v, "nonce", str(nonce_hex));
+        put(v, "payload", str(payload));
+        put(v, "footer", str(footer));
+        put(v, "implicit-assertion", str(access));
+        put(v, "proof", str(out));
+        local_proofs.items.push_back(std::move(v));
+        return out;
+    };
+    auto local_make = [&](const char* name, const char* key_hex, const char* nonce_hex, const cb2::HolderRequest& r,
+                          const char* jti, long long lifetime, const std::string& access) {
+        const LocalKey key = LocalKey::from_bytes(tu::unhex(key_hex)).value();
+        const std::string payload = cb2::HolderProof::claims_for(r, jti, NOW, lifetime).value().to_json();
+        const std::string footer = Token::footer_for(key.paserk_id());
+        const std::string out = local_proof(name, cb2::Holder::LOCAL_HEADER, key_hex, nonce_hex, payload, footer, access);
+        const std::string made = cb2::HolderProof::make_local_with_nonce_for_testing(key, r, access, jti, NOW, lifetime, tu::unhex(nonce_hex)).value();
+        if (made != out) { std::fprintf(stderr, "make_local differs from the construction\n"); std::exit(1); }
+        return out;
+    };
+    const std::string lp1 = local_make("lp-1", PROOF_KEY_HEX, nonces[0], get_me, "lp-1", 60, local_bound_token);
+    const std::string lp_long = local_make("lp-2", PROOF_KEY_HEX, nonces[1], get_me, "lp-2", 600, local_bound_token);
+    const std::string lp_nonce = local_make("lp-3", PROOF_KEY_HEX, nonces[2], request("GET", TARGET, "n-1"), "lp-3", 60, local_bound_token);
+    const std::string lp_other_key = local_make("lp-4", OTHER_PROOF_KEY_HEX, nonces[0], get_me, "lp-4", 60, local_bound_token);
+    const std::string lp_token_key = local_make("lp-5", KEY_HEX, nonces[0], get_me, "lp-5", 60, local_bound_token);
+    const std::string lp_other_token = local_make("lp-6", PROOF_KEY_HEX, nonces[0], get_me, "lp-6", 60, bearer_token);
+    const std::string lp_public_bound = local_make("lp-7", PROOF_KEY_HEX, nonces[0], get_me, "lp-7", 60, local_token);
+    const std::string lp1_payload = cb2::HolderProof::claims_for(get_me, "lp-1", NOW, 60).value().to_json();
+    const std::string lp_as_token = local_proof("lp-8", Local::HEADER, PROOF_KEY_HEX, nonces[0], lp1_payload, proof_footer, local_bound_token);
+    const std::string lp_no_htm_payload = "{\"exp\":\"2023-11-14T22:14:20+00:00\",\"iat\":\"2023-11-14T22:13:20+00:00\",\"jti\":\"lp-9\",\"htu\":\"https://api.example/v1/me\"}";
+    const std::string lp_malformed = local_proof("lp-9", cb2::Holder::LOCAL_HEADER, PROOF_KEY_HEX, nonces[0], lp_no_htm_payload, proof_footer, local_bound_token);
+    const std::string lp_public_cnf = local_make("lp-10", PROOF_KEY_HEX, nonces[0], get_me, "lp-10", 60, public_local_token);
+    const std::string lp_weak = local_make("lp-11", PROOF_KEY_HEX, nonces[0], get_me, "lp-11", 60, weak_token);
+    std::string lp_flipped = lp1;
+    lp_flipped[40] = lp_flipped[40] == 'A' ? 'B' : 'A';
+    std::string lp_as_local = lp1;
+    lp_as_local.replace(0, cb2::Holder::LOCAL_HEADER.size(), Local::HEADER);
+    const std::string p_for_local = make(client, get_me, local_bound_token, "p-7", NOW, 60);
+    put(root, "local-proofs", std::move(local_proofs));
+
+    add("cb2-H-27", "local-bound", lp1, get_me, NOW, 0, 60, {}, nullptr, "ok");
+    add("cb2-H-28", "local-bound", lp1, get_me, NOW, 0, 60, {"lp-1"}, nullptr, "proof_replayed");
+    add("cb2-H-29", "local-bound", lp1, request("POST", TARGET, nullptr), NOW, 0, 60, {}, nullptr, "proof_mismatch");
+    add("cb2-H-30", "local-bound", lp1, request("GET", "https://api.example/v1/you", nullptr), NOW, 0, 60, {}, nullptr, "proof_mismatch");
+    add("cb2-H-31", "local-bound", lp1, request("GET", "HTTPS://API.EXAMPLE:443/v1/me?page=2#top", nullptr), NOW, 0, 60, {}, nullptr, "ok");
+    add("cb2-H-32", "local-bound", lp1, get_me, NOW + 61, 0, 60, {}, nullptr, "proof_expired");
+    add("cb2-H-33", "local-bound", lp1, get_me, NOW + 61, 5, 60, {}, nullptr, "ok");
+    add("cb2-H-34", "local-bound", lp1, get_me, NOW - 1, 0, 60, {}, nullptr, "proof_expired");
+    add("cb2-H-35", "local-bound", lp_long, get_me, NOW, 0, 60, {}, nullptr, "proof_expired");
+    add("cb2-H-36", "local-bound", lp_long, get_me, NOW, 0, 600, {}, nullptr, "ok");
+    add("cb2-H-37", "local-bound", lp_nonce, request("GET", TARGET, "n-1"), NOW, 0, 60, {}, nullptr, "ok");
+    add("cb2-H-38", "local-bound", lp_nonce, request("GET", TARGET, "n-2"), NOW, 0, 60, {}, nullptr, "proof_mismatch");
+    add("cb2-H-39", "local-bound", lp1, request("GET", TARGET, "n-1"), NOW, 0, 60, {}, nullptr, "proof_mismatch");
+    add("cb2-H-40", "local-bound", lp_other_key, get_me, NOW, 0, 60, {}, nullptr, "proof_invalid");
+    add("cb2-H-41", "local-bound", lp_token_key, get_me, NOW, 0, 60, {}, nullptr, "proof_invalid");
+    add("cb2-H-42", "local-bound", lp_other_token, get_me, NOW, 0, 60, {}, nullptr, "proof_invalid");
+    add("cb2-H-43", "local-bound", lp_flipped, get_me, NOW, 0, 60, {}, nullptr, "proof_invalid");
+    add("cb2-H-44", "local-bound", lp_as_local, get_me, NOW, 0, 60, {}, nullptr, "proof_invalid");
+    add("cb2-H-45", "local-bound", lp_as_token, get_me, NOW, 0, 60, {}, nullptr, "proof_invalid");
+    add("cb2-H-46", "local-bound", lp_malformed, get_me, NOW, 0, 60, {}, nullptr, "proof_malformed");
+    add("cb2-H-47", "local-bound", "", get_me, NOW, 0, 60, {}, nullptr, "missing_proof");
+    add("cb2-H-48", "local-bound", "", get_me, NOW, 0, 60, {}, "ignore", "ok");
+    add("cb2-H-49", "local-bound", p_for_local, get_me, NOW, 0, 60, {}, nullptr, "proof_invalid");
+    add("cb2-H-50", "local", lp_public_bound, get_me, NOW, 0, 60, {}, nullptr, "proof_invalid");
+    add("cb2-H-51", "public-local-cnf", lp_public_cnf, get_me, NOW, 0, 60, {}, nullptr, "claims_malformed");
+    add("cb2-H-52", "local-weak-cnf", lp_weak, get_me, NOW, 0, 60, {}, nullptr, "claims_malformed");
+    add("cb2-H-53", "local-bound", lp1, get_me, NOW + 7200, 0, 60, {}, nullptr, "expired");
     put(root, "tests", std::move(tests));
 
     Value inter = object();
@@ -769,6 +887,16 @@ void write_holder(const std::string& dir) {
     put(inter, "pae", str(tu::hex(pae)));
     put(inter, "ed25519-signature", str(tu::hex(ed_sig)));
     put(root, "intermediates", std::move(inter));
+
+    Value local_inter = object();
+    put(local_inter, "proof", str(lp1));
+    put(local_inter, "nonce", str(nonces[0]));
+    put(local_inter, "claims", str(lp1_payload));
+    put(local_inter, "footer", str(proof_footer));
+    put(local_inter, "implicit-assertion", str(local_bound_token));
+    local_intermediates(local_inter, PROOF_KEY_HEX, nonces[0], lp1_payload, proof_footer, local_bound_token, lp1,
+                        cb2::Holder::LOCAL_HEADER);
+    put(root, "local-intermediates", std::move(local_inter));
 
     Value norm = array();
     const char* const cases[][2] = {

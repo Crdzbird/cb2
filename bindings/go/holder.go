@@ -9,17 +9,12 @@ import "runtime"
 
 // HolderProve signs a proof with the client's pair for one request
 // (method, target and optional nonce) and one access token, with the
-// given proof id, issue time and lifetime in seconds.
+// given proof id, issue time and lifetime in seconds: the public mode.
 func HolderProve(client *SecretKey, htm, htu string, nonce *string, accessToken, jti string, now, lifetime int64) (string, error) {
 	if client == nil || client.h == nil {
 		return "", errClosed
 	}
-	var noncePtr *C.char
-	var nonceLen C.size_t
-	if nonce != nil {
-		noncePtr = strPtr(*nonce)
-		nonceLen = C.size_t(len(*nonce))
-	}
+	noncePtr, nonceLen := optionalText(nonce)
 	var out *C.char
 	var n C.size_t
 	code := C.cb2_holder_prove(client.h, strPtr(htm), C.size_t(len(htm)),
@@ -32,6 +27,36 @@ func HolderProve(client *SecretKey, htm, htu string, nonce *string, accessToken,
 		return "", err
 	}
 	return takeText(out, n), nil
+}
+
+// HolderProveLocal makes a proof under the kcb2.local proof key the
+// issuer wrote into cnf of a cb2.local access token and handed to the
+// client with it, for one request and that token: the local mode,
+// available in every build.
+func HolderProveLocal(proofKey *LocalKey, htm, htu string, nonce *string, accessToken, jti string, now, lifetime int64) (string, error) {
+	if proofKey == nil || proofKey.h == nil {
+		return "", errClosed
+	}
+	noncePtr, nonceLen := optionalText(nonce)
+	var out *C.char
+	var n C.size_t
+	code := C.cb2_holder_prove_local(proofKey.h, strPtr(htm), C.size_t(len(htm)),
+		strPtr(htu), C.size_t(len(htu)), noncePtr, nonceLen,
+		strPtr(accessToken), C.size_t(len(accessToken)),
+		strPtr(jti), C.size_t(len(jti)),
+		C.int64_t(now), C.int64_t(lifetime), &out, &n)
+	runtime.KeepAlive(proofKey)
+	if err := check(code); err != nil {
+		return "", err
+	}
+	return takeText(out, n), nil
+}
+
+func optionalText(s *string) (*C.char, C.size_t) {
+	if s == nil {
+		return nil, 0
+	}
+	return strPtr(*s), C.size_t(len(*s))
 }
 
 // NormalizeTarget reduces a request URI to the form a holder proof

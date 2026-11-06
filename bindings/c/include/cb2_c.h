@@ -190,12 +190,21 @@ CB2_API int cb2_token_verify(const cb2_public_key* key, const char* token, size_
 /* The key id a token's footer names, unverified; 0 and NULL when none. */
 CB2_API int cb2_peek_key_id(const char* token, size_t token_len, char** out_id);
 
-/* Holder proofs (sender constraint): a proof by the client's signing pair
- * for one request and one access token. nonce may be NULL. */
+/* Holder proofs (sender constraint) for one request and one access token;
+ * nonce may be NULL. cb2_holder_prove is the public mode, a proof by the
+ * client's signing pair (only when cb2_has_public). cb2_holder_prove_local
+ * is the local mode, in every build: a proof under the kcb2.local proof key
+ * the issuer wrote into cnf of a cb2.local access token and handed to the
+ * client with it. The verifier checks either through cb2_token_open or
+ * cb2_token_verify with "proof" and "request" in the rules. */
 CB2_API int cb2_holder_prove(const cb2_secret_key* client, const char* htm, size_t htm_len,
                              const char* htu, size_t htu_len, const char* nonce, size_t nonce_len,
                              const char* access_token, size_t access_len, const char* jti, size_t jti_len,
                              int64_t now, int64_t lifetime, char** out_proof, size_t* out_len);
+CB2_API int cb2_holder_prove_local(const cb2_local_key* proof_key, const char* htm, size_t htm_len,
+                                   const char* htu, size_t htu_len, const char* nonce, size_t nonce_len,
+                                   const char* access_token, size_t access_len, const char* jti, size_t jti_len,
+                                   int64_t now, int64_t lifetime, char** out_proof, size_t* out_len);
 CB2_API int cb2_holder_normalize_target(const char* uri, size_t len, char** out);
 
 /* Key wrapping and sealing */

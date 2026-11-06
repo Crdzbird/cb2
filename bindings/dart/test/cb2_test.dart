@@ -1,6 +1,7 @@
 import 'package:test/test.dart';
 
 import 'checks/holder_checks.dart' as holder;
+import 'checks/holder_local_checks.dart' as holder_local;
 import 'checks/local_key_checks.dart' as local_key;
 import 'checks/local_token_checks.dart' as local_token;
 import 'checks/public_checks.dart' as public;
@@ -13,5 +14,6 @@ void main() {
   group('local tokens', local_token.run);
   group('public', public.run);
   group('holder', holder.run);
+  group('holder local', holder_local.run);
   group('seal', seal.run);
 }

@@ -126,8 +126,11 @@ The second open prints `replayed 17`.
   `JSON.stringify`, with the registered claims as strings (times as RFC
   3339); the opened claims come back as a plain object.
 - `Holder.prove(clientSecret, { htm, htu, nonce }, accessToken, jti, now,
-  lifetime)` and `Holder.normalizeTarget(uri)`. `now` defaults to the
-  clock and `lifetime` to 60 seconds.
+  lifetime)`, the public mode, `Holder.proveLocal(proofKey, { htm, htu,
+  nonce }, accessToken, jti, now, lifetime)`, the local mode under the
+  `kcb2.local` proof key the issuer put in `cnf` of a cb2.local token, and
+  `Holder.normalizeTarget(uri)`. `now` defaults to the clock and
+  `lifetime` to 60 seconds.
 - `KeyWrap.wrap(wrapping, key)`, `KeyWrap.unwrap(text, wrapping)`,
   `Seal.seal(recipientPublic, key)`, `Seal.unseal(text, recipient)`.
 - `hasPublic()`, `hasSeal()`, `version()`, `errorName(code)`, the

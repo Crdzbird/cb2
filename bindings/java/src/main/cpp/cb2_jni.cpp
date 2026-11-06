@@ -563,6 +563,27 @@ CB2_JNI(jbyteArray, holderProve)(JNIEnv* env, jclass, jlong client, jbyteArray h
     return take_text(env, out, len);
 }
 
+CB2_JNI(jbyteArray, holderProveLocal)(JNIEnv* env, jclass, jlong proof_key, jbyteArray htm, jbyteArray htu,
+                                      jbyteArray nonce, jbyteArray access, jbyteArray jti, jlong now,
+                                      jlong lifetime) {
+    Bytes m = read(env, htm);
+    Bytes u = read(env, htu);
+    Bytes n = read(env, nonce);
+    Bytes a = read(env, access);
+    Bytes j = read(env, jti);
+    char* out = nullptr;
+    size_t len = 0;
+    int rc = cb2_holder_prove_local(handle<cb2_local_key>(proof_key), m.chars(), m.size(), u.chars(), u.size(),
+                                    n.present ? n.chars() : nullptr, n.size(), a.chars(), a.size(), j.chars(),
+                                    j.size(), static_cast<int64_t>(now), static_cast<int64_t>(lifetime), &out,
+                                    &len);
+    if (rc != CB2_OK) {
+        throw_code(env, rc);
+        return nullptr;
+    }
+    return take_text(env, out, len);
+}
+
 CB2_JNI(jbyteArray, holderNormalizeTarget)(JNIEnv* env, jclass, jbyteArray uri) {
     Bytes u = read(env, uri);
     char* out = nullptr;

@@ -90,6 +90,7 @@ if(CB2_BUILD_TESTS)
         tests/test_v4_crosscheck.cpp
         tests/test_text.cpp
         tests/test_holder.cpp
+        tests/test_holder_local.cpp
         tests/test_reference.cpp
         tests/test_seal.cpp
         tests/test_sha3.cpp)
@@ -128,6 +129,7 @@ if(CB2_BUILD_PLAYGROUND)
     if(CB2_BUILD_TESTS)
         add_test(NAME cb2_playground_demo COMMAND cb2_playground "${CMAKE_CURRENT_SOURCE_DIR}/playground/demo.cb2")
         add_test(NAME cb2_playground_demo_text COMMAND cb2_playground "${CMAKE_CURRENT_SOURCE_DIR}/playground/demo_text.cb2")
+        add_test(NAME cb2_playground_demo_holder_local COMMAND cb2_playground "${CMAKE_CURRENT_SOURCE_DIR}/playground/demo_holder_local.cb2")
         if(CB2_PQ)
             add_test(NAME cb2_playground_demo_public COMMAND cb2_playground "${CMAKE_CURRENT_SOURCE_DIR}/playground/demo_public.cb2")
             add_test(NAME cb2_playground_demo_holder COMMAND cb2_playground "${CMAKE_CURRENT_SOURCE_DIR}/playground/demo_holder.cb2")

@@ -28,6 +28,7 @@ jobs:
           ./build/cb2_example_text
           ./build/cb2_playground playground/demo.cb2
           ./build/cb2_playground playground/demo_text.cb2
+          ./build/cb2_playground playground/demo_holder_local.cb2
           ./build/cb2_playground playground/demo_public.cb2
           test -x build/cb2_bench
           ./build/bindings/c/cb2_c_test
@@ -39,6 +40,7 @@ jobs:
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_example_text
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_playground playground/demo.cb2
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_playground playground/demo_text.cb2
+          ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_playground playground/demo_holder_local.cb2
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_playground playground/demo_public.cb2
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/bindings/c/cb2_c_test
       - name: Build without liboqs (cb2.local only)
@@ -50,6 +52,7 @@ jobs:
           ./build-nopq/cb2_example_text
           ./build-nopq/cb2_playground playground/demo.cb2
           ./build-nopq/cb2_playground playground/demo_text.cb2
+          ./build-nopq/cb2_playground playground/demo_holder_local.cb2
           ./build-nopq/bindings/c/cb2_c_test
       - name: Bridges with a toolchain on this runner (Swift, Python, Node, Go)
         run: |
@@ -97,6 +100,7 @@ jobs:
           ./build/cb2_example_text
           ./build/cb2_playground playground/demo.cb2
           ./build/cb2_playground playground/demo_text.cb2
+          ./build/cb2_playground playground/demo_holder_local.cb2
           ./build/cb2_playground playground/demo_public.cb2
           test -x build/cb2_bench
           ./build/bindings/c/cb2_c_test
@@ -108,6 +112,7 @@ jobs:
           ./build-asan/cb2_example_text
           ./build-asan/cb2_playground playground/demo.cb2
           ./build-asan/cb2_playground playground/demo_text.cb2
+          ./build-asan/cb2_playground playground/demo_holder_local.cb2
           ./build-asan/cb2_playground playground/demo_public.cb2
           ./build-asan/bindings/c/cb2_c_test
       - name: Build without liboqs (cb2.local only)
@@ -119,6 +124,7 @@ jobs:
           ./build-nopq/cb2_example_text
           ./build-nopq/cb2_playground playground/demo.cb2
           ./build-nopq/cb2_playground playground/demo_text.cb2
+          ./build-nopq/cb2_playground playground/demo_holder_local.cb2
           ./build-nopq/bindings/c/cb2_c_test
       - name: Bridges with a toolchain on this runner (Python, Node, Go)
         run: |

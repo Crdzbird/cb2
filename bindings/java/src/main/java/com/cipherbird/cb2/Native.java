@@ -119,6 +119,9 @@ final class Native {
     static native byte[] holderProve(long client, byte[] htm, byte[] htu, byte[] nonce, byte[] accessToken,
             byte[] jti, long now, long lifetime);
 
+    static native byte[] holderProveLocal(long proofKey, byte[] htm, byte[] htu, byte[] nonce, byte[] accessToken,
+            byte[] jti, long now, long lifetime);
+
     static native byte[] holderNormalizeTarget(byte[] uri);
 
     static native byte[] wrap(long wrapping, long key);

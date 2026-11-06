@@ -107,13 +107,13 @@ encoding.
 
 ```
 token   = header body-text [ "." footer-text ]
-header  = "cb2.local." | "cb2.public." | "cb2.holder-public."
+header  = "cb2.local." | "cb2.public." | "cb2.holder-public." | "cb2.holder-local."
 body-text   = base64url(body)
 footer-text = base64url(f)      ; present if and only if len(f) > 0
 ```
 
-The header `cb2.local.` is 10 bytes, `cb2.public.` is 11 bytes and
-`cb2.holder-public.` is 18 bytes. The body is defined per purpose in
+The header `cb2.local.` is 10 bytes, `cb2.public.` is 11 bytes,
+`cb2.holder-public.` is 18 bytes and `cb2.holder-local.` is 17 bytes. The body is defined per purpose in
 sections 5, 6 and 13. The footer f is
 authenticated but transmitted in clear. Every byte of a token after the
 header is a base64url character or the single `.` that separates the
@@ -587,6 +587,10 @@ steps above.
   token at the cost of one short hash per guess; keys MUST be uniformly
   random, and a key that for some reason is not SHOULD carry an opaque
   explicit id instead of its kcb2.lid.
+- Proof keys. A `kcb2.local` value in cnf is a secret that every party
+  able to open the token holds. It MUST be generated fresh for each
+  token, MUST NOT be written into a cb2.public token, and MUST NOT be
+  logged or forwarded by whoever receives the claims (13.1).
 - Sizes. A cb2.public token is at least 4509 bytes before any claims and
   does not fit a browser cookie with room to spare. The local purpose is
   the one for session tokens; the public purpose is for service to
@@ -597,11 +601,18 @@ steps above.
 
 A token whose payload carries the registered claim `cnf` is
 sender-constrained: a verifier accepts it only together with a holder
-proof, a token of purpose `cb2.holder-public.` that the presenter made
-under the key `cnf` names, for this request and for this very access
-token. The token alone is then no more useful to a thief than a public
-key. The design and its rationale are in SENDER_CONSTRAINT.md; this
-section is the normative part.
+proof that the presenter made under the key `cnf` binds, for this
+request and for this very access token. The token alone is then no more
+useful to a thief than a public key. There are two modes, chosen by what
+`cnf` holds:
+
+| mode | access token | cnf holds | proof purpose | proof made by |
+|---|---|---|---|---|
+| public | cb2.local or cb2.public | the client's `kcb2.public` key | `cb2.holder-public.` | the construction of section 6, under the client's key pair |
+| local | cb2.local only | a `kcb2.local` proof key | `cb2.holder-local.` | the construction of section 5, under the proof key |
+
+The design and its rationale are in SENDER_CONSTRAINT.md; this section
+is the normative part.
 
 ### 13.1 The cnf claim
 
@@ -613,12 +624,27 @@ Its value is a key string:
   key, not its id, so a verifier needs no key store and consults nothing
   the client presents: the key arrives under the issuer's tag or
   signature.
-- `kcb2.local.` followed by 43 base64url characters: reserved for the
-  symmetric holder mode, which this version does not define. A verifier
-  MUST treat it as `claims_malformed` in a cb2.public token, where the
-  key would be in clear, and as `unavailable` in a cb2.local token.
+- `kcb2.local.` followed by 43 base64url characters, in a cb2.local
+  token only: a 32-byte proof key, the local mode. The issuer generates
+  it uniformly at random for this one token, never reuses it and never
+  derives it from the token key or anything else, writes its key string
+  into cnf and returns the same string to the client in the response
+  that carries the token. The payload of a cb2.local token is encrypted,
+  so the key is known to the issuer, the client and the verifiers that
+  can open the token, and to nobody who only holds the token text. An
+  issuer MUST NOT write a `kcb2.local` value into a cb2.public token,
+  whose payload is in clear; a verifier MUST treat one found there as
+  `claims_malformed`. The value MUST be exactly 54 characters, decode
+  with the strict decoder and pass the weak-key check of 5.1 (its 32
+  bytes not all equal); otherwise it is `claims_malformed`.
 
 Any other value is `claims_malformed` when the constraint is checked.
+
+A cnf that carries a proof key is a secret of the same weight as the
+token itself for the token's lifetime. The claims a verifier releases
+include it; an application that receives the claims of a local-mode
+token MUST NOT log or forward cnf, and SHOULD drop it once the token is
+accepted.
 
 ### 13.2 The request and the target
 
@@ -661,6 +687,8 @@ reproducible.
 
 ### 13.4 Making a proof
 
+Public mode, under the client's key pair:
+
 ```
 h      = "cb2.holder-public."
 f      = {"kid":"<kcb2.pid of the client key>"}        (section 8, the key's default id)
@@ -671,9 +699,31 @@ proof  = the construction of section 6.2 with header h, message = the payload of
 The header is the domain string everywhere section 6 uses the header:
 in the PAE, in the ML-DSA context string and in the text. A proof
 therefore never verifies as a cb2.public token and a cb2.public token
-never verifies as a proof, under the same key. The implicit assertion
-ties the proof to one access token without carrying a hash of it; the
-verifier holds that text and nothing is sent twice.
+never verifies as a proof, under the same key.
+
+Local mode, under the proof key P that cnf of the access token carries:
+
+```
+h      = "cb2.holder-local."
+f      = {"kid":"<kcb2.lid of P>"}                      (section 8, the key's default id)
+i      = the complete text of the access token
+proof  = the construction of section 5.2 with K = P, header h, a fresh 32-byte nonce n,
+         message = the payload of 13.3, footer f, implicit assertion i
+```
+
+The header replaces `cb2.local.` everywhere section 5 uses it: in the
+key derivation input `h || n`, in the PAE, which begins
+`LE64(5) || LE64(17) || "cb2.holder-local."`, and in the text. A local
+proof therefore never opens as a cb2.local token and a cb2.local token
+never opens as a proof, under the same key, for the reason a
+kcb2.local-wrap string is not a cb2.local token (section 7). The footer
+is built from P's kcb2.lid whatever id the client's copy of the key
+carries, since the verifier rebuilds it from the key it read out of cnf.
+The nonce rules of 5.1 apply to the proof key as to any key.
+
+In both modes the implicit assertion ties the proof to one access token
+without carrying a hash of it; the verifier holds that text and nothing
+is sent twice.
 
 ### 13.5 Verifying
 
@@ -696,13 +746,19 @@ Step 5 of 9.6, stopping at the first failure:
 1. If the rules ignore the constraint, release. Otherwise cnf absent:
    `missing_cnf` when required, else release as a bearer token. cnf
    present and no proof in the rules: `missing_proof`.
-2. Classify cnf as 13.1 says; import the `kcb2.public` key; a string of
-   the wrong length or encoding is `claims_malformed`.
-3. Verify the proof as a `cb2.holder-public.` token under that key with
-   the footer rebuilt from the key's default id and the implicit
-   assertion set to the access token text, bounded first by the same
-   size limit as the access token. Every failure that depends on the
-   proof's bytes, the size included, is `proof_invalid`, one verdict.
+2. Classify cnf as 13.1 says. A `kcb2.public` value: import the client
+   key; a string of the wrong length or encoding is `claims_malformed`.
+   A `kcb2.local` value: `claims_malformed` in a cb2.public token;
+   otherwise import the proof key with the checks of 13.1, whose failure
+   is `claims_malformed`. Nothing the client sent is consulted.
+3. Bound the proof first by the same size limit as the access token.
+   Then, in the public mode, verify it as a `cb2.holder-public.` token
+   under the client key (section 6.3 with that header); in the local
+   mode, open it as a `cb2.holder-local.` token under the proof key
+   (section 5.3 with that header). In both, the footer is rebuilt from
+   the key's default id and the implicit assertion is the access token
+   text. Every failure that depends on the proof's bytes, the size
+   included, is `proof_invalid`, one verdict.
 4. Parse the proof claims under 9.2 and 9.4; failure, or jti, iat, exp,
    htm or htu absent or not strings: `proof_malformed`. Then, with
    t = now, s = the clock skew and L = the proof lifetime:
@@ -717,20 +773,31 @@ Step 5 of 9.6, stopping at the first failure:
 
 A verifier MUST NOT accept a proof whose implicit assertion is anything
 but the access token it arrived with, MUST NOT accept a proof under a key
-other than the one cnf carries, and MUST NOT skip the replay check: the
-proof lifetime is the only thing that bounds the replay store, and
-without the store a captured request can be replayed for that long.
+other than the one cnf carries, MUST NOT accept a proof of one mode for
+a cnf of the other, and MUST NOT skip the replay check: the proof
+lifetime is the only thing that bounds the replay store, and without the
+store a captured request can be replayed for that long.
 
 ### 13.6 Issuance
 
-How the client's key reaches the issuer is outside the token format, as
-key distribution is for the rest of cb2. The shape is: the client sends
-its `kcb2.public` string with the token request together with a proof
-over that request, a `cb2.holder-public.` token with the token
-endpoint's htm and htu, a fresh jti and an empty implicit assertion, so
-that the issuer binds only a key the client demonstrably holds. The
-issuer writes the whole key string into cnf. A new token means a new
-binding; a client key is never carried from one token to the next.
+How the bound key reaches the issuer or the client is outside the token
+format, as key distribution is for the rest of cb2. The shapes are fixed
+so that the two modes compose.
+
+Public mode: the client sends its `kcb2.public` string with the token
+request together with a proof over that request, a `cb2.holder-public.`
+token with the token endpoint's htm and htu, a fresh jti and an empty
+implicit assertion, so that the issuer binds only a key the client
+demonstrably holds. The issuer writes the whole key string into cnf.
+
+Local mode: the issuer generates the proof key, writes its `kcb2.local`
+string into cnf of a cb2.local access token and returns the same string
+to the client in the response that carries the token, over the channel
+that already protects the token. Nothing is presented by the client at
+issuance, since the client holds nothing yet.
+
+In both modes a new token means a new binding; a bound key is never
+carried from one token to the next.
 
 ## 14. kcb2.seal: a local key sealed to a recipient
 
@@ -929,6 +996,25 @@ and refuse the ids in `seen-jti`, MUST yield `expect`.
 and `ed25519-signature` (hex), checked as A.2 describes with the
 `cb2.holder-public.` header.
 
+The local mode adds these members. `proof-key` is the hex of the proof
+key P whose `kcb2.local` string is the cnf of the `local-bound` access
+token. `access-tokens` gains `local-bound` (a local token bound to P),
+`local-weak-cnf` (a local token whose cnf is the all-zero key) and
+`public-local-cnf` (a public token whose cnf is P's string, which an
+issuer must never sign and a verifier refuses). `local-proofs` lists
+every local-mode proof the tests use that is reproducible: `name`,
+`header`, `key` (hex), `nonce` (hex), `payload`, `footer`,
+`implicit-assertion` and `proof`; sealing the payload with the
+construction of section 5.2 under that header, key, nonce, footer and
+implicit assertion MUST reproduce `proof` byte for byte, and the footer
+MUST be the key's default id binding. Most use `cb2.holder-local.`; one
+uses `cb2.local.` and stands for a cb2.local token made under the proof
+key, which a verifier must refuse as a proof. `local-intermediates`:
+for the proof of cb2-H-27, `proof`, `nonce`, `claims`, `footer`,
+`implicit-assertion` (the `local-bound` token) and `ek`, `n2`, `ak`,
+`ciphertext`, `pae` and `tag` (hex), checked as A.1 describes with the
+`cb2.holder-local.` header.
+
 `normalisation`: objects with `input` and `output`, the latter null when
 the input has no normal form (13.2).
 
@@ -1079,7 +1165,10 @@ apart unnoticed.
     token is refused without a proof, a proof verifies only under the
     key cnf carries and only with the access token it was made for, the
     request and the times are checked as 13.5 says, a proof is never
-    accepted as a cb2.public token nor a cb2.public token as a proof,
-    and every target normalises as 13.2 says.
+    accepted as a cb2.public or cb2.local token nor such a token as a
+    proof, a proof of one mode is never accepted for a cnf of the other,
+    a `kcb2.local` cnf in a cb2.public token or with a weak key is
+    `claims_malformed`, every local-mode proof is reproduced byte for
+    byte, and every target normalises as 13.2 says.
 12. X-Wing reproduces the draft's vectors, seal.json is reproduced byte
     for byte and unseals, and every failure in it is invalid.

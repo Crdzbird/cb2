@@ -3,7 +3,7 @@
 cb2 stands for **Cryptographically Bound tokens, version 2**: every token
 is bound to its key, to the context it was issued for, to the rules its
 verifier must declare and, when it carries a `cnf` claim, to the client
-that holds it. The format is also called **BRACE**, for **B**ound,
+that holds the key it names. The format is also called **BRACE**, for **B**ound,
 **R**ule-checked, **A**uthenticated, **C**ommitting **E**nvelope. BRACE
 is a name only: on the wire every token and key string keeps its cb2
 header, because the format allows exactly one spelling of each.
@@ -153,9 +153,11 @@ international text; `text <string>`
 prints the bytes, the code points (marked when the identifier policy
 refuses them) and the policy's verdict. `playground/demo.cb2`,
 `playground/demo_text.cb2` (the international-text scenarios of the
-example, as a session) and `playground/demo_public.cb2` are scripted
-sessions whose `assert` lines make them tests; CI runs them in every
-build.
+example, as a session), `playground/demo_holder_local.cb2` (a cb2.local
+token bound to a proof key, and its holder proofs), and
+`playground/demo_public.cb2`, `demo_holder.cb2` and `demo_seal.cb2`
+(with liboqs) are scripted sessions whose `assert` lines make them
+tests; CTest and the web smoke test run them.
 
 ### In the browser
 
@@ -257,14 +259,20 @@ Claims (`claims.hpp`)
   `with_holder_proof(proof, request)`, `with_proof_replay_check(fn)`
   (required with a proof), `with_proof_lifetime`,
   `require_sender_constraint`, `ignore_sender_constraint`.
-- `HolderProof` (with liboqs): `make(client_secret_key, request,
-  access_token, jti, now, lifetime)` makes the `cb2.holder-public.`
-  proof a client presents with a request; `check(client_public_key,
-  access_token, rules)` verifies one; `claims_for` builds its claims.
-  `Token::open` and `Token::verify` run the check as the last step
-  whenever the token carries `cnf`. `Holder::normalize_target` is the
-  RFC 9449 target normalisation both ends apply. `Claims::cnf` holds
-  the client's `kcb2.public` string.
+- `HolderProof`, local mode (every build): `bind_local(claims)`
+  generates a fresh proof key, writes its `kcb2.local` string into
+  `cnf` and returns the key for the client; `make_local(proof_key,
+  request, access_token, jti, now, lifetime)` makes the
+  `cb2.holder-local.` proof the client presents with a request;
+  `check_local(proof_key, access_token, rules)` verifies one. Public
+  mode (with liboqs): `make(client_secret_key, ...)` makes the
+  `cb2.holder-public.` proof and `check(client_public_key, ...)`
+  verifies one. `claims_for` builds the claims of either. `Token::open`
+  and `Token::verify` run the check as the last step whenever the token
+  carries `cnf`, in the mode `cnf` names. `Holder::normalize_target` is
+  the RFC 9449 target normalisation both ends apply. `Claims::cnf` holds
+  the client's `kcb2.public` string or, in a cb2.local token only, the
+  proof key's `kcb2.local` string.
 - `Token::seal` / `open` / `sign` / `verify` / `peek_key_id` /
   `footer_for`.
 - `Rfc3339::parse` / `format`; `json::Reader` / `json::Writer`.
@@ -335,7 +343,7 @@ bindings/c                         the C ABI (cb2_c.h, cb2_c.cpp) and its test; 
 bindings/python, go, js, java, swift, dart, flutter   the language bridges, each with a README and tests
 docs/SPEC.md                       wire format, rationale, threat model
 docs/SECURITY.md                   claims and limits
-docs/SENDER_CONSTRAINT.md          sender-constrained tokens: the design, its decisions, the symmetric mode still to come
+docs/SENDER_CONSTRAINT.md          sender-constrained tokens: the design of both modes, its decisions, how it was built
 docs/MIGRATION.md                  moving a cb1 or PASETO v4 deployment to cb2
 ```
 
@@ -456,43 +464,62 @@ requires a bound token: the client makes a holder proof for
 `GET https://api.example/v1/me`, and the server checks the access token
 and that proof under the rules a resource sets (issuer, audience, the
 proof for this request, a proof replay check). The access token carries
-iss, aud, sub, exp and jti, plus cnf when it is bound. The DPoP rows are
+iss, aud, sub, exp and jti, plus cnf when it is bound: a fresh
+`kcb2.local` proof key in the local mode row, the client's `kcb2.public`
+key in the two holder proof rows. The DPoP rows are
 a JWT access token with `cnf.jkt` and an RFC 9449 proof signed with
 ES256, on the same reference code as the JWS rows: the server does the
 two signature checks, the `ath` hash and the `jkt` thumbprint, no JSON
 claim checks, and takes the client key as known instead of reading it
 from the proof header. They are a lower bound for JWT, as the JWS rows
 are. Same machine and libraries, 2026-11-06; in the same run the first
-table agreed with the one above within 8 percent in 92 of its 102 cells
-and within 12 percent in all.
+table agreed with the one above within 8 percent in 94 of its 102 cells
+and within 10 percent in all.
 
 | request | token | proof | on the wire | client: make proof | server: check token and proof |
 |---|---:|---:|---:|---:|---:|
-| cb2.local bearer, no proof | 321 | 0 | 321 | - | 3187 ns |
-| cb2.local bound + holder proof | 3877 | 4770 | 8647 | 211.6 us | 185.6 us |
-| cb2.public bound + holder proof | 8290 | 4770 | 13060 | 252.5 us | 333.0 us |
-| JWT RS256 + DPoP ES256 | 582 | 479 | 1061 | 25.9 us | 85.8 us |
-| JWT ES256 + DPoP ES256 | 326 | 479 | 805 | 25.5 us | 128.0 us |
+| cb2.local bearer, no proof | 321 | 0 | 321 | - | 2954 ns |
+| cb2.local bound + local proof | 405 | 357 | 762 | 5727 ns | 7816 ns |
+| cb2.local bound + holder proof | 3877 | 4770 | 8647 | 199.5 us | 172.4 us |
+| cb2.public bound + holder proof | 8290 | 4770 | 13060 | 230.9 us | 323.3 us |
+| JWT RS256 + DPoP ES256 | 582 | 479 | 1061 | 25.7 us | 83.0 us |
+| JWT ES256 + DPoP ES256 | 326 | 479 | 805 | 25.0 us | 128.7 us |
 
-Reading, bound tokens. The binding costs what the client's hybrid key
-costs. The cnf claim carries the whole kcb2.public key, which takes the
-local token from 321 to 3877 characters, and the proof is a hybrid
-signature over the request, 4770 more. On the server a bound request
-costs 186 us against 3.2 us for the bearer token, 1.5 times the
-ES256 + DPoP row and 2.2 times the RS256 + DPoP row; on the client the
-proof costs 212 us against 26 us for a DPoP proof; on the wire it is 8
-to 11 times the bytes. At scale, one core checks about 5,400 bound
-requests a second against 7,800 to 11,700 for DPoP, and a million
-requests cost about 3.1 core-minutes of checking against 1.4 to 2.1, and
-8.6 GB of headers against about 1 GB. The proof changes on every
+Reading, the local mode. A cb2.local token bound to a proof key is 84
+characters longer than the bearer token (the cnf claim, inside the
+encryption) and its proof is 357: 762 on the wire, less than either
+DPoP row. The client makes a proof in 5.7 us, a quarter of a DPoP
+proof; the server checks token and proof in 7.8 us, 4.9 us more than
+the bearer token and 11 to 16 times less than the DPoP rows. One core
+checks about 128,000 such requests a second, and a million cost about
+8 core-seconds and 0.8 GB of headers. The proof is a keyed BLAKE3
+derivation and tag over the request claims and the access token text,
+with no signature, and the price is the one the local mode states: the
+proof key is shared by the issuer, the client and every verifier that
+can open the token, so it protects against a token that leaks without
+its key, which covers most of the ways tokens leak, and not against a verifier
+that turns on its clients. For service to service traffic on cb2.local
+tokens it is the mode to use.
+
+Reading, tokens bound to a client key pair. The binding costs what the
+client's hybrid key costs. The cnf claim carries the whole kcb2.public
+key, which takes the local token from 321 to 3877 characters, and the
+proof is a hybrid signature over the request, 4770 more. On the server
+a bound request costs 172 us against 3.0 us for the bearer token, 1.3
+times the ES256 + DPoP row and 2.1 times the RS256 + DPoP row; on the
+client the proof costs 200 us against 25 us for a DPoP proof; on the
+wire it is 8 to 11 times the bytes. At scale, one core checks about
+5,800 such requests a second against 7,800 to 12,000 for DPoP, and a
+million requests cost about 2.9 core-minutes of checking against 1.4 to
+2.1, and 8.6 GB of headers against about 1 GB. The proof changes on every
 request, so HTTP/2 header compression cannot shrink it, and on a slow
 uplink the bytes cost more time than the checks. A bound cb2.public
 token is 8290 characters, more than the 8 KB nginx allows for one header
 line by default; with its proof it is close to the 16 KB Node allows for
 all headers. The local purpose is therefore the one for bound tokens as
 well. The size comes from the post-quantum client key, not from the
-format: the symmetric holder mode docs/SENDER_CONSTRAINT.md reserves is
-not defined yet, and nothing here measures it.
+format, and the local mode above, which has no such key, is the answer
+where the client key need not be asymmetric.
 
 ## What is covered and what is not
 
@@ -502,7 +529,7 @@ and ids, kcb2.local-wrap, international text in claims, footers and key ids
 adversarial review (rules that must declare their audience and issuer,
 the raw-layer size limit, the replay check, the weak-key and secret-key
 import checks, the ML-DSA context string), sender-constrained tokens in
-the public holder mode, kcb2.seal on X-Wing with the draft's vectors,
+both holder modes, kcb2.seal on X-Wing with the draft's vectors,
 cb2's own SHA3-256 and SHAKE256 against FIPS 202 outputs, the C ABI and
 the language bindings with their own tests, the vector files, the official-v4 cross-check of
 PAE and base64url, tests under ASan and UBSan, the three fuzz targets, a
@@ -518,12 +545,18 @@ half included, so the reference and docs/PROTOCOL.md cannot drift apart
 unnoticed).
 
 Not covered: interoperability with any other implementation (there is
-none), the symmetric holder mode (reserved, not implemented), fuzz
-targets for kcb2.seal and holder proofs, a constant-time probe run under
+none), fuzz targets for kcb2.seal and holder proofs, a constant-time probe run under
 Valgrind (CipherBird has one; cb2 does not yet), review by a second
 person, and the open questions in docs/SPEC.md section 12.
 
 ## Verification performed
+
+Rerun on 2026-11-06 after the local holder mode, on the same Mac: the
+release build passes 97 of 97 cases, the ASan and UBSan build 97 of 97,
+the build without liboqs 72 of 72 (the local mode included), the C ABI
+test in all three, the six playground demos, the web module's smoke
+test, the Python, Go, JavaScript, Java, Kotlin, Swift and Dart binding
+tests, and tools/check_vectors.py with 629 checks and none skipped.
 
 Rerun on 2026-11-06 after cb2 took over SHA3 from liboqs, on the same
 Mac: the release build passes 87 of 87 cases (about 25,600 checks), the

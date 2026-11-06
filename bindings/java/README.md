@@ -84,10 +84,11 @@ constants in Code) and the stable verdict name.
 
 Raw tokens take any bytes (Local.seal / Local.open, Public.sign /
 Public.verify) with an optional footer and implicit assertion. A bound
-token (one with cnf) needs a holder proof made by Holder.prove on the
-client and presented through Rules.proof and Rules.request on the
-server, together with a proof replay check (Rules.proofReplay or
-Rules.proofSeenJti). KeyWrap wraps a local key under another local key;
+token (one with cnf) needs a holder proof made on the client, by
+Holder.prove under the client's pair or, for a cb2.local token whose cnf
+is a kcb2.local proof key, by Holder.proveLocal under that key, and
+presented through Rules.proof and Rules.request on the server, together
+with a proof replay check (Rules.proofReplay or Rules.proofSeenJti). KeyWrap wraps a local key under another local key;
 Seal seals one to a RecipientPublicKey.
 
 ## Using from Kotlin

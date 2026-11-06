@@ -7,9 +7,9 @@ import java.util.Set;
 
 /**
  * The Java bridge exercised the way test_c.c exercises the C ABI: keys,
- * raw tokens, claims tokens with rules and both replay checks, a holder
- * proof, key wrapping and sealing, and every verdict. Throws on the
- * first failed check.
+ * raw tokens, claims tokens with rules and both replay checks, holder
+ * proofs of both modes, key wrapping and sealing, and every verdict.
+ * Throws on the first failed check.
  */
 public final class Cb2Test {
     private static final String CLAIMS = "{\"iss\":\"https://issuer.example\",\"sub\":\"user-1\",\"aud\":\"api\","
@@ -105,6 +105,32 @@ public final class Cb2Test {
                 "error names at the edges");
     }
 
+    private static void testHolderLocal() {
+        try (LocalKey k = LocalKey.generate(); LocalKey issued = LocalKey.generate()) {
+            String cnf = issued.toPaserk();
+            String bound = "{\"iss\":\"https://issuer.example\",\"aud\":\"api\",\"exp\":\"2099-01-01T00:00:00+00:00\","
+                    + "\"cnf\":" + Json.quote(cnf) + "}";
+            String access = Token.seal(k, bound);
+            expect(Code.MISSING_PROOF, "local-bound token without a proof", () -> Token.open(k, access, rules()));
+            try (LocalKey client = LocalKey.fromPaserk(cnf); LocalKey stranger = LocalKey.generate()) {
+                String proof = Holder.proveLocal(client, "GET", "https://api.example/v1/me", null, access, "p-1", 1700000000L, 60);
+                check(proof.startsWith("cb2.holder-local.") && proof.length() < 450, "local proof prefix and size");
+                Rules presented = rules().proof(proof).request("GET", "HTTPS://API.EXAMPLE:443/v1/me?x=1");
+                expect(Code.RULES_INCOMPLETE, "local proof without a proof replay check", () -> Token.open(k, access, presented));
+                Token.open(k, access, presented.proofReplay(jti -> true));
+                expect(Code.PROOF_MISMATCH, "local proof for another request", () -> Token.open(k, access,
+                        rules().proof(proof).request("POST", "https://api.example/v1/me").proofSeenJti()));
+                expect(Code.PROOF_REPLAYED, "local proof id already seen", () -> Token.open(k, access,
+                        rules().proof(proof).request("GET", "https://api.example/v1/me").proofSeenJti("p-1")));
+                expect(Code.PROOF_EXPIRED, "local proof too old", () -> Token.open(k, access,
+                        rules().now(1700000100L).proof(proof).request("GET", "https://api.example/v1/me").proofSeenJti()));
+                String forged = Holder.proveLocal(stranger, "GET", "https://api.example/v1/me", null, access, "p-2", 1700000000L, 60);
+                expect(Code.PROOF_INVALID, "local proof under another key", () -> Token.open(k, access,
+                        rules().proof(forged).request("GET", "https://api.example/v1/me").proofSeenJti()));
+            }
+        }
+    }
+
     private static void testPublic() {
         if (!Cb2.hasPublic()) {
             System.out.println("cb2.public unavailable in this build; skipping");
@@ -190,6 +216,7 @@ public final class Cb2Test {
     public static void main(String[] args) {
         System.out.println("cb2 " + Cb2.version() + ", public " + Cb2.hasPublic() + ", seal " + Cb2.hasSeal());
         testLocal();
+        testHolderLocal();
         testPublic();
         testSeal();
         testClosed();

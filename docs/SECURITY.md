@@ -182,28 +182,48 @@ implicit assertion.
    (its text is the proof's implicit assertion), for this method and
    target, within the proof lifetime, once per jti. A token read from a
    log, a proxy, a cache, a crash dump or a capture is useless without
-   the client's secret key.
+   the bound key: the client's secret key in the public mode, the proof
+   key in the local mode.
 2. A captured request, proof included, replays only against the same
    method and target, with the same token, within the proof lifetime
    (60 seconds by default), and only once past the proof replay check,
    which is required whenever a proof is checked.
 3. The verifier trusts nothing the client presents about the key: cnf
-   carries the whole public key under the issuer's own tag or signature,
-   and the proof's footer binds that key's id. A proof under any other
-   key fails closed.
-4. Domain separation: the holder header is the ML-DSA context string
-   and the first PAE piece, so a signature the client made as a
+   carries the whole public key, or the proof key, under the issuer's own
+   tag or signature, and the proof's footer binds that key's id. A proof
+   under any other key, the issuer's token key included, fails closed,
+   and so does a proof of one mode presented for a cnf of the other.
+4. Domain separation: the public holder header is the ML-DSA context
+   string and the first PAE piece, so a signature the client made as a
    cb2.public token is never a proof and a proof is never a cb2.public
-   token, under the same key.
-5. Safe by default: a token that carries cnf is refused without a proof
+   token, under the same key. The local holder header enters the keyed
+   BLAKE3 derivation of the encryption and authentication keys and the
+   PAE, so a cb2.local token under the proof key is never a proof and a
+   proof is never a cb2.local token.
+5. Local mode secrecy of the proof key: cnf is inside the encrypted
+   payload of a cb2.local token, so whoever holds only the token text
+   learns nothing of the key; a `kcb2.local` cnf in a cb2.public token,
+   whose payload is in clear, is refused by the verifier
+   (`claims_malformed`) and by the issuing side (`argument`). Forging a
+   local proof without the key costs a forgery of the keyed BLAKE3 tag,
+   as for any cb2.local token.
+6. Safe by default: a token that carries cnf is refused without a proof
    unless the verifier says ignore_sender_constraint() on purpose; a
    verifier may also require cnf of every token.
 
-Not claimed: protection when the client's secret key is stolen together
-with the token (malware on the client), or when the verifier is
-compromised; a browser client cannot hold a post-quantum key
-non-extractably today. The symmetric holder mode designed for that case
-in docs/SENDER_CONSTRAINT.md is not yet implemented.
+Not claimed: protection when the bound key is stolen together with the
+token (malware on the client), or when the verifier is compromised; a
+browser client cannot hold a post-quantum key non-extractably today, and
+the local mode's proof key sits in script memory in a browser just as
+the token does. The local mode protects against leakage of the token
+through channels that do not also leak the key, which is most of them,
+not against a channel that carries both. Its proof key is known to every
+party that can open the token (issuer, verifiers, client); a verifier
+that can open the token can therefore make proofs for it, which matters
+only where verifiers are less trusted than the issuer. The claims a
+verifier releases include cnf, so in the local mode an application that
+logs the opened claims of a bound token logs the proof key with them;
+it must not, and this library does not strip the claim for it.
 
 ## Assumptions
 

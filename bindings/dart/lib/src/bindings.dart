@@ -388,6 +388,8 @@ final class Cb2Bindings {
 
   late final ProveDart holderProve = library
       .lookupFunction<ProveNative, ProveDart>('cb2_holder_prove');
+  late final ProveDart holderProveLocal = library
+      .lookupFunction<ProveNative, ProveDart>('cb2_holder_prove_local');
   late final TextToTextDart holderNormalizeTarget = library
       .lookupFunction<TextToTextNative, TextToTextDart>(
         'cb2_holder_normalize_target',

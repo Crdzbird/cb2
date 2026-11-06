@@ -1,0 +1,57 @@
+# cb2 playground demo: a cb2.local token bound to a local proof key, the local holder mode. Runs in every build.
+echo -- the issuer's local key, and a fresh proof key the issuer makes for this one token
+keygen local alice
+assert ok
+keygen local proofkey
+assert ok
+echo -- the token carries the proof key in cnf, encrypted; the client receives the same key with the token
+claims alice iss=https://issuer.example aud=api sub=service-a exp=+3600 cnf=proofkey
+assert ok
+echo -- without a proof the token is refused
+check alice $ iss=https://issuer.example aud=api
+assert missing_proof
+echo -- a proof for one request under the proof key: a few hundred bytes, one keyed hash and one tag
+proof proofkey $ htm=GET htu=https://api.example/v1/me
+assert ok
+check alice $ iss=https://issuer.example aud=api proof htm=GET htu=https://api.example/v1/me
+assert ok
+echo -- the same proof again is a replay
+check alice $ iss=https://issuer.example aud=api proof htm=GET htu=https://api.example/v1/me
+assert proof_replayed
+echo -- a fresh proof presented for another method or another target
+proof proofkey $ htm=GET htu=https://api.example/v1/me
+assert ok
+check alice $ iss=https://issuer.example aud=api proof htm=POST htu=https://api.example/v1/me
+assert proof_mismatch
+check alice $ iss=https://issuer.example aud=api proof htm=GET htu=https://api.example/v1/you
+assert proof_mismatch
+echo -- the target is compared after normalisation: case, default port, query
+check alice $ iss=https://issuer.example aud=api proof htm=GET htu=HTTPS://API.EXAMPLE:443/v1/me?page=2
+assert ok
+echo -- a thief with the token but not the proof key makes a proof under a key of its own
+keygen local thief
+proof thief $ htm=GET htu=https://api.example/v1/me
+assert ok
+check alice $ iss=https://issuer.example aud=api proof htm=GET htu=https://api.example/v1/me
+assert proof_invalid
+echo -- nor does the issuer's token key make a proof: only the key in cnf does
+proof alice $ htm=GET htu=https://api.example/v1/me
+assert ok
+check alice $ iss=https://issuer.example aud=api proof htm=GET htu=https://api.example/v1/me
+assert proof_invalid
+echo -- a proof that outlived its sixty seconds
+proof proofkey $ htm=GET htu=https://api.example/v1/me now=1700000000
+assert ok
+check alice $ iss=https://issuer.example aud=api proof htm=GET htu=https://api.example/v1/me now=1700000061
+assert proof_expired
+echo -- a proof is not a cb2.local token, under the proof key or any other
+proof proofkey $ htm=GET htu=https://api.example/v1/me
+assert ok
+peek $proof
+open proofkey $proof
+assert invalid
+echo -- a proof made for one token is refused with any other, even one bound to the same key
+claims alice iss=https://issuer.example aud=api sub=service-b exp=+3600 cnf=proofkey
+assert ok
+check alice $ iss=https://issuer.example aud=api proof htm=GET htu=https://api.example/v1/me
+assert proof_invalid

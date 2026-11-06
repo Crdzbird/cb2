@@ -339,9 +339,11 @@ inline void help(Session& s) {
         "  claims <key> [iss=] [aud=] [sub=] [jti=] [exp=] [nbf=] [iat=] [cnf=<key>]\n"
         "                                 [name=value]... [name:=json]... [implicit=]  seal (local key)\n"
         "                                 or sign (secret key); times: +3600, Unix seconds or RFC 3339;\n"
-        "                                 cnf names a stored signing pair or public key to bind\n"
-        "  proof <secret key> <token> htm= htu= [nonce=] [jti=] [now=] [lifetime=]\n"
-        "                                 holder proof for the token and request; $proof is the last one\n"
+        "                                 cnf names a stored signing pair or public key to bind, or a\n"
+        "                                 local key to carry as the proof key of the local mode\n"
+        "  proof <secret or local key> <token> htm= htu= [nonce=] [jti=] [now=] [lifetime=]\n"
+        "                                 holder proof for the token and request, public mode under a\n"
+        "                                 signing pair, local mode under a proof key; $proof is the last one\n"
         "  check <key> <token> [iss=] [aud=] [sub=] [any-iss] [any-aud] [skew=] [now=]\n"
         "                                 [replay] [no-exp] [max=] [lifetime=] [implicit=]  open or verify\n"
         "                                 [proof|proof=] [htm=] [htu=] [nonce=] [proof-lifetime=]\n"
@@ -850,6 +852,10 @@ inline bool cmd_claims(Session& s, const Args& a) {
             c.jti = value;
         } else if (name == "cnf") {
             c.cnf = value;
+            if (const cb2::LocalKey* pk = find_local(s, value)) {
+                const cb2::SecureString text = pk->to_paserk();
+                c.cnf = std::string(text.data(), text.size());
+            }
 #ifdef CB2_HAS_PQ
             if (const auto pk = find_public(s, value)) c.cnf = pk->to_paserk();
 #endif
@@ -1008,11 +1014,15 @@ inline bool cmd_check(Session& s, const Args& a) {
     return true;
 }
 
-#ifdef CB2_HAS_PQ
 inline bool cmd_proof(Session& s, const Args& a) {
-    if (a.size() < 3) return fail(s, "proof <secret key> <token> htm= htu= [nonce=] [jti=] [now=] [lifetime=]");
-    const cb2::SecretKey* k = find_secret(s, a[1]);
-    if (k == nullptr) return fail(s, "no secret key named " + a[1]);
+    if (a.size() < 3) return fail(s, "proof <secret or local key> <token> htm= htu= [nonce=] [jti=] [now=] [lifetime=]");
+    const cb2::LocalKey* local = find_local(s, a[1]);
+#ifdef CB2_HAS_PQ
+    const cb2::SecretKey* k = local == nullptr ? find_secret(s, a[1]) : nullptr;
+    if (local == nullptr && k == nullptr) return fail(s, "no secret or local key named " + a[1]);
+#else
+    if (local == nullptr) return fail(s, "no local key named " + a[1]);
+#endif
     cb2::HolderRequest request;
     std::string jti;
     cb2::Seconds now = now_seconds();
@@ -1044,20 +1054,30 @@ inline bool cmd_proof(Session& s, const Args& a) {
         verdict(s, claims.error());
         return true;
     }
-    auto p = cb2::HolderProof::make(*k, request, a[2], jti, now, lifetime);
+    cb2::Result<std::string> p = cb2::Result<std::string>::err(Error::internal);
+    std::string footer;
+    if (local != nullptr) {
+        p = cb2::HolderProof::make_local(*local, request, a[2], jti, now, lifetime);
+        footer = cb2::Token::footer_for(local->paserk_id());
+    }
+#ifdef CB2_HAS_PQ
+    if (k != nullptr) {
+        p = cb2::HolderProof::make(*k, request, a[2], jti, now, lifetime);
+        footer = cb2::Token::footer_for(k->public_key().paserk_id());
+    }
+#endif
     if (p.is_err()) {
         verdict(s, p.error());
         return true;
     }
     say(s, "claims", claims.value().to_json());
-    say(s, "footer", cb2::Token::footer_for(k->public_key().paserk_id()));
+    say(s, "footer", footer);
     s.last_proof = p.value();
     say(s, "proof", p.value());
     say(s, "length", std::to_string(p.value().size()));
     verdict(s, "ok");
     return true;
 }
-#endif
 
 /// The two signatures at the end of a cb2.public body: Ed25519 (64) and
 /// ML-DSA-65 (3309), so the message before them can be shown unverified.
@@ -1097,6 +1117,7 @@ inline bool cmd_peek(Session& s, const Args& a) {
     if (t.rfind("cb2.local.", 0) == 0) header = "cb2.local.";
     if (t.rfind("cb2.public.", 0) == 0) header = "cb2.public.";
     if (t.rfind("cb2.holder-public.", 0) == 0) header = "cb2.holder-public.";
+    if (t.rfind("cb2.holder-local.", 0) == 0) header = "cb2.holder-local.";
     if (header.empty()) {
         say(s, "header", "not a cb2 token");
         verdict(s, Error::invalid);
@@ -1258,9 +1279,7 @@ inline bool run(Session& s, const std::string& line) {
     if (c == "verify") return cmd_verify(s, a);
     if (c == "claims") return cmd_claims(s, a);
     if (c == "check") return cmd_check(s, a);
-#ifdef CB2_HAS_PQ
     if (c == "proof") return cmd_proof(s, a);
-#endif
 #ifdef CB2_HAS_SEAL
     if (c == "sealkey") return cmd_sealkey(s, a);
     if (c == "unsealkey") return cmd_unsealkey(s, a);

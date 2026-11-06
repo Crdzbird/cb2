@@ -4,7 +4,7 @@ import XCTest
 
 /// The Swift bridge exercised the way bindings/c/test/test_c.c exercises
 /// the C ABI: keys, raw tokens, claims tokens with rules and both replay
-/// callbacks, a holder proof, key wrapping and sealing, and every verdict.
+/// callbacks, holder proofs of both modes, key wrapping and sealing, and every verdict.
 final class Cb2Tests: XCTestCase {
     let claims: [String: Any] = [
         "iss": "https://issuer.example",
@@ -210,6 +210,50 @@ final class Cb2Tests: XCTestCase {
 
         XCTAssertEqual(try Holder.normalizeTarget("HTTPS://API.Example:443/a?b#c"), "https://api.example/a")
         XCTAssertEqual(verdict { try Holder.normalizeTarget("nope") }, "argument")
+    }
+
+    func testLocalHolderProof() throws {
+        let k = try LocalKey.generate()
+        let cnf = try LocalKey.generate().toPaserk()
+        let bound: [String: Any] = [
+            "iss": "https://issuer.example",
+            "aud": "api",
+            "exp": "2099-01-01T00:00:00+00:00",
+            "cnf": cnf,
+        ]
+        let access = try Token.seal(key: k, claims: bound)
+        XCTAssertEqual(verdict { try Token.open(token: access, key: k, rules: rules) }, "missing_proof")
+
+        let proof = try Holder.proveLocal(proofKey: try LocalKey(paserk: cnf), htm: "GET",
+                                          htu: "https://api.example/v1/me", accessToken: access, jti: "p-1",
+                                          now: 1_700_000_000)
+        XCTAssertTrue(proof.hasPrefix("cb2.holder-local."))
+        XCTAssertLessThan(proof.utf8.count, 450)
+
+        var presented = rules
+        presented.proof = proof
+        presented.request = Rules.Request(htm: "GET", htu: "HTTPS://API.EXAMPLE:443/v1/me?x=1")
+        XCTAssertEqual(verdict { try Token.open(token: access, key: k, rules: presented) }, "rules_incomplete")
+        presented.proofReplay = { _ in true }
+        XCTAssertEqual(verdict { try Token.open(token: access, key: k, rules: presented) }, "ok")
+
+        var replayed = rules
+        replayed.proof = proof
+        replayed.request = Rules.Request(htm: "GET", htu: "https://api.example/v1/me")
+        replayed.proofSeenJti = ["p-1"]
+        XCTAssertEqual(verdict { try Token.open(token: access, key: k, rules: replayed) }, "proof_replayed")
+
+        var mismatch = replayed
+        mismatch.request = Rules.Request(htm: "POST", htu: "https://api.example/v1/me")
+        mismatch.proofSeenJti = []
+        XCTAssertEqual(verdict { try Token.open(token: access, key: k, rules: mismatch) }, "proof_mismatch")
+
+        var forged = replayed
+        forged.proof = try Holder.proveLocal(proofKey: try LocalKey.generate(), htm: "GET",
+                                             htu: "https://api.example/v1/me", accessToken: access, jti: "p-2",
+                                             now: 1_700_000_000)
+        forged.proofSeenJti = []
+        XCTAssertEqual(verdict { try Token.open(token: access, key: k, rules: forged) }, "proof_invalid")
     }
 
     func testSealing() throws {

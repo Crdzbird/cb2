@@ -1,6 +1,6 @@
 /*
  * The C ABI exercised from C: keys, raw tokens, claims tokens with
- * rules and both replay callbacks, a holder proof, key wrapping and
+ * rules and both replay callbacks, holder proofs of both modes, key wrapping and
  * sealing, and every verdict the bridges rely on. Exits non-zero on the
  * first failed check.
  */
@@ -135,6 +135,63 @@ static void test_local(void) {
     CHECK(strcmp(cb2_error_name(CB2_PROOF_REPLAYED), "proof_replayed") == 0 && strcmp(cb2_error_name(99), "unknown") == 0);
 }
 
+/* The local holder mode: the issuer writes a fresh proof key into cnf of a
+ * cb2.local token, the client proves with the same key. */
+static void test_holder_local(void) {
+    cb2_local_key* k = NULL;
+    cb2_local_key* proof_key = NULL;
+    cb2_local_key* stranger = NULL;
+    CHECK(cb2_local_key_generate(&k) == CB2_OK);
+    CHECK(cb2_local_key_generate(&proof_key) == CB2_OK);
+    CHECK(cb2_local_key_generate(&stranger) == CB2_OK);
+    char* cnf = cb2_local_key_to_paserk(proof_key);
+    char bound[512];
+    snprintf(bound, sizeof bound, "{\"iss\":\"https://issuer.example\",\"aud\":\"api\",\"exp\":\"2099-01-01T00:00:00+00:00\",\"cnf\":\"%s\"}", cnf);
+    char* access = NULL;
+    size_t alen = 0;
+    char* claims = NULL;
+    size_t clen = 0;
+    CHECK(cb2_token_seal(k, bound, strlen(bound), NULL, 0, &access, &alen) == CB2_OK);
+    CHECK(cb2_token_open(k, access, alen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &claims, &clen) == CB2_MISSING_PROOF);
+    cb2_local_key* client = NULL;
+    CHECK(cb2_local_key_from_paserk(cnf, strlen(cnf), &client) == CB2_OK);
+    char* proof = NULL;
+    size_t plen = 0;
+    CHECK(cb2_holder_prove_local(client, "GET", 3, "https://api.example/v1/me", 25, NULL, 0, access, alen, "p-1", 3, 1700000000, 60, &proof, &plen) == CB2_OK);
+    CHECK(proof != NULL && strncmp(proof, "cb2.holder-local.", 17) == 0 && plen == strlen(proof) && plen < 450);
+    char rules[2048];
+    snprintf(rules, sizeof rules, "{\"issuer\":\"https://issuer.example\",\"audience\":\"api\",\"now\":1700000000,\"proof\":\"%s\",\"request\":{\"htm\":\"GET\",\"htu\":\"HTTPS://API.EXAMPLE:443/v1/me?x=1\"}}", proof);
+    CHECK(cb2_token_open(k, access, alen, rules, strlen(rules), NULL, 0, NULL, NULL, NULL, &claims, &clen) == CB2_RULES_INCOMPLETE);
+    CHECK(cb2_token_open(k, access, alen, rules, strlen(rules), NULL, 0, NULL, accept_all, NULL, &claims, &clen) == CB2_OK);
+    cb2_free(claims);
+    snprintf(rules, sizeof rules, "{\"issuer\":\"https://issuer.example\",\"audience\":\"api\",\"now\":1700000000,\"proof\":\"%s\",\"request\":{\"htm\":\"POST\",\"htu\":\"https://api.example/v1/me\"},\"proof_seen_jti\":[]}", proof);
+    CHECK(cb2_token_open(k, access, alen, rules, strlen(rules), NULL, 0, NULL, NULL, NULL, &claims, &clen) == CB2_PROOF_MISMATCH);
+    snprintf(rules, sizeof rules, "{\"issuer\":\"https://issuer.example\",\"audience\":\"api\",\"now\":1700000000,\"proof\":\"%s\",\"request\":{\"htm\":\"GET\",\"htu\":\"https://api.example/v1/me\"},\"proof_seen_jti\":[\"p-1\"]}", proof);
+    CHECK(cb2_token_open(k, access, alen, rules, strlen(rules), NULL, 0, NULL, NULL, NULL, &claims, &clen) == CB2_PROOF_REPLAYED);
+    snprintf(rules, sizeof rules, "{\"issuer\":\"https://issuer.example\",\"audience\":\"api\",\"now\":1700000100,\"proof\":\"%s\",\"request\":{\"htm\":\"GET\",\"htu\":\"https://api.example/v1/me\"},\"proof_seen_jti\":[]}", proof);
+    CHECK(cb2_token_open(k, access, alen, rules, strlen(rules), NULL, 0, NULL, NULL, NULL, &claims, &clen) == CB2_PROOF_EXPIRED);
+    cb2_free(proof);
+    CHECK(cb2_holder_prove_local(stranger, "GET", 3, "https://api.example/v1/me", 25, NULL, 0, access, alen, "p-2", 3, 1700000000, 60, &proof, &plen) == CB2_OK);
+    snprintf(rules, sizeof rules, "{\"issuer\":\"https://issuer.example\",\"audience\":\"api\",\"now\":1700000000,\"proof\":\"%s\",\"request\":{\"htm\":\"GET\",\"htu\":\"https://api.example/v1/me\"},\"proof_seen_jti\":[]}", proof);
+    CHECK(cb2_token_open(k, access, alen, rules, strlen(rules), NULL, 0, NULL, NULL, NULL, &claims, &clen) == CB2_PROOF_INVALID);
+    cb2_free(proof);
+    CHECK(cb2_holder_prove_local(client, "GET", 3, "not a uri", 9, NULL, 0, access, alen, "p-3", 3, 1700000000, 60, &proof, &plen) == CB2_ARGUMENT);
+    if (cb2_has_public()) {
+        cb2_secret_key* issuer = NULL;
+        CHECK(cb2_secret_key_generate(&issuer) == CB2_OK);
+        char* signed_token = NULL;
+        size_t slen = 0;
+        CHECK(cb2_token_sign(issuer, bound, strlen(bound), NULL, 0, &signed_token, &slen) == CB2_ARGUMENT);
+        cb2_secret_key_free(issuer);
+    }
+    cb2_free(access);
+    cb2_free(cnf);
+    cb2_local_key_free(client);
+    cb2_local_key_free(stranger);
+    cb2_local_key_free(proof_key);
+    cb2_local_key_free(k);
+}
+
 static void test_public(void) {
     if (!cb2_has_public()) {
         printf("cb2.public unavailable in this build; skipping\n");
@@ -254,6 +311,7 @@ static void test_seal(void) {
 int main(void) {
     printf("cb2_c %s, public %d, seal %d\n", cb2_version(), cb2_has_public(), cb2_has_seal());
     test_local();
+    test_holder_local();
     test_public();
     test_seal();
     if (failures != 0) {

@@ -1,12 +1,13 @@
 # cb2 sender-constrained tokens
 
-Status: the public mode is implemented as of 2026-11-04 and its
-normative statement is PROTOCOL.md section 13, with vectors in
-tests/vectors/proofs.json; where this document and PROTOCOL.md differ,
-PROTOCOL.md is the one to follow. The local mode (section 2) is designed
-here and not yet implemented: a `kcb2.local` cnf is reserved and refused
-with `unavailable`. This document keeps the design rationale, the
-decisions of section 8 and the implementation plan.
+Status: both modes are implemented, the public mode as of 2026-11-04
+and the local mode as of 2026-11-06. Their normative statement is
+PROTOCOL.md section 13, with vectors in tests/vectors/proofs.json
+(cb2-H-1 to cb2-H-26 for the public mode, cb2-H-27 to cb2-H-53 for the
+local mode, whose proofs are reproduced byte for byte); where this
+document and PROTOCOL.md differ, PROTOCOL.md is the one to follow. This
+document keeps the design rationale, the decisions of section 8 and the
+implementation plan, now carried out (section 9).
 
 ## 1. The problem
 
@@ -149,9 +150,13 @@ carries no implicit assertion, since no access token exists yet.
 
 | | public mode | local mode |
 |---|---|---|
-| proof text, typical claims | about 4.8 KB | about 400 bytes |
-| client key the verifier needs | none beyond the token: `cnf` carries it, about 2.6 KB of the access token | none beyond the token |
-| verifier cost per proof | one Ed25519 and one ML-DSA-65 verification, about 120 us on the reference machine | one keyed BLAKE3 derivation and one tag, about 2 us |
+| proof text, typical claims | 4770 bytes | 357 bytes |
+| client key the verifier needs | none beyond the token: `cnf` carries it, about 2.6 KB of the access token | none beyond the token: `cnf` carries it, 84 bytes of the access token |
+| verifier cost per proof | one Ed25519 and one ML-DSA-65 verification; a bound request costs about 170 us against 3 us for a bearer token on the reference machine | one keyed BLAKE3 derivation and one tag; a bound request costs about 7.8 us, 4.9 us more than a bearer token |
+
+The figures are the request table of README.md, measured on 2026-11-06;
+the first draft of this table estimated the local proof at 400 bytes
+and 2 us.
 
 The public mode is the cost of a post-quantum signature per request. A
 deployment that cannot afford it on a hot path and whose access tokens
@@ -321,3 +326,21 @@ In the order the pieces depend on each other.
 
 Nothing in the existing format changes; a verifier that never sets a
 proof rule and never sees a `cnf` claim behaves exactly as today.
+
+As built. The class is `HolderProof` in claims.hpp rather than `Proof`:
+`make` and `check` for the public mode, `make_local` and `check_local`
+for the local mode, `claims_for` shared by both, and `bind_local`, which
+generates a proof key on the issuing side and writes it into `cnf`. The
+local mode is in every build, one without liboqs included; the public
+mode needs ML-DSA-65. `Token::sign` refuses claims whose `cnf` is a
+`kcb2.local` string, so the issuing side cannot produce what the
+verifier would refuse. The C ABI has `cb2_holder_prove_local` beside
+`cb2_holder_prove`, and every binding that exposes proofs has the local
+counterpart (`Holder.proveLocal` in JavaScript, Java, Dart and Swift,
+`LocalKey.prove` in Kotlin, `Holder.prove_local` in Python,
+`HolderProveLocal` in Go); the verifier side needs nothing new, since
+`cb2_token_open` with the proof and the request in its rules reads the
+mode out of `cnf`. The playground's `proof` command takes a local key as
+well as a signing pair and its `claims` command takes a local key for
+`cnf`; playground/demo_holder_local.cb2 walks through the local mode and
+runs in the web smoke test.

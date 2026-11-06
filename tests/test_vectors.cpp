@@ -99,8 +99,8 @@ Bytes pae_of(std::initializer_list<std::span<const uint8_t>> pieces) {
 /// the primitives and checks that the token body is nonce, ciphertext
 /// and tag in that order.
 void check_local_intermediates(const Value& v, const Bytes& key, const Bytes& nonce, const Bytes& payload,
-                               const Bytes& footer, const Bytes& implicit, const std::string& token) {
-    const std::string_view h = Local::HEADER;
+                               const Bytes& footer, const Bytes& implicit, const std::string& token,
+                               std::string_view h = Local::HEADER) {
     Bytes split(88);
     cb2::detail::Blake3Keyed hk(key.data());
     hk.update(cb2::bytes(h).data(), h.size());
@@ -333,69 +333,136 @@ TEST_CASE("vectors/claims vectors yield the recorded verdicts") {
     CHECK(seen >= 12);
 }
 
+namespace {
+
+/// The verdict a proofs.json test records: its access token opened or
+/// verified under its key with the document's expectations, the test's
+/// rules, and the proof and request when the proof is not empty.
+std::string holder_verdict(const Value& root, const Value& v) {
+    const Value* t = root.get("access-tokens")->get(tu::str(v, "access-token"));
+    const Value* req = v.get("request");
+    const Value* o = v.get("rules");
+    if (t == nullptr || req == nullptr || o == nullptr) return "<bad vector>";
+    ValidationRules rules = ValidationRules().at(tu::num(*o, "now")).expect_issuer(tu::str(root, "issuer"))
+        .expect_audience(tu::str(root, "audience"))
+        .with_clock_skew(tu::num(*o, "clock-skew")).with_proof_lifetime(tu::num(*o, "proof-lifetime"));
+    if (tu::flag(*o, "require-cnf")) rules.require_sender_constraint();
+    if (tu::flag(*o, "ignore-cnf")) rules.ignore_sender_constraint();
+    const std::string proof = tu::str(v, "proof");
+    if (!proof.empty()) {
+        cb2::HolderRequest r;
+        r.method = tu::str(*req, "htm");
+        r.target = tu::str(*req, "htu");
+        if (req->get("nonce") != nullptr) r.nonce = tu::str(*req, "nonce");
+        std::vector<std::string> list;
+        if (const Value* ids = o->get("seen-jti"); ids != nullptr) for (const Value& j : ids->items) list.push_back(j.text);
+        rules.with_holder_proof(proof, r).with_proof_replay_check([list](std::string_view jti) {
+            for (const auto& s : list) if (s == jti) return false;
+            return true;
+        });
+    }
+    if (tu::str(*t, "purpose") == "local") {
+        auto k = LocalKey::from_bytes(tu::unhex(tu::str(*t, "key")));
+        if (k.is_err()) return "<bad key>";
+        auto r = Token::open(tu::str(*t, "token"), k.value(), rules);
+        return verdict_name(r.is_ok(), r.is_ok() ? Error::internal : r.error());
+    }
+#ifdef CB2_HAS_PQ
+    auto pk = cb2::PublicKey::from_bytes(tu::unhex(tu::str(*t, "issuer-public-key")));
+    if (pk.is_err()) return "<bad key>";
+    auto r = Token::verify(tu::str(*t, "token"), pk.value(), rules);
+    return verdict_name(r.is_ok(), r.is_ok() ? Error::internal : r.error());
+#else
+    return "unavailable";
+#endif
+}
+
+/// Whether a build without ML-DSA-65 can decide a proofs.json test: a
+/// local access token without a kcb2.public cnf and no public proof.
+bool decidable_without_pq(const Value& root, const Value& v) {
+    const Value* t = root.get("access-tokens")->get(tu::str(v, "access-token"));
+    return tu::str(*t, "purpose") == "local" && tu::str(*t, "payload").find("kcb2.public.") == std::string::npos &&
+           tu::str(v, "proof").rfind(cb2::Holder::PUBLIC_HEADER, 0) != 0;
+}
+
+}
+
+TEST_CASE("vectors/holder proof vectors of the local mode reproduce and yield the recorded verdicts") {
+    Value root;
+    REQUIRE(load("proofs.json", root));
+    const Value* tokens = root.get("access-tokens");
+    REQUIRE(tokens != nullptr && tokens->is_object());
+    int reproduced = 0;
+    for (const auto& [which, t] : tokens->members) {
+        if (tu::str(t, "purpose") != "local") continue;
+        auto k = LocalKey::from_bytes(tu::unhex(tu::str(t, "key")));
+        REQUIRE(k.is_ok());
+        const std::string payload = tu::str(t, "payload");
+        const std::string footer = Token::footer_for(k.value().key_id());
+        std::string out(Local::token_len(payload.size(), footer.size()), '\0');
+        size_t n = 0;
+        CHECK(Local::seal_with_nonce_for_testing({reinterpret_cast<uint8_t*>(out.data()), out.size()}, n, k.value(), cb2::bytes(payload), cb2::bytes(footer), {}, tu::unhex(tu::str(t, "nonce"))) == Status::ok);
+        CHECK(out == tu::str(t, "token"));
+        ++reproduced;
+    }
+    CHECK(reproduced >= 4);
+    auto proof_key = LocalKey::from_bytes(tu::unhex(tu::str(root, "proof-key")));
+    REQUIRE(proof_key.is_ok());
+    const cb2::SecureString proof_text = proof_key.value().to_paserk();
+    CHECK(tu::str(*tokens->get("local-bound"), "payload").find(std::string(proof_text.data(), proof_text.size())) != std::string::npos);
+    const Value* proofs = root.get("local-proofs");
+    REQUIRE(proofs != nullptr && proofs->kind == Value::Kind::array);
+    for (const Value& p : proofs->items) {
+        auto k = LocalKey::from_bytes(tu::unhex(tu::str(p, "key")));
+        REQUIRE(k.is_ok());
+        const std::string h = tu::str(p, "header");
+        const std::string payload = tu::str(p, "payload");
+        const std::string footer = tu::str(p, "footer");
+        const std::string implicit = tu::str(p, "implicit-assertion");
+        const Bytes nonce = tu::unhex(tu::str(p, "nonce"));
+        CHECK(footer == Token::footer_for(k.value().paserk_id()));
+        std::string out(cb2::detail::LocalCore::token_len(h, payload.size(), footer.size()), '\0');
+        size_t n = 0;
+        CHECK(cb2::detail::LocalCore::seal(h, {reinterpret_cast<uint8_t*>(out.data()), out.size()}, n, cb2::detail::KeyAccess::local(k.value()), cb2::bytes(payload), cb2::bytes(footer), cb2::bytes(implicit), nonce.data()) == Status::ok);
+        CHECK(out == tu::str(p, "proof"));
+    }
+    CHECK(proofs->items.size() >= 10);
+    const Value* inter = root.get("local-intermediates");
+    REQUIRE(inter != nullptr);
+    const std::string lp1 = tu::str(*inter, "proof");
+    check_local_intermediates(*inter, tu::unhex(tu::str(root, "proof-key")), tu::unhex(tu::str(*inter, "nonce")),
+                              tu::bytes_of(tu::str(*inter, "claims")), tu::bytes_of(tu::str(*inter, "footer")),
+                              tu::bytes_of(tu::str(*inter, "implicit-assertion")), lp1, cb2::Holder::LOCAL_HEADER);
+    CHECK(tu::str(*inter, "implicit-assertion") == tu::str(*tokens->get("local-bound"), "token"));
+    const Value* tests = tests_of(root);
+    REQUIRE(tests != nullptr);
+    int seen = 0;
+    for (const Value& v : tests->items) {
+        if (!decidable_without_pq(root, v)) continue;
+        ++seen;
+        const std::string verdict = holder_verdict(root, v);
+        if (verdict != tu::str(v, "expect")) std::printf("      %s: got %s, expected %s\n", tu::str(v, "name").c_str(), verdict.c_str(), tu::str(v, "expect").c_str());
+        CHECK(verdict == tu::str(v, "expect"));
+    }
+    CHECK(seen >= 25);
+}
+
 #ifdef CB2_HAS_PQ
 TEST_CASE("vectors/holder proof vectors yield the recorded verdicts") {
     Value root;
     REQUIRE(load("proofs.json", root));
     const Value* tokens = root.get("access-tokens");
     REQUIRE(tokens != nullptr && tokens->is_object());
-    const std::string issuer = tu::str(root, "issuer");
-    const std::string audience = tu::str(root, "audience");
-    for (const char* which : {"local", "bearer"}) {
-        const Value* t = tokens->get(which);
-        REQUIRE(t != nullptr);
-        auto k = LocalKey::from_bytes(tu::unhex(tu::str(*t, "key")));
-        REQUIRE(k.is_ok());
-        const std::string payload = tu::str(*t, "payload");
-        const std::string footer = Token::footer_for(k.value().key_id());
-        std::string out(Local::token_len(payload.size(), footer.size()), '\0');
-        size_t n = 0;
-        CHECK(Local::seal_with_nonce_for_testing({reinterpret_cast<uint8_t*>(out.data()), out.size()}, n, k.value(), cb2::bytes(payload), cb2::bytes(footer), {}, tu::unhex(tu::str(*t, "nonce"))) == Status::ok);
-        CHECK(out == tu::str(*t, "token"));
-    }
     const Value* tests = tests_of(root);
     REQUIRE(tests != nullptr);
     int seen = 0;
     for (const Value& v : tests->items) {
         ++seen;
-        const std::string name = tu::str(v, "name");
-        const Value* t = tokens->get(tu::str(v, "access-token"));
-        const Value* req = v.get("request");
-        const Value* o = v.get("rules");
-        REQUIRE(t != nullptr && req != nullptr && o != nullptr);
-        ValidationRules rules = ValidationRules().at(tu::num(*o, "now")).expect_issuer(issuer).expect_audience(audience)
-            .with_clock_skew(tu::num(*o, "clock-skew")).with_proof_lifetime(tu::num(*o, "proof-lifetime"));
-        if (tu::flag(*o, "require-cnf")) rules.require_sender_constraint();
-        if (tu::flag(*o, "ignore-cnf")) rules.ignore_sender_constraint();
-        const std::string proof = tu::str(v, "proof");
-        if (!proof.empty()) {
-            cb2::HolderRequest r;
-            r.method = tu::str(*req, "htm");
-            r.target = tu::str(*req, "htu");
-            if (req->get("nonce") != nullptr) r.nonce = tu::str(*req, "nonce");
-            std::vector<std::string> list;
-            if (const Value* ids = o->get("seen-jti"); ids != nullptr) for (const Value& j : ids->items) list.push_back(j.text);
-            rules.with_holder_proof(proof, r).with_proof_replay_check([list](std::string_view jti) {
-                for (const auto& s : list) if (s == jti) return false;
-                return true;
-            });
-        }
-        std::string verdict;
-        if (tu::str(*t, "purpose") == "local") {
-            auto k = LocalKey::from_bytes(tu::unhex(tu::str(*t, "key")));
-            REQUIRE(k.is_ok());
-            auto r = Token::open(tu::str(*t, "token"), k.value(), rules);
-            verdict = verdict_name(r.is_ok(), r.is_ok() ? Error::internal : r.error());
-        } else {
-            auto pk = cb2::PublicKey::from_bytes(tu::unhex(tu::str(*t, "issuer-public-key")));
-            REQUIRE(pk.is_ok());
-            auto r = Token::verify(tu::str(*t, "token"), pk.value(), rules);
-            verdict = verdict_name(r.is_ok(), r.is_ok() ? Error::internal : r.error());
-        }
-        if (verdict != tu::str(v, "expect")) std::printf("      %s: got %s, expected %s\n", name.c_str(), verdict.c_str(), tu::str(v, "expect").c_str());
+        const std::string verdict = holder_verdict(root, v);
+        if (verdict != tu::str(v, "expect")) std::printf("      %s: got %s, expected %s\n", tu::str(v, "name").c_str(), verdict.c_str(), tu::str(v, "expect").c_str());
         CHECK(verdict == tu::str(v, "expect"));
     }
-    CHECK(seen >= 20);
+    CHECK(seen >= 50);
     const Value* inter = root.get("intermediates");
     REQUIRE(inter != nullptr);
     auto client = cb2::PublicKey::from_bytes(tu::unhex(tu::str(root, "client-public-key")));

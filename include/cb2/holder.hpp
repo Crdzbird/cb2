@@ -8,13 +8,18 @@
  *   cb2.holder-public.   the hybrid signature construction of public.hpp
  *                        with this header as the domain string, under the
  *                        client's key pair; present only under CB2_HAS_PQ
- *   cb2.holder-local.    reserved for the symmetric mode, not implemented
+ *   cb2.holder-local.    the cb2.local construction with this header,
+ *                        under the 32-byte proof key the issuer wrote into
+ *                        cnf of a cb2.local access token and handed to the
+ *                        client with it; present in every build
  *
- * The footer of a proof is the key id binding of the client key and its
- * implicit assertion is the complete text of the access token it
- * accompanies, so a proof is worthless with any other token. The header
- * is the ML-DSA context string, so a proof is never a cb2.public token
- * and a cb2.public token is never a proof, under the same key.
+ * The footer of a proof is the key id binding of the bound key (its
+ * kcb2.pid or kcb2.lid) and its implicit assertion is the complete text
+ * of the access token it accompanies, so a proof is worthless with any
+ * other token. The header is the ML-DSA context string of a public proof
+ * and enters the key derivation and the tag of a local one, so a proof is
+ * never a cb2.public or cb2.local token and a token is never a proof,
+ * under the same key.
  *
  * The claims of a proof and their validation are in claims.hpp
  * (HolderProof); this header holds what the claims layer needs first:

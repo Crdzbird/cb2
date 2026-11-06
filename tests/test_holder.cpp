@@ -89,8 +89,8 @@ TEST_CASE("holder/a verifier that ignores or does not require the constraint, an
     auto local_mode = Token::seal(k, c);
     REQUIRE(local_mode.is_ok());
     half.with_proof_replay_check([](std::string_view) { return true; });
-    auto reserved = Token::open(local_mode.value(), k, half);
-    CHECK(reserved.is_err() && reserved.error() == Error::unavailable);
+    auto weak = Token::open(local_mode.value(), k, half);
+    CHECK(weak.is_err() && weak.error() == Error::claims_malformed);
 }
 
 #ifdef CB2_HAS_PQ
@@ -251,7 +251,9 @@ TEST_CASE("holder/a proof that authenticates but is not a proof claims object is
 TEST_CASE("holder/cnf forms the verifier refuses after authentication") {
     const LocalKey k = key_a();
     auto verdict = [&](Claims c, bool public_purpose) {
-        const std::string token = public_purpose ? Token::sign(client(), c).value() : Token::seal(k, c).value();
+        const std::string token = public_purpose
+            ? cb2::Public::sign(client(), cb2::bytes(c.to_json()), cb2::bytes(client().footer())).value()
+            : Token::seal(k, c).value();
         ValidationRules r = ValidationRules().at(NOW).expect_issuer("https://issuer.example").expect_audience("api")
             .with_holder_proof("cb2.holder-public.x", get_me()).with_proof_replay_check([](std::string_view) { return true; });
         auto v = public_purpose ? Token::verify(token, client().public_key(), r) : Token::open(token, k, r);
@@ -260,7 +262,10 @@ TEST_CASE("holder/cnf forms the verifier refuses after authentication") {
     Claims c = bound_claims();
     c.cnf = "kcb2.local.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     CHECK(verdict(c, true) == "claims_malformed");
-    CHECK(verdict(c, false) == "unavailable");
+    CHECK(Token::sign(client(), c).is_err());
+    CHECK(verdict(c, false) == "claims_malformed");
+    c.cnf = key_a().to_paserk().data();
+    CHECK(verdict(c, false) == "proof_invalid");
     c.cnf = "kcb2.public.short";
     CHECK(verdict(c, false) == "claims_malformed");
     c.cnf = "kcb2.pid.AAAA";

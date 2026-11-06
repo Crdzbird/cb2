@@ -339,6 +339,66 @@ func TestHolder(t *testing.T) {
 	wantCode(t, err, CodeArgument)
 }
 
+func TestHolderLocal(t *testing.T) {
+	k := newLocal(t)
+	proofKey := newLocal(t)
+	cnf, err := proofKey.ToPaserk()
+	need(t, err)
+	bound := map[string]any{
+		"iss": "https://issuer.example",
+		"aud": "api",
+		"exp": "2099-01-01T00:00:00+00:00",
+		"cnf": cnf,
+	}
+	access, err := TokenSeal(k, bound, nil)
+	need(t, err)
+	_, err = TokenOpen(k, access, baseRules(), nil)
+	wantCode(t, err, CodeMissingProof)
+	client, err := LocalKeyFromPaserk(cnf)
+	need(t, err)
+	proof, err := HolderProveLocal(client, "GET", "https://api.example/v1/me", nil, access, "p-1", 1700000000, 60)
+	need(t, err)
+	if !strings.HasPrefix(proof, "cb2.holder-local.") || len(proof) > 450 {
+		t.Fatalf("proof %q", proof)
+	}
+	rules := baseRules()
+	rules.Proof = proof
+	rules.Request = &HolderRequest{HTM: "GET", HTU: "HTTPS://API.EXAMPLE:443/v1/me?x=1"}
+	_, err = TokenOpen(k, access, rules, nil)
+	wantCode(t, err, CodeRulesIncomplete)
+	rules.ProofReplay = func(string) bool { return true }
+	_, err = TokenOpen(k, access, rules, nil)
+	need(t, err)
+	replayed := baseRules()
+	replayed.Proof = proof
+	replayed.Request = &HolderRequest{HTM: "GET", HTU: "https://api.example/v1/me"}
+	replayed.ProofSeenJTI = []string{"p-1"}
+	_, err = TokenOpen(k, access, replayed, nil)
+	wantCode(t, err, CodeProofReplayed)
+	mismatch := baseRules()
+	mismatch.Proof = proof
+	mismatch.Request = &HolderRequest{HTM: "POST", HTU: "https://api.example/v1/me"}
+	mismatch.ProofSeenJTI = []string{}
+	_, err = TokenOpen(k, access, mismatch, nil)
+	wantCode(t, err, CodeProofMismatch)
+	stranger := newLocal(t)
+	forged, err := HolderProveLocal(stranger, "GET", "https://api.example/v1/me", nil, access, "p-2", 1700000000, 60)
+	need(t, err)
+	invalid := baseRules()
+	invalid.Proof = forged
+	invalid.Request = &HolderRequest{HTM: "GET", HTU: "https://api.example/v1/me"}
+	invalid.ProofSeenJTI = []string{}
+	_, err = TokenOpen(k, access, invalid, nil)
+	wantCode(t, err, CodeProofInvalid)
+	expired := baseRules()
+	expired.Now = Int64(1700000100)
+	expired.Proof = proof
+	expired.Request = &HolderRequest{HTM: "GET", HTU: "https://api.example/v1/me"}
+	expired.ProofSeenJTI = []string{}
+	_, err = TokenOpen(k, access, expired, nil)
+	wantCode(t, err, CodeProofExpired)
+}
+
 func TestSeal(t *testing.T) {
 	if !HasSeal() {
 		t.Skip("kcb2.seal unavailable in this build")

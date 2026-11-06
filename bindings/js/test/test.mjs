@@ -1,7 +1,7 @@
 /**
  * The JavaScript bridge exercised from Node, mirroring bindings/c/test/test_c.c:
  * keys, raw tokens, claims tokens with rules and both replay callbacks, a
- * holder proof, key wrapping and sealing, and every verdict the bridge
+ * holder proofs of both modes, key wrapping and sealing, and every verdict the bridge
  * relies on. Run from the repository root: node --test bindings/js/test/
  */
 import assert from "node:assert/strict";
@@ -174,6 +174,32 @@ test("holder proofs", () => {
     k.free();
     clientPublic.free();
     client.free();
+});
+
+test("local holder proofs", () => {
+    const { LocalKey, Token, Holder } = cb2;
+    const k = LocalKey.generate();
+    const proofKey = LocalKey.generate();
+    const cnf = proofKey.toPaserk();
+    const access = Token.seal(k, { iss: "https://issuer.example", aud: "api", exp: "2099-01-01T00:00:00+00:00", cnf });
+    refused(() => Token.open(access, k, RULES), "missing_proof");
+    const client = LocalKey.fromPaserk(cnf);
+    const proof = Holder.proveLocal(client, { htm: "GET", htu: "https://api.example/v1/me" }, access, "p-1", 1700000000, 60);
+    assert.ok(proof.startsWith("cb2.holder-local.") && proof.length < 450);
+    const request = { htm: "GET", htu: "HTTPS://API.EXAMPLE:443/v1/me?x=1" };
+    refused(() => Token.open(access, k, { ...RULES, proof, request }), "rules_incomplete");
+    assert.equal(Token.open(access, k, { ...RULES, proof, request, proofReplay: () => true }).aud, "api");
+    refused(() => Token.open(access, k, { ...RULES, proof, request: { htm: "POST", htu: "https://api.example/v1/me" }, proof_seen_jti: [] }), "proof_mismatch");
+    refused(() => Token.open(access, k, { ...RULES, proof, request, proof_seen_jti: ["p-1"] }), "proof_replayed");
+    refused(() => Token.open(access, k, { ...RULES, now: 1700000100, proof, request, proof_seen_jti: [] }), "proof_expired");
+    const stranger = LocalKey.generate();
+    const forged = Holder.proveLocal(stranger, { htm: "GET", htu: "https://api.example/v1/me" }, access, "p-2", 1700000000, 60);
+    refused(() => Token.open(access, k, { ...RULES, proof: forged, request, proof_seen_jti: [] }), "proof_invalid");
+    refused(() => Holder.proveLocal(client, { htm: "GET", htu: "nope" }, access, "p-3", 1700000000, 60), "argument");
+    stranger.free();
+    client.free();
+    proofKey.free();
+    k.free();
 });
 
 test("sealing", () => {

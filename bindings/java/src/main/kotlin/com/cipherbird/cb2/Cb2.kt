@@ -143,6 +143,17 @@ fun SecretKey.prove(
     nonce: String? = null,
 ): String = Holder.prove(this, htm, htu, nonce, accessToken, jti, now, lifetime)
 
+/** Proves possession of this local proof key, the one in cnf of the cb2.local accessToken, for one request. */
+fun LocalKey.prove(
+    htm: String,
+    htu: String,
+    accessToken: String,
+    jti: String,
+    now: Long,
+    lifetime: Long = 60,
+    nonce: String? = null,
+): String = Holder.proveLocal(this, htm, htu, nonce, accessToken, jti, now, lifetime)
+
 /** Wraps this key under wrapping. */
 fun LocalKey.wrapWith(wrapping: LocalKey): String = KeyWrap.wrap(wrapping, this)
 

@@ -28,10 +28,11 @@
  * Error::argument before anything is sealed or signed, the verifier gets
  * claims_malformed after authentication. See text.hpp for the policy.
  *
- * A token whose cnf claim names a client key is sender-constrained: after
- * every other rule it is accepted only with a holder proof (HolderProof,
- * holder.hpp) that the presenter made under that key for this request
- * and this token. A verifier that does not check proofs must say so with
+ * A token whose cnf claim names a client key, or in a cb2.local token
+ * carries a proof key, is sender-constrained: after every other rule it
+ * is accepted only with a holder proof (HolderProof, holder.hpp) that the
+ * presenter made under that key for this request and this token. A
+ * verifier that does not check proofs must say so with
  * ignore_sender_constraint(); by default such a token without a proof is
  * missing_proof.
  */
@@ -173,7 +174,8 @@ public:
     std::optional<Seconds> iat;
     std::optional<std::string> jti;
     /// The key this token is bound to: a kcb2.public string (the public
-    /// holder mode) or, reserved for the local mode, a kcb2.local string.
+    /// holder mode) or, in a cb2.local token only, a kcb2.local proof key
+    /// (the local holder mode).
     std::optional<std::string> cnf;
 
     [[nodiscard]] static bool is_registered(std::string_view name) noexcept {
@@ -467,12 +469,12 @@ private:
     std::optional<Seconds> now_;
 };
 
-/// A key id read from a token footer before any verification. It may be
-/// used to select a candidate key and for nothing else.
-#ifdef CB2_HAS_PQ
-/// Holder proofs of the public mode: made by the client under its key pair
-/// for one request and one access token, checked by the verifier under
-/// the key the token's cnf claim carries.
+/// Holder proofs: made by the client for one request and one access token
+/// under the key the token's cnf claim binds, checked by the verifier under
+/// that key. The local mode tags with the 32-byte proof key the issuer
+/// wrote into cnf of a cb2.local access token (cb2.holder-local.); the
+/// public mode signs with the client's key pair (cb2.holder-public.,
+/// present only under CB2_HAS_PQ).
 class HolderProof {
 public:
     /// The claims a proof carries for a request made at now: jti, iat,
@@ -494,6 +496,54 @@ public:
         return Result<Claims>::ok(std::move(c));
     }
 
+    /// Binds claims of a cb2.local access token to a fresh proof key: the
+    /// key is generated here, written into cnf as its kcb2.local string and
+    /// returned for the client, which receives it with the token. argument
+    /// when the claims already carry cnf.
+    [[nodiscard]] static Result<LocalKey> bind_local(Claims& claims) {
+        if (claims.cnf) return Result<LocalKey>::err(Error::argument);
+        auto key = LocalKey::generate();
+        if (key.is_err()) return key;
+        const SecureString text = key.value().to_paserk();
+        claims.cnf = std::string(text.data(), text.size());
+        return key;
+    }
+
+    /// A proof under the proof key of a local-mode access token: a
+    /// cb2.holder-local. token of claims_for, whose footer binds the proof
+    /// key's kcb2.lid and whose implicit assertion is the access token text.
+    [[nodiscard]] static Result<std::string>
+    make_local(const LocalKey& proof_key, const HolderRequest& request, std::string_view access_token,
+               std::string_view jti, Seconds now, Seconds lifetime = Holder::DEFAULT_LIFETIME) {
+        if (!detail::ensure_sodium()) return Result<std::string>::err(Error::internal);
+        uint8_t n[detail::LOCAL_NONCE_BYTES];
+        detail::fresh_nonce(n, sizeof n);
+        return seal_local(proof_key, request, access_token, jti, now, lifetime, n);
+    }
+
+#ifdef CB2_TEST_NONCE
+    /// Test builds only: make_local with a caller-chosen 32-byte nonce, to
+    /// produce known-answer vectors.
+    [[nodiscard]] static Result<std::string>
+    make_local_with_nonce_for_testing(const LocalKey& proof_key, const HolderRequest& request,
+                                      std::string_view access_token, std::string_view jti, Seconds now,
+                                      Seconds lifetime, std::span<const uint8_t> nonce) {
+        if (nonce.size() != detail::LOCAL_NONCE_BYTES) return Result<std::string>::err(Error::argument);
+        return seal_local(proof_key, request, access_token, jti, now, lifetime, nonce.data());
+    }
+#endif
+
+    /// Checks the proof the rules carry under the proof key for
+    /// access_token: authentication (proof_invalid), parsing
+    /// (proof_malformed), times (proof_expired), the request and nonce
+    /// (proof_mismatch) and the proof replay check (proof_replayed), in
+    /// that order. Returns the proof's claims.
+    [[nodiscard]] static Result<Claims>
+    check_local(const LocalKey& proof_key, std::string_view access_token, const ValidationRules& rules) {
+        return check_local_key(detail::KeyAccess::local(proof_key), proof_key.paserk_id(), access_token, rules);
+    }
+
+#ifdef CB2_HAS_PQ
     /// A proof under the client's key for access_token: a cb2.holder-public.
     /// token of claims_for, whose footer binds the client key's kcb2.pid and
     /// whose implicit assertion is the access token text.
@@ -504,7 +554,7 @@ public:
         if (c.is_err()) return Result<std::string>::err(c.error());
         try {
             const std::string payload = c.value().to_json();
-            const std::string footer = footer_for_key(client.public_key());
+            const std::string footer = footer_for_id(client.public_key().paserk_id());
             return detail::PublicCore::sign(Holder::PUBLIC_HEADER, client, bytes(payload), bytes(footer),
                                             bytes(access_token));
         } catch (...) {
@@ -512,13 +562,78 @@ public:
         }
     }
 
-    /// Checks the proof the rules carry under client for access_token:
-    /// authentication (proof_invalid), parsing (proof_malformed), times
-    /// (proof_expired), the request and nonce (proof_mismatch) and the
-    /// proof replay check (proof_replayed), in that order. Returns the
-    /// proof's claims.
+    /// Checks the proof the rules carry under client for access_token,
+    /// with the verdicts and in the order of check_local.
     [[nodiscard]] static Result<Claims>
     check(const PublicKey& client, std::string_view access_token, const ValidationRules& rules) {
+        return checked(rules, [&](const std::string& proof) -> Result<std::vector<uint8_t>> {
+            const std::string footer = footer_for_id(client.paserk_id());
+            auto msg = detail::PublicCore::verify(Holder::PUBLIC_HEADER, proof, client, bytes(footer),
+                                                  bytes(access_token), rules.max_token_bytes());
+            if (msg.is_err()) return Result<std::vector<uint8_t>>::err(Error::proof_invalid);
+            return msg;
+        });
+    }
+#endif
+
+private:
+    friend class Token;
+
+    /// check_local under the 32 key bytes at key whose kcb2.lid is id: the
+    /// verifier's path, which reads the key out of cnf into wiped stack
+    /// memory instead of building a LocalKey for every request.
+    [[nodiscard]] static Result<Claims>
+    check_local_key(const uint8_t* key, std::string_view id, std::string_view access_token,
+                    const ValidationRules& rules) {
+        return checked(rules, [&](const std::string& proof) -> Result<SecureBytes> {
+            const std::string footer = footer_for_id(id);
+            const std::size_t cap = detail::LocalCore::open_capacity(Holder::LOCAL_HEADER, proof.size());
+            if (cap == 0) return Result<SecureBytes>::err(Error::proof_invalid);
+            SecureBytes buf(cap);
+            std::size_t n = 0;
+            const Status s = detail::LocalCore::open(Holder::LOCAL_HEADER, buf, n, proof, key, bytes(footer),
+                                                     bytes(access_token));
+            if (s == Status::internal) return Result<SecureBytes>::err(Error::internal);
+            if (s != Status::ok) return Result<SecureBytes>::err(Error::proof_invalid);
+            buf.resize(n);
+            return Result<SecureBytes>::ok(std::move(buf));
+        });
+    }
+
+    [[nodiscard]] static std::string footer_for_id(std::string_view id) {
+        std::string f = "{\"kid\":";
+        json::Writer::string(f, id);
+        f += '}';
+        return f;
+    }
+
+    [[nodiscard]] static Result<std::string>
+    seal_local(const LocalKey& proof_key, const HolderRequest& request, std::string_view access_token,
+               std::string_view jti, Seconds now, Seconds lifetime, const uint8_t* nonce) {
+        auto c = claims_for(request, jti, now, lifetime);
+        if (c.is_err()) return Result<std::string>::err(c.error());
+        try {
+            const std::string payload = c.value().to_json();
+            const std::string footer = footer_for_id(proof_key.paserk_id());
+            const std::size_t need = detail::LocalCore::token_len(Holder::LOCAL_HEADER, payload.size(), footer.size());
+            if (need == 0) return Result<std::string>::err(Error::argument);
+            std::string out(need, '\0');
+            std::size_t n = 0;
+            const Status s = detail::LocalCore::seal(
+                Holder::LOCAL_HEADER, {reinterpret_cast<uint8_t*>(out.data()), out.size()}, n,
+                detail::KeyAccess::local(proof_key), bytes(payload), bytes(footer), bytes(access_token), nonce);
+            if (s != Status::ok) return Result<std::string>::err(to_error(s));
+            return Result<std::string>::ok(std::move(out));
+        } catch (...) {
+            return Result<std::string>::err(Error::internal);
+        }
+    }
+
+    /// The order both modes share: rules, request target, size limit,
+    /// authentication by open (proof_invalid or internal), parsing, then
+    /// the claims.
+    template <typename Open>
+    [[nodiscard]] static Result<Claims> checked(const ValidationRules& rules, Open&& open) {
         if (!rules.complete()) return Result<Claims>::err(Error::rules_incomplete);
         if (!rules.holder_proof() || !rules.holder_request()) return Result<Claims>::err(Error::missing_proof);
         const auto target = Holder::normalize_target(rules.holder_request()->target);
@@ -526,10 +641,8 @@ public:
         const std::string& proof = *rules.holder_proof();
         if (proof.size() > rules.max_token_bytes()) return Result<Claims>::err(Error::proof_invalid);
         try {
-            const std::string footer = footer_for_key(client);
-            auto msg = detail::PublicCore::verify(Holder::PUBLIC_HEADER, proof, client, bytes(footer),
-                                                  bytes(access_token), rules.max_token_bytes());
-            if (msg.is_err()) return Result<Claims>::err(Error::proof_invalid);
+            auto msg = open(proof);
+            if (msg.is_err()) return Result<Claims>::err(msg.error());
             auto c = Claims::from_json(std::string_view(reinterpret_cast<const char*>(msg.value().data()),
                                                         msg.value().size()));
             if (c.is_err()) return Result<Claims>::err(Error::proof_malformed);
@@ -539,14 +652,6 @@ public:
         } catch (...) {
             return Result<Claims>::err(Error::internal);
         }
-    }
-
-private:
-    [[nodiscard]] static std::string footer_for_key(const PublicKey& client) {
-        std::string f = "{\"kid\":";
-        json::Writer::string(f, client.paserk_id());
-        f += '}';
-        return f;
     }
 
     [[nodiscard]] static Result<void>
@@ -576,8 +681,9 @@ private:
         return Result<void>::ok();
     }
 };
-#endif
 
+/// A key id read from a token footer before any verification. It may be
+/// used to select a candidate key and for nothing else.
 struct UnverifiedKeyId {
     std::string value;
 };
@@ -597,7 +703,8 @@ public:
         detail::Split s{};
         if (!detail::split_token(token, Local::HEADER, true, s) &&
             !detail::split_token(token, "cb2.public.", true, s) &&
-            !detail::split_token(token, Holder::PUBLIC_HEADER, true, s))
+            !detail::split_token(token, Holder::PUBLIC_HEADER, true, s) &&
+            !detail::split_token(token, Holder::LOCAL_HEADER, true, s))
             return std::nullopt;
         const std::size_t need = detail::b64::decoded_len(s.footer_len);
         if (need == static_cast<std::size_t>(-1)) return std::nullopt;
@@ -653,10 +760,13 @@ public:
 
 #ifdef CB2_HAS_PQ
     /// Signs claims as a cb2.public token; the key id, if any, goes into
-    /// the footer.
+    /// the footer. A kcb2.local cnf is argument: a proof key in a payload
+    /// anyone can read would bind nothing.
     [[nodiscard]] static Result<std::string>
     sign(const SecretKey& key, const Claims& claims, std::string_view implicit = {}) {
         if (!claims.text_ok() || !key_id_ok(key.key_id())) return Result<std::string>::err(Error::argument);
+        if (claims.cnf && claims.cnf->starts_with(Holder::CNF_LOCAL_PREFIX))
+            return Result<std::string>::err(Error::argument);
         try {
             const std::string payload = claims.to_json();
             const std::string& footer = key.footer();
@@ -700,7 +810,9 @@ private:
 
     /// Step five of validation: the sender constraint. Nothing when the
     /// rules ignore it; a bearer token when cnf is absent and not required;
-    /// otherwise the proof is checked under the key cnf carries.
+    /// otherwise the proof is checked under the key cnf carries: a
+    /// kcb2.local proof key in a cb2.local token, a kcb2.public client key
+    /// in either purpose.
     [[nodiscard]] static Result<void> holder_step(const Claims& c, const ValidationRules& rules,
                                                   std::string_view token, bool public_purpose) {
         if (rules.ignores_sender_constraint()) return Result<void>::ok();
@@ -709,8 +821,17 @@ private:
             return Result<void>::ok();
         }
         if (!rules.holder_proof()) return Result<void>::err(Error::missing_proof);
-        if (c.cnf->starts_with(Holder::CNF_LOCAL_PREFIX))
-            return Result<void>::err(public_purpose ? Error::claims_malformed : Error::unavailable);
+        if (c.cnf->starts_with(Holder::CNF_LOCAL_PREFIX)) {
+            if (public_purpose) return Result<void>::err(Error::claims_malformed);
+            detail::SecureArray<LocalKey::BYTES> proof_key;
+            if (!detail::paserk_decode(LocalKey::PASERK_HEADER, *c.cnf, proof_key.v, LocalKey::BYTES) ||
+                detail::constant_bytes(proof_key.v, LocalKey::BYTES))
+                return Result<void>::err(Error::claims_malformed);
+            const std::string id = detail::paserk_id(LocalKey::ID_HEADER, *c.cnf);
+            auto proof = HolderProof::check_local_key(proof_key.v, id, token, rules);
+            if (proof.is_err()) return Result<void>::err(proof.error());
+            return Result<void>::ok();
+        }
         if (!c.cnf->starts_with(Holder::CNF_PUBLIC_PREFIX)) return Result<void>::err(Error::claims_malformed);
 #ifdef CB2_HAS_PQ
         auto client = PublicKey::from_paserk(*c.cnf);

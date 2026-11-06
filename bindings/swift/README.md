@@ -129,5 +129,8 @@ covers: the local round trip, the verdicts (`rules_incomplete`,
 `seenJti`, `lifetime_exceeded`, identifiers with a zero-width space refused
 as `argument`), key wrapping, public sign and verify, a bound token refused
 as `missing_proof`, a holder proof accepted and then `proof_mismatch`,
-`proof_replayed` and `proof_expired`, and sealing. The public and seal
+`proof_replayed` and `proof_expired`, a local-mode proof
+(`Holder.proveLocal` under the `kcb2.local` proof key in `cnf`) accepted
+and then `proof_replayed`, `proof_mismatch` and `proof_invalid`, and
+sealing. The public and seal
 cases skip on a build of the library without them.

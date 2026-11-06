@@ -160,6 +160,37 @@ class LocalTest(Verdicts):
             LocalKey.from_paserk("kcb2.local.nope")
 
 
+class HolderLocalTest(Verdicts):
+    def test_local_proof_key_in_cnf(self):
+        key = LocalKey.generate()
+        proof_key = LocalKey.generate()
+        bound = {
+            "iss": "https://issuer.example",
+            "aud": "api",
+            "exp": "2099-01-01T00:00:00+00:00",
+            "cnf": proof_key.to_paserk(),
+        }
+        access = Token.seal(key, bound)
+        self.assertVerdict(Code.MISSING_PROOF, Token.open, access, key, rules())
+        client = LocalKey.from_paserk(bound["cnf"])
+        proof = Holder.prove_local(client, "GET", "https://api.example/v1/me", access, "p-1", NOW)
+        self.assertTrue(proof.startswith("cb2.holder-local."))
+        self.assertLess(len(proof), 450)
+        request = {"htm": "GET", "htu": "HTTPS://API.EXAMPLE:443/v1/me?x=1"}
+        self.assertVerdict(Code.RULES_INCOMPLETE, Token.open, access, key, rules(proof=proof, request=request))
+        claims = Token.open(access, key, rules(proof=proof, request=request, proof_replay=lambda jti: True))
+        self.assertEqual(claims["aud"], "api")
+        plain = {"htm": "GET", "htu": "https://api.example/v1/me"}
+        self.assertVerdict(Code.PROOF_REPLAYED, Token.open, access, key, rules(proof=proof, request=plain, proof_seen_jti=["p-1"]))
+        wrong = {"htm": "POST", "htu": "https://api.example/v1/me"}
+        self.assertVerdict(Code.PROOF_MISMATCH, Token.open, access, key, rules(proof=proof, request=wrong, proof_seen_jti=[]))
+        forged = Holder.prove_local(LocalKey.generate(), "GET", "https://api.example/v1/me", access, "p-2", NOW)
+        self.assertVerdict(Code.PROOF_INVALID, Token.open, access, key, rules(proof=forged, request=plain, proof_seen_jti=[]))
+        stale = Rules(issuer="https://issuer.example", audience="api", now=NOW + 100, proof=proof, request=plain, proof_seen_jti=[])
+        self.assertVerdict(Code.PROOF_EXPIRED, Token.open, access, key, stale)
+        self.assertVerdict(Code.ARGUMENT, Holder.prove_local, client, "GET", "nope", access, "p-3", NOW)
+
+
 @unittest.skipUnless(cb2.has_public(), "cb2.public unavailable in this build")
 class PublicTest(Verdicts):
     def setUp(self):

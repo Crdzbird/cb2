@@ -110,22 +110,31 @@ class Token:
         return optional_text(out.value)
 
 
+def _prove(fn, handle, htm: str, htu: str, access_token: str, jti: str, now: int, lifetime: int, nonce: Optional[str]) -> str:
+    method = as_bytes(htm, "htm")
+    target = as_bytes(htu, "htu")
+    access = as_bytes(access_token, "access_token")
+    proof_id = as_bytes(jti, "jti")
+    nonce_raw = None if nonce is None else as_bytes(nonce, "nonce")
+    nonce_len = 0 if nonce_raw is None else len(nonce_raw)
+    out = c_void_p()
+    length = c_size_t()
+    check(fn(handle, method, len(method), target, len(target), nonce_raw, nonce_len, access, len(access), proof_id, len(proof_id), int(now), int(lifetime), ctypes.byref(out), ctypes.byref(length)))
+    return take_text(out.value, length.value)
+
+
 class Holder:
-    """Holder proofs: a client proves possession of its pair for one request."""
+    """Holder proofs: a client proves possession of the key its access token is bound to, for one request."""
 
     @staticmethod
     def prove(client_secret: SecretKey, htm: str, htu: str, access_token: str, jti: str, now: int, lifetime: int = 60, nonce: Optional[str] = None) -> str:
-        """A proof for the request (method htm, target htu) and the access token."""
-        method = as_bytes(htm, "htm")
-        target = as_bytes(htu, "htu")
-        access = as_bytes(access_token, "access_token")
-        proof_id = as_bytes(jti, "jti")
-        nonce_raw = None if nonce is None else as_bytes(nonce, "nonce")
-        nonce_len = 0 if nonce_raw is None else len(nonce_raw)
-        out = c_void_p()
-        length = c_size_t()
-        check(lib().cb2_holder_prove(client_secret.handle, method, len(method), target, len(target), nonce_raw, nonce_len, access, len(access), proof_id, len(proof_id), int(now), int(lifetime), ctypes.byref(out), ctypes.byref(length)))
-        return take_text(out.value, length.value)
+        """A public-mode proof under the client's pair for the request (method htm, target htu) and the access token."""
+        return _prove(lib().cb2_holder_prove, client_secret.handle, htm, htu, access_token, jti, now, lifetime, nonce)
+
+    @staticmethod
+    def prove_local(proof_key: LocalKey, htm: str, htu: str, access_token: str, jti: str, now: int, lifetime: int = 60, nonce: Optional[str] = None) -> str:
+        """A local-mode proof under the kcb2.local proof key the issuer put in cnf of a cb2.local access token; every build."""
+        return _prove(lib().cb2_holder_prove_local, proof_key.handle, htm, htu, access_token, jti, now, lifetime, nonce)
 
     @staticmethod
     def normalize_target(uri: str) -> str:

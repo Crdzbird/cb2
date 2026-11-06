@@ -12,8 +12,9 @@
  * A second table measures one sender-constrained request: the client
  * makes a holder proof for GET https://api.example/v1/me and the server
  * checks the access token and that proof under the rules a resource would
- * set, for cb2 bound tokens and for JWT access tokens with RFC 9449 DPoP
- * proofs. The DPoP rows do the two signature checks, the ath hash and the
+ * set, for cb2 bound tokens (a cb2.local token bound to a local proof key,
+ * and tokens of both purposes bound to a client key pair) and for JWT
+ * access tokens with RFC 9449 DPoP proofs. The DPoP rows do the two signature checks, the ath hash and the
  * jkt thumbprint and no JSON claim checks, and take the client key as
  * known instead of reading it from the proof header: a lower bound for
  * JWT, as the JWS rows of the first table are.
@@ -307,15 +308,25 @@ std::vector<Request> requests(const Keys& keys, const cb2::LocalKey& local) {
     const std::string bearer = cb2::Token::seal(local, c).value();
     v.push_back({"cb2.local bearer, no proof", bearer, "", [] { return std::string(); },
                  [bearer, &local, rules](const std::string&) { return cb2::Token::open(bearer, local, rules()).is_ok(); }});
+    const cb2::HolderRequest get{"GET", REQ_TARGET, std::nullopt};
+    auto with_proof = [rules, get](const std::string& proof) {
+        return rules().with_holder_proof(proof, get).with_proof_replay_check([](std::string_view) { return true; });
+    };
+    cb2::Claims local_bound = c;
+    const auto proof_key = std::make_shared<cb2::LocalKey>(cb2::HolderProof::bind_local(local_bound).value());
+    const std::string local_bound_token = cb2::Token::seal(local, local_bound).value();
+    auto prove_local = [local_bound_token, get, proof_key] {
+        return cb2::HolderProof::make_local(*proof_key, get, local_bound_token, "p-1", REQ_NOW, 60).value();
+    };
+    v.push_back({"cb2.local bound + local proof", local_bound_token, prove_local(), prove_local,
+                 [local_bound_token, &local, with_proof](const std::string& p) {
+                     return cb2::Token::open(local_bound_token, local, with_proof(p)).is_ok();
+                 }});
 #ifdef CB2_HAS_PQ
     static const cb2::SecretKey client = cb2::SecretKey::generate().value();
     static const cb2::SecretKey issuer = cb2::SecretKey::generate().value();
     static const cb2::PublicKey issuer_public = issuer.public_key();
     c.cnf = client.public_key().to_paserk();
-    const cb2::HolderRequest get{"GET", REQ_TARGET, std::nullopt};
-    auto with_proof = [rules, get](const std::string& proof) {
-        return rules().with_holder_proof(proof, get).with_proof_replay_check([](std::string_view) { return true; });
-    };
     for (bool pub : {false, true}) {
         const std::string token = pub ? cb2::Token::sign(issuer, c).value() : cb2::Token::seal(local, c).value();
         auto prove = [token, get] { return cb2::HolderProof::make(client, get, token, "p-1", REQ_NOW, 60).value(); };

@@ -55,6 +55,7 @@ _PROTOTYPES = {
     "cb2_token_verify": (c_int, [c_void_p, c_char_p, c_size_t, c_char_p, c_size_t, c_char_p, c_size_t, ReplayFn, ReplayFn, c_void_p, _PTR_OUT, _LEN_OUT]),
     "cb2_peek_key_id": (c_int, [c_char_p, c_size_t, _PTR_OUT]),
     "cb2_holder_prove": (c_int, [c_void_p, c_char_p, c_size_t, c_char_p, c_size_t, c_char_p, c_size_t, c_char_p, c_size_t, c_char_p, c_size_t, c_int64, c_int64, _PTR_OUT, _LEN_OUT]),
+    "cb2_holder_prove_local": (c_int, [c_void_p, c_char_p, c_size_t, c_char_p, c_size_t, c_char_p, c_size_t, c_char_p, c_size_t, c_char_p, c_size_t, c_int64, c_int64, _PTR_OUT, _LEN_OUT]),
     "cb2_holder_normalize_target": (c_int, [c_char_p, c_size_t, _PTR_OUT]),
     "cb2_wrap": (c_int, [c_void_p, c_void_p, _PTR_OUT]),
     "cb2_unwrap": (c_int, [c_char_p, c_size_t, c_void_p, _PTR_OUT]),

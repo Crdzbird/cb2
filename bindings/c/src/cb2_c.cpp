@@ -499,6 +499,22 @@ int cb2_holder_prove(const cb2_secret_key* client, const char* htm, size_t htm_l
 #endif
 }
 
+int cb2_holder_prove_local(const cb2_local_key* proof_key, const char* htm, size_t htm_len, const char* htu,
+                           size_t htu_len, const char* nonce, size_t nonce_len, const char* access_token,
+                           size_t access_len, const char* jti, size_t jti_len, int64_t now, int64_t lifetime,
+                           char** out_proof, size_t* out_len) {
+    return guarded([&] {
+        cb2::HolderRequest req;
+        req.method = std::string(sv(htm, htm_len));
+        req.target = std::string(sv(htu, htu_len));
+        if (nonce != nullptr) req.nonce = std::string(sv(nonce, nonce_len));
+        auto r = cb2::HolderProof::make_local(proof_key->key, req, sv(access_token, access_len), sv(jti, jti_len), now,
+                                              lifetime);
+        if (r.is_err()) return code_of(r.error());
+        return give_text(r.value(), out_proof, out_len);
+    });
+}
+
 int cb2_holder_normalize_target(const char* uri, size_t len, char** out) {
     return guarded([&] {
         const auto t = cb2::Holder::normalize_target(sv(uri, len));
