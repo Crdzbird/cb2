@@ -51,8 +51,10 @@ const char* const KEY2_HEX = "808182838485868788898a8b8c8d8e8f909192939495969798
 const char* const NONCE_ZERO = "0000000000000000000000000000000000000000000000000000000000000000";
 const char* const NONCE_A = "df654812bac492663825520ba2f6e67cf5ca5bdc13d4e7507a98cc4c2fcc3ad8";
 const char* const NONCE_B = "26f7553354482a1d91d4784627854b8da6b8042a7966523c2b404e8dbbe7f7f2";
+#ifdef CB2_HAS_PQ
 const char* const PROOF_KEY_HEX = "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f";
 const char* const OTHER_PROOF_KEY_HEX = "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f";
+#endif
 const char* const PAYLOAD_A = "{\"data\":\"this is a secret message\",\"exp\":\"2022-01-01T00:00:00+00:00\"}";
 const char* const PAYLOAD_B = "{\"data\":\"this is a hidden message\",\"exp\":\"2022-01-01T00:00:00+00:00\"}";
 const char* const FOOTER_KID = "{\"kid\":\"kcb2.lid.example\"}";
