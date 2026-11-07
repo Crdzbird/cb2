@@ -118,12 +118,18 @@ jobs:
             CODE_SIGNING_ALLOWED=NO -quiet build
           xcodebuild -scheme Cb2App -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedData \
             CODE_SIGNING_ALLOWED=NO -quiet build
-      - name: Swift benchmarks against jwt-kit and swift-paseto (release build only, not run)
+      - name: Swift benchmarks against jwt-kit and swift-paseto (release build only, not run, newest Xcode)
         working-directory: bindings/swift/Benchmarks
         env:
           BENCHMARK_DISABLE_JEMALLOC: "true"
           CB2_SWIFT_SYSTEM_LIBRARY: "1"
         run: |
+          ls -d /Applications/Xcode*.app
+          xcode="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          export DEVELOPER_DIR="$xcode/Contents/Developer"
+          swift --version
+          swift --version 2>&1 | grep -Eq 'Swift version (6\.([2-9]|[1-9][0-9])|[7-9])' \
+            || { echo "jwt-kit 5.7 needs Swift 6.2 or later; none of the installed Xcodes has it"; exit 1; }
           swift build -c release \
             -Xlinker -L"$GITHUB_WORKSPACE/build/bindings/c" -Xlinker -rpath -Xlinker "$GITHUB_WORKSPACE/build/bindings/c"
       - name: Fuzz targets (time-boxed)
