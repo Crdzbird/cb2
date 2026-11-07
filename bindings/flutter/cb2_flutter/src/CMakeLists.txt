@@ -3,9 +3,12 @@
 # cb2 headers. The Flutter tooling requires CMake 3.10 or later; do not
 # raise this minimum.
 #
-# cb2 depends on libsodium, BLAKE3 and libcrypto, and on liboqs when
-# CB2_PQ is on (cb2.public and kcb2.seal). Those are not vendored here;
-# supply them for the target platform and architecture:
+# cb2 depends on libsodium and BLAKE3, on liboqs when CB2_PQ is on
+# (cb2.public and kcb2.seal), and on libcrypto when CB2_OPENSSL_CHACHA is
+# on, which it is by default except on Android, where the platform has no
+# libcrypto for applications. Those are not vendored here; supply them for
+# the target platform and architecture (tool/build_android_deps.sh builds
+# them for Android):
 #
 #   CB2_DEPS_ROOT   a prefix holding include/ and lib/ for the target, or
 #                   on Android a directory with one such prefix per ABI
@@ -14,6 +17,7 @@
 #   CB2_DEPS_LIBS   the library names to link, when they differ from the
 #                   defaults sodium;blake3;crypto and oqs.
 #   CB2_PQ          ON by default; OFF builds cb2.local only, without liboqs.
+#   CB2_OPENSSL_CHACHA  OpenSSL's ChaCha20 for long messages; off on Android.
 #
 # Without CB2_DEPS_ROOT, pkg-config is consulted where it exists, which is
 # the Linux desktop case. Static dependency libraries give a self-contained
@@ -27,7 +31,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(CB2_PQ "Build cb2.public and kcb2.seal (requires liboqs)" ON)
-option(CB2_OPENSSL_CHACHA "Use OpenSSL's ChaCha20 for messages of 512 bytes or more" ON)
+if(ANDROID)
+    set(_cb2_chacha_default OFF)
+else()
+    set(_cb2_chacha_default ON)
+endif()
+option(CB2_OPENSSL_CHACHA "Use OpenSSL's ChaCha20 for messages of 512 bytes or more" ${_cb2_chacha_default})
 set(CB2_DEPS_ROOT "" CACHE PATH "Prefix (or per-ABI prefixes on Android) with the dependencies")
 set(CB2_DEPS_LIBS "" CACHE STRING "Library names to link instead of the defaults")
 
@@ -50,7 +59,10 @@ target_compile_definitions(cb2_c PRIVATE CB2_C_BUILDING)
 if(CB2_DEPS_LIBS)
     set(_cb2_libs ${CB2_DEPS_LIBS})
 else()
-    set(_cb2_libs sodium blake3 crypto)
+    set(_cb2_libs sodium blake3)
+    if(CB2_OPENSSL_CHACHA)
+        list(APPEND _cb2_libs crypto)
+    endif()
     if(CB2_PQ)
         list(APPEND _cb2_libs oqs)
     endif()
@@ -69,13 +81,15 @@ else()
     if(PKG_CONFIG_FOUND)
         pkg_check_modules(CB2_SODIUM REQUIRED libsodium>=1.0.18)
         pkg_check_modules(CB2_BLAKE3 REQUIRED libblake3)
-        pkg_check_modules(CB2_CRYPTO REQUIRED libcrypto>=3.0)
-        target_include_directories(cb2_c PRIVATE
-            ${CB2_SODIUM_INCLUDE_DIRS} ${CB2_BLAKE3_INCLUDE_DIRS} ${CB2_CRYPTO_INCLUDE_DIRS})
-        target_link_directories(cb2_c PRIVATE
-            ${CB2_SODIUM_LIBRARY_DIRS} ${CB2_BLAKE3_LIBRARY_DIRS} ${CB2_CRYPTO_LIBRARY_DIRS})
-        target_link_libraries(cb2_c PRIVATE
-            ${CB2_SODIUM_LIBRARIES} ${CB2_BLAKE3_LIBRARIES} ${CB2_CRYPTO_LIBRARIES})
+        target_include_directories(cb2_c PRIVATE ${CB2_SODIUM_INCLUDE_DIRS} ${CB2_BLAKE3_INCLUDE_DIRS})
+        target_link_directories(cb2_c PRIVATE ${CB2_SODIUM_LIBRARY_DIRS} ${CB2_BLAKE3_LIBRARY_DIRS})
+        target_link_libraries(cb2_c PRIVATE ${CB2_SODIUM_LIBRARIES} ${CB2_BLAKE3_LIBRARIES})
+        if(CB2_OPENSSL_CHACHA)
+            pkg_check_modules(CB2_CRYPTO REQUIRED libcrypto>=3.0)
+            target_include_directories(cb2_c PRIVATE ${CB2_CRYPTO_INCLUDE_DIRS})
+            target_link_directories(cb2_c PRIVATE ${CB2_CRYPTO_LIBRARY_DIRS})
+            target_link_libraries(cb2_c PRIVATE ${CB2_CRYPTO_LIBRARIES})
+        endif()
         if(CB2_PQ)
             pkg_check_modules(CB2_OQS REQUIRED liboqs)
             target_include_directories(cb2_c PRIVATE ${CB2_OQS_INCLUDE_DIRS})
@@ -83,7 +97,7 @@ else()
             target_link_libraries(cb2_c PRIVATE ${CB2_OQS_LIBRARIES})
         endif()
     else()
-        message(FATAL_ERROR "cb2_flutter: set CB2_DEPS_ROOT to a prefix holding libsodium, BLAKE3, libcrypto and liboqs for the target")
+        message(FATAL_ERROR "cb2_flutter: set CB2_DEPS_ROOT to a prefix holding libsodium, BLAKE3 and liboqs (and libcrypto with CB2_OPENSSL_CHACHA) for the target")
     endif()
 endif()
 

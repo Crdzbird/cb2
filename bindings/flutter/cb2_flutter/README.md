@@ -12,8 +12,8 @@ import is enough. The format is described in the
 [docs/PROTOCOL.md](../../../docs/PROTOCOL.md).
 
 Status: version 0.2.0 of the plugin, over cb2 0.1.0. cb2 has not yet
-been reviewed by anyone but its author. iOS and macOS are built and
-tested; Android, Linux and Windows are not verified yet.
+been reviewed by anyone but its author. iOS, macOS and Android are built
+and tested; Linux and Windows are not verified yet.
 
 ## Install
 
@@ -112,18 +112,35 @@ in current Flutter) and CocoaPods (`ios/cb2_flutter.podspec`, for apps
 that turn Swift Package Manager off) are supported; the example app was
 built and tested through both.
 
-### Android, Linux and Windows: not verified yet
+### Android
+
+`tool/build_android_deps.sh` builds libsodium, BLAKE3 and liboqs from the
+same hash-pinned tarballs as the Apple script, as static libraries for
+`arm64-v8a`, `armeabi-v7a` and `x86_64` with the NDK Flutter uses, into
+one prefix per ABI under `build/android-deps`. Point the build at it:
+
+    ANDROID_NDK_HOME=~/Library/Android/sdk/ndk/28.2.13676358 tool/build_android_deps.sh
+    export CB2_DEPS_ROOT="$PWD/build/android-deps"
+
+Gradle then compiles `bindings/c/src/cb2_c.cpp` into `libcb2_c.so` for
+each ABI, links the dependencies into it, and packages it with
+`libc++_shared.so`; the minimum is Android 7.0 (API 24), and the library
+is aligned for 16 KB pages. Android has no libcrypto for applications,
+so the build uses libsodium's ChaCha20 throughout (`CB2_OPENSSL_CHACHA`
+is off unless the environment turns it on). The example app was built
+for all three ABIs and its integration tests pass on a Pixel 7 Pro with
+Android 17.
+
+### Linux and Windows: not verified yet
 
 `src/CMakeLists.txt` compiles `bindings/c/src/cb2_c.cpp` against the cb2
 headers into `libcb2_c.so` (`cb2_c.dll` on Windows), but these builds
 have not been run. The dependencies are not vendored; tell the build
 where they are:
 
-- `CB2_DEPS_ROOT`: a prefix with `include/` and `lib/` for the target. On
-  Android, a directory with one prefix per ABI (`arm64-v8a`, `x86_64`,
-  ...). The Android build reads the environment variable and passes it
-  to CMake; on Linux and Windows CMake reads the environment variable
-  itself. Without it, Linux falls back to pkg-config.
+- `CB2_DEPS_ROOT`: a prefix with `include/` and `lib/` for the target.
+  CMake reads the environment variable itself. Without it, Linux falls
+  back to pkg-config.
 - `CB2_DEPS_LIBS`: the library names to link when they differ from
   `sodium;blake3;crypto` plus `oqs`.
 - `CB2_PQ`: `OFF` builds cb2.local only, without liboqs (environment
@@ -138,11 +155,19 @@ Build the dependencies as static libraries for a self-contained
 token, alone and under a claim table, signs and verifies a cb2.public
 token, and shows the library refusing a replayed token, a tampered token
 and a token for another audience, off the UI isolate.
-It runs on iOS and macOS and has an integration test:
+It runs on iOS, macOS and Android and has an integration test:
 
     cd example
     flutter run -d macos
-    flutter test integration_test -d macos
+    flutter test integration_test/app_test.dart -d macos
+
+`integration_test/benchmark_test.dart` times every token format on a
+device with the cases of the Dart benchmark (`bindings/dart/benchmark`),
+in profile mode, and writes the table to
+`build/integration_response_data.json`:
+
+    flutter drive --profile --driver=test_driver/integration_test.dart \
+        --target=integration_test/benchmark_test.dart -d <device>
 
 ## Benchmarks
 
@@ -156,6 +181,29 @@ carries a post-quantum ML-DSA-65 signature next to Ed25519. The
 experimental compact cb3.local token is about 7 microseconds and 209
 bytes against 389, and 176 bytes under a claim table of the issuer and
 the audience.
+
+On a phone the same benchmark runs through `integration_test/benchmark_test.dart`.
+On a Pixel 7 Pro (Tensor G2, Android 17), profile mode, the median of
+three runs, in microseconds:
+
+| format | issue | check | bytes |
+| --- | ---: | ---: | ---: |
+| cb2.local | 32.6 | 46.9 | 389 |
+| cb3.local | 30.4 | 31.1 | 209 |
+| cb3.local, claim table | 31.2 | 30.1 | 176 |
+| JWT HS256 (dart_jsonwebtoken) | 49.6 | 46.9 | 244 |
+| PASETO v4.local (paseto_dart) | 283 | 251 | 303 |
+| cb2.public | 567 | 356 | 4,802 |
+| cb3.public | 561 | 336 | 4,622 |
+| JWT EdDSA (dart_jsonwebtoken) | 2,649 | 2,504 | 287 |
+| JWT ES256 (dart_jsonwebtoken) | 6,105 | 8,869 | 287 |
+| PASETO v4.public (paseto_dart) | 3,278 | 2,290 | 304 |
+
+The phone is three to five times slower than the M3 Max for the local
+tokens and two to three times for the public ones. Checking a compact
+token costs a third less than a cb2.local one, because there is no JSON
+or RFC 3339 text to parse; issuing costs about the same, because most of
+it is the call across FFI with the claims as JSON.
 
 ## Development
 

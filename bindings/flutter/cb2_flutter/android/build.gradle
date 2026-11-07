@@ -39,11 +39,15 @@ android {
 
     defaultConfig {
         minSdk = 24
+        ndk {
+            abiFilters("armeabi-v7a", "arm64-v8a", "x86_64")
+        }
         externalNativeBuild {
             cmake {
                 arguments(
                     "-DCB2_DEPS_ROOT=" + (System.getenv("CB2_DEPS_ROOT") ?: ""),
                     "-DCB2_PQ=" + (System.getenv("CB2_PQ") ?: "ON"),
+                    "-DCB2_OPENSSL_CHACHA=" + (System.getenv("CB2_OPENSSL_CHACHA") ?: "OFF"),
                     "-DANDROID_STL=c++_shared"
                 )
                 cppFlags("-std=c++20")
