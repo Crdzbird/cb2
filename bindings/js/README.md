@@ -1,57 +1,35 @@
 # cb2 for JavaScript
 
-The C ABI of cb2 (`bindings/c`) compiled to WebAssembly with Emscripten,
-with a small JavaScript API over it, packaged for npm. One build serves
-Node (22.12 and later) and browsers; the same `cb2_core.wasm` runs in
-both. The build has cb2.public (Ed25519 and ML-DSA-65) and kcb2.seal
-(X-Wing) through liboqs, and uses libsodium's XChaCha20 for cb2.local. It
-has no runtime dependencies, and TypeScript declarations ship with it.
+cb2 is a format for security tokens, the strings a server hands out
+after a login and later accepts as proof of who is calling. It does the
+job of JWT and PASETO with the checks built in: the verifier must say
+which issuer and audience it accepts, expiry is required by default, and
+signed tokens carry a post-quantum signature (ML-DSA-65) next to
+Ed25519. This package is the cb2 C++ library compiled to WebAssembly,
+one build for Node and browsers, with TypeScript declarations and no
+runtime dependencies.
+
+The format, its rationale and its limits are described in the
+[main README](https://github.com/Crdzbird/cb2#readme),
+[docs/SPEC.md](https://github.com/Crdzbird/cb2/blob/main/docs/SPEC.md),
+[docs/PROTOCOL.md](https://github.com/Crdzbird/cb2/blob/main/docs/PROTOCOL.md)
+and [docs/SECURITY.md](https://github.com/Crdzbird/cb2/blob/main/docs/SECURITY.md).
+cb2 is version 0.1.0 and has not been reviewed by anyone but its author.
 
 ## Install
 
-The package is not on the npm registry. Install it from a checkout, or
-from a tarball made with `npm pack`:
+The package is not on the npm registry yet. Install it from a checkout
+of the repository, or from a tarball made there with `npm pack`:
 
     npm install /path/to/cb2/bindings/js
     npm install ./cb2-0.1.0.tgz
 
-## Use
+It needs Node 22.12 or later, or any current browser.
 
-As an ES module:
+## Quick start in Node
 
-```js
-import { load, Cb2Error } from "cb2";
-
-const cb2 = await load();
-```
-
-From CommonJS, through the `require` condition of the exports map:
-
-```js
-const { load, Cb2Error } = require("cb2");
-
-load().then((cb2) => { /* ... */ });
-```
-
-The CommonJS entry loads the ES module with `require()`, which Node
-supports from 22.12; Node 22.12 prints an ExperimentalWarning for it and
-22.13 and later do not.
-
-From TypeScript, with `module` set to `nodenext`, `node16` or `bundler`,
-the declarations come from the `types` condition of whichever entry is
-resolved (`types/cb2.d.ts` for import, `types/cb2.d.cts` for require):
-
-```ts
-import { load, Cb2Error, type LocalKey, type Rules } from "cb2";
-```
-
-Every call to `load()` instantiates an independent core, with its own
-heap and its own key classes.
-
-## Example
-
-An access token sealed by an issuer, opened by a service with the rules
-it requires, with a replay store as a function:
+An issuer seals a token under a shared key; a service opens it with the
+rules it requires, and a token for another audience is refused:
 
 ```js
 import { load, Cb2Error } from "cb2";
@@ -60,42 +38,40 @@ const cb2 = await load();
 const key = cb2.LocalKey.generate();
 
 const token = cb2.Token.seal(key, {
-    iss: "https://issuer.example",
+    iss: "https://auth.example",
     aud: "api",
     sub: "user-1",
-    exp: "2099-01-01T00:00:00+00:00",
-    jti: "7f2a",
+    exp: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
     role: "admin",
 });
 
-const seen = new Set();
-const rules = {
-    issuer: "https://issuer.example",
-    audience: "api",
-    replay: (jti) => (seen.has(jti) ? false : (seen.add(jti), true)),
-};
-
-const claims = cb2.Token.open(token, key, rules);
-console.log(claims.role);
+const claims = cb2.Token.open(token, key, { issuer: "https://auth.example", audience: "api" });
+console.log(claims.sub, claims.role);
 
 try {
-    cb2.Token.open(token, key, rules);
+    cb2.Token.open(token, key, { issuer: "https://auth.example", audience: "billing" });
 } catch (e) {
-    if (e instanceof Cb2Error) console.log(e.name, e.code);
+    if (e instanceof Cb2Error) console.log("refused:", e.name);
 }
 
 key.free();
 ```
 
-The second open prints `replayed 17`.
+It prints `user-1 admin` and then `refused: audience_mismatch`. In a
+real service the key comes from a secret store: `key.toPaserk()` gives
+its text form (`kcb2.local....`), and `cb2.LocalKey.fromPaserk(text)`
+reads it back.
 
-## Browsers and bundlers
+From CommonJS the same API comes through `require`:
 
-`dist/cb2_core.js` finds the wasm with
-`new URL("cb2_core.wasm", import.meta.url)`, so by default the wasm is
-fetched from next to the module. With a plain static server that means
-serving the package directory as it is (the server must send `.wasm` as
-`application/wasm`), and mapping the bare name with an import map:
+```js
+const { load, Cb2Error } = require("cb2");
+```
+
+## Quick start in a browser
+
+With a static server that serves the package directory (and sends `.wasm`
+as `application/wasm`), an import map is all a page needs:
 
 ```html
 <script type="importmap">
@@ -103,12 +79,143 @@ serving the package directory as it is (the server must send `.wasm` as
 </script>
 <script type="module">
   import { load } from "cb2";
+
   const cb2 = await load();
+  const signer = cb2.SecretKey.generate();
+  const token = cb2.Token.sign(signer, { iss: "https://auth.example", aud: "web", exp: "2099-01-01T00:00:00Z" });
+  const verifier = cb2.PublicKey.fromPaserk(signer.publicKey().toPaserk());
+  const claims = cb2.Token.verify(token, verifier, { issuer: "https://auth.example", audience: "web" });
+  document.body.textContent = `verified a ${token.length}-character token for ${claims.aud}`;
 </script>
 ```
 
-Bundlers that understand the `new URL(..., import.meta.url)` pattern emit
-the wasm as an asset and rewrite the URL. Checked here with the packed
+The page shows `verified a 4695-character token for web` (the length
+depends on the claims). The core finds `cb2_core.wasm` next to
+`cb2_core.js`; with a bundler, see "Browsers and bundlers" below.
+
+## Token kinds and when to use each
+
+| kind | use it when | key | typical size |
+|---|---|---|---|
+| `cb2.local` (`Token.seal`, `Token.open`) | the party that issues the token is the one that checks it, or shares a key with it: sessions, service to service calls inside one system. The claims are encrypted. | `LocalKey`, 32 bytes, shared | 250 to 450 characters |
+| `cb2.public` (`Token.sign`, `Token.verify`) | many parties must check tokens they cannot issue. The claims are signed, not encrypted. Ed25519 and ML-DSA-65 must both verify. | `SecretKey` signs, `PublicKey` verifies | about 4,800 characters |
+| holder proofs (`Holder.prove`, `Holder.proveLocal`) | a stolen token must be useless: the issuer puts a key in the token's `cnf` claim and the client proves it holds that key on every request | the proof key in `cnf`, or the client's `SecretKey` | about 360 (local) or 4,800 (public) characters |
+| `kcb2.local-wrap` (`KeyWrap`) | storing local keys encrypted under another local key | two `LocalKey`s | 144 characters |
+| `kcb2.seal` (`Seal`) | handing a local key to a recipient, safe against a future quantum computer (X-Wing) | the recipient's `RecipientKey` pair | about 1,600 characters |
+
+`Local` and `Public` are the same formats with any bytes as the message
+instead of claims, for callers who check the content themselves.
+
+## API overview
+
+`load(options?)` instantiates the WebAssembly core and resolves to the
+API. Each call builds an independent core. The declarations ship in
+`types/` and are picked by the exports map for import and require alike.
+
+```ts
+type Opt = Bytes | null | undefined;
+
+declare function load(options?: LoadOptions): Promise<Cb2>;
+
+interface Cb2 {
+    LocalKey: { generate(): LocalKey; fromBytes(bytes: Uint8Array): LocalKey; fromPaserk(text: string): LocalKey };
+    SecretKey: { generate(): SecretKey; fromBytes(bytes: Uint8Array): SecretKey; fromPaserk(text: string): SecretKey };
+    PublicKey: { fromBytes(bytes: Uint8Array): PublicKey; fromPaserk(text: string): PublicKey };
+    RecipientKey: { generate(): RecipientKey; fromBytes(bytes: Uint8Array): RecipientKey; fromPaserk(text: string): RecipientKey };
+    RecipientPublicKey: { fromBytes(bytes: Uint8Array): RecipientPublicKey; fromPaserk(text: string): RecipientPublicKey };
+    Token: {
+        seal(key: LocalKey, claims: Claims, implicit?: Opt): string;
+        open(token: string, key: LocalKey, rules: Rules, implicit?: Opt): Claims;
+        sign(key: SecretKey, claims: Claims, implicit?: Opt): string;
+        verify(token: string, key: PublicKey, rules: Rules, implicit?: Opt): Claims;
+        peekKeyId(token: string): string | null;
+    };
+    Local: {
+        seal(key: LocalKey, msg: Bytes, footer?: Opt, implicit?: Opt): string;
+        open(key: LocalKey, token: string, footer?: Opt, implicit?: Opt, maxTokenBytes?: number): Uint8Array;
+    };
+    Public: {
+        sign(key: SecretKey, msg: Bytes, footer?: Opt, implicit?: Opt): string;
+        verify(key: PublicKey, token: string, footer?: Opt, implicit?: Opt, maxTokenBytes?: number): Uint8Array;
+    };
+    Holder: {
+        prove(clientSecret: SecretKey, request: HolderRequest, accessToken: string, jti: string, now?: number, lifetime?: number): string;
+        proveLocal(proofKey: LocalKey, request: HolderRequest, accessToken: string, jti: string, now?: number, lifetime?: number): string;
+        normalizeTarget(uri: string): string;
+    };
+    KeyWrap: { wrap(wrapping: LocalKey, key: LocalKey): string; unwrap(text: string, wrapping: LocalKey): LocalKey };
+    Seal: { seal(to: RecipientPublicKey, key: LocalKey): string; unseal(text: string, by: RecipientKey): LocalKey };
+    hasPublic(): boolean;
+    hasSeal(): boolean;
+    version(): string;
+    errorName(code: number): string;
+    Cb2Error: typeof Cb2Error;
+    core: Cb2Core;
+}
+```
+
+That is a summary; `types/cb2.d.ts` has the exact signatures with their
+documentation. In short:
+
+- **Keys.** Every key has `toPaserk()` and `free()`; local and public
+  keys have `paserkId()`; the signing and local keys have a `keyId` that
+  is written into each token's footer (by default the PASERK id), with
+  `setKeyId(id)` and `clearKeyId()`; the two secret pairs have
+  `publicKey()`. The declarations make the five key types distinct, so a
+  `PublicKey` cannot be passed where a `LocalKey` is expected.
+- **Claims** are a plain object. The registered claims are strings:
+  `iss`, `sub`, `aud` (one audience), `jti`, `cnf`, and the times `exp`,
+  `nbf`, `iat` in RFC 3339 (`new Date(...).toISOString()` works). Any
+  other member is a custom claim with any JSON value.
+- **Rules** mirror the rules JSON of the C library member for member:
+  `issuer` (or `allow_any_issuer`) and `audience` (or
+  `allow_any_audience`) are required, then `subject`, `now`,
+  `clock_skew` (default 0), `require_exp` (default true),
+  `max_lifetime`, `max_token_bytes`, `seen_jti`, `require_cnf`,
+  `ignore_cnf`, and for holder proofs `proof`, `request`,
+  `proof_lifetime`, `proof_seen_jti`. Two members may be functions:
+  `replay: (jti) => boolean` and `proofReplay: (jti) => boolean`, run
+  inside the call as replay checks; returning false refuses the token
+  as `replayed` (or the proof as `proof_replayed`), and so does throwing.
+- **Holder proofs.** `Holder.prove(clientSecret, { htm, htu, nonce },
+  accessToken, jti, now?, lifetime?)` is the public mode,
+  `Holder.proveLocal(proofKey, ...)` the local mode; the server passes
+  the proof and the request in the rules of `Token.open` or
+  `Token.verify`.
+- **Options of `load`**: `locateFile(path, prefix)` to say where
+  `cb2_core.wasm` is served from, `wasmBinary` with its bytes, or any
+  other Emscripten module option such as `instantiateWasm`.
+- **`cb2/core`** exports the bare Emscripten factory, and `core` on the
+  API is the module itself, with every function of the C ABI declared as
+  `_cb2_*`.
+
+## Errors
+
+Every refusal throws a `Cb2Error`, and nothing else is thrown for a
+refused token. It has `code` (1 to 24) and `name`, the stable verdict
+name, typed as the union `Cb2ErrorName`: `invalid` (wrong key, changed
+token, wrong footer or implicit assertion), `expired`, `not_yet_valid`,
+`issuer_mismatch`, `audience_mismatch`, `subject_mismatch`, `replayed`,
+`rules_incomplete` (the rules name no issuer or audience),
+`claims_malformed`, `missing_proof`, `proof_mismatch`, `proof_replayed`
+and the others listed in docs/PROTOCOL.md. A web service usually maps
+all of them to 401 and logs the name.
+
+## Memory
+
+Keys are handles into the wasm heap and are not collected by the garbage
+collector: call `free()` when a key is no longer needed (using a freed
+key throws). Everything else is copied out and released inside the
+call, and key material in transit (the bytes and PASERK text given to
+the secret constructors, the PASERK text of a secret) is wiped before it
+is released.
+
+## Browsers and bundlers
+
+`dist/cb2_core.js` finds the wasm with
+`new URL("cb2_core.wasm", import.meta.url)`, so by default the wasm is
+fetched from next to the module. Bundlers that understand that pattern
+emit the wasm as an asset and rewrite the URL. Checked with the packed
 tarball, a page that seals, opens and refuses a token, in a browser:
 
 | bundler | what it takes |
@@ -132,6 +239,10 @@ const response = await fetch("/static/cb2_core.wasm");
 const cb2 = await load({ wasmBinary: new Uint8Array(await response.arrayBuffer()) });
 ```
 
+In Node 22.12 loading the package from CommonJS prints an
+ExperimentalWarning, because the CommonJS entry loads the ES module with
+`require()`; Node 22.13 and later print nothing.
+
 ## Example apps
 
 - `examples/node`: a `node:http` server with no other dependency. `POST
@@ -139,9 +250,9 @@ const cb2 = await load({ wasmBinary: new Uint8Array(await response.arrayBuffer()
   `GET /me` opens the bearer token under the server's rules, and every
   refusal is a 401 naming the verdict (`invalid`, `expired`, ...). `npm
   install && npm start` runs it; `npm test` drives it over HTTP, and
-  `bash smoke.sh` starts it and drives it with curl. The key
-  comes from `CB2_LOCAL_KEY` (a kcb2.local PASERK) or is generated at
-  start; `PORT` and `TOKEN_TTL_SECONDS` set the port and the lifetime.
+  `bash smoke.sh` starts it and drives it with curl. The key comes from
+  `CB2_LOCAL_KEY` (a kcb2.local PASERK) or is generated at start; `PORT`
+  and `TOKEN_TTL_SECONDS` set the port and the lifetime.
 
       curl -s -X POST localhost:3000/login -d '{"user":"ada","password":"lovelace"}'
       curl -s localhost:3000/me -H "authorization: Bearer $TOKEN"
@@ -157,80 +268,94 @@ const cb2 = await load({ wasmBinary: new Uint8Array(await response.arrayBuffer()
 Both depend on the package as `"cb2": "file:../.."`, so they run against
 the sources in this directory.
 
-## API
+## Benchmarks
 
-`load(options)` resolves to an object with:
+`bench/` times cb2 against the JavaScript libraries most used for JWT
+and PASETO v4, on one claims payload: `iss`, `sub`, `aud`, `exp`,
+`iat`, `jti` and one custom claim (`role`). JWT carries the times as
+numbers, as its standard says; cb2 and PASETO carry them as RFC 3339
+text. "Issue" makes one token. "Verify" checks it the way a service
+would and returns the claims: the signature or tag, the expiry, the
+issuer and the audience. Every case is run once and its claims checked
+before it is timed.
 
-- Key classes `LocalKey`, `SecretKey`, `PublicKey`, `RecipientKey`,
-  `RecipientPublicKey`. Each offers what its ABI type offers: `generate()`
-  (not the public halves), `fromBytes(Uint8Array)`, `fromPaserk(text)`,
-  `toPaserk()`, `paserkId()` (not `SecretKey`, whose id is its public
-  key's), the `keyId` getter with `setKeyId(id)` and `clearKeyId()` (the
-  three signing and local types), `publicKey()` (the two secret pairs),
-  and `free()`. A freed key throws when used; `freed` says whether it was.
-  The declarations make the five key types distinct, so a `PublicKey`
-  cannot be passed where a `LocalKey` is expected.
-- `Local.seal(key, msg, footer, implicit)` and
-  `Local.open(key, token, footer, implicit, maxTokenBytes)`;
-  `Public.sign` and `Public.verify` with the same shapes. `msg`, `footer`
-  and `implicit` are a `Uint8Array` or a string (UTF-8); a token is a
-  string; an opened message is a `Uint8Array`.
-- `Token.seal(key, claims, implicit)`, `Token.sign(secretKey, claims,
-  implicit)`, `Token.open(token, key, rules, implicit)`,
-  `Token.verify(token, publicKey, rules, implicit)` and
-  `Token.peekKeyId(token)`. Claims are a plain object, serialized with
-  `JSON.stringify`, with the registered claims as strings (times as RFC
-  3339); the opened claims come back as a plain object.
-- `Holder.prove(clientSecret, { htm, htu, nonce }, accessToken, jti, now,
-  lifetime)`, the public mode, `Holder.proveLocal(proofKey, { htm, htu,
-  nonce }, accessToken, jti, now, lifetime)`, the local mode under the
-  `kcb2.local` proof key the issuer put in `cnf` of a cb2.local token, and
-  `Holder.normalizeTarget(uri)`. `now` defaults to the clock and
-  `lifetime` to 60 seconds.
-- `KeyWrap.wrap(wrapping, key)`, `KeyWrap.unwrap(text, wrapping)`,
-  `Seal.seal(recipientPublic, key)`, `Seal.unseal(text, recipient)`.
-- `hasPublic()`, `hasSeal()`, `version()`, `errorName(code)`, the
-  `Cb2Error` class, and `core`, the Emscripten module itself, with every
-  function of `cb2_c.h` declared as `_cb2_*`.
+- **jose** 6.2.15 (panva), the most used JWT library: HS256 with a
+  shared key, EdDSA (Ed25519) and ES256 with a key pair, verified with
+  `jwtVerify` and the issuer, audience and algorithm pinned.
+- **paseto** 4.0.1 (panva) for PASETO v4.public, verified with the issuer
+  and audience options. Its v4.local needs the caller to supply
+  XChaCha20 and BLAKE2b through an extension API, so it is not used for
+  v4.local.
+- **paseto-ts** 2.0.7 for PASETO v4.local, the most downloaded
+  maintained package with v4.local built in (pure TypeScript over
+  @stablelib). Its v4.public is shown as well. It checks the time claims
+  itself; it has no issuer or audience option, so the benchmark compares
+  `iss` and `aud` after it.
 
-The options of `load` are `locateFile(path, prefix)`, `wasmBinary` (an
-`ArrayBuffer` or `Uint8Array`), and any other Emscripten module option,
-such as `instantiateWasm`. `cb2/core` exports the bare Emscripten factory.
+The runtimes differ, and that shapes the numbers: jose and panva's
+paseto call WebCrypto (`crypto.subtle`), which in Node is native code
+reached through asynchronous calls, while cb2 is the C++ library
+compiled to WebAssembly and runs synchronously, and paseto-ts is plain
+JavaScript. The harness warms each operation up, times it in batches of
+at least 10 ms, and reports the median of 21 batches, taken in 5
+interleaved rounds as the median of the round medians.
 
-### Rules
+Apple M3 Max, macOS 26.6.2 (Darwin 25.6.0), Node 26.12.1, 2026-11-07, with
+other work running on the machine (load average about 4 to 5). Times in
+microseconds per token, lower is better; a second run agreed within 14%.
 
-The rules object mirrors the rules JSON described in
-`bindings/c/include/cb2_c.h`, member for member: `now`, `clock_skew`,
-`require_exp`, `allow_any_audience`, `allow_any_issuer`, `issuer`,
-`audience`, `subject`, `max_token_bytes`, `max_lifetime`, `seen_jti`,
-`require_cnf`, `ignore_cnf`, `proof`, `request`, `proof_lifetime`,
-`proof_seen_jti`. Two members may be functions:
+| key | token | issue (us) | verify (us) | token bytes |
+|---|---|--:|--:|--:|
+| shared | cb2.local (cb2, wasm) | 25.1 | 7.1 | 430 |
+| shared | JWT HS256 (jose) | 15.9 | 15.0 | 285 |
+| shared | PASETO v4.local (paseto-ts) | 44.5 | 38.4 | 331 |
+| pair | cb2.public, Ed25519 + ML-DSA-65 (cb2, wasm) | 470 | 217 | 4843 |
+| pair | JWT EdDSA, Ed25519 (jose) | 54.9 | 123 | 328 |
+| pair | JWT ES256 (jose) | 40.6 | 75.8 | 328 |
+| pair | PASETO v4.public (paseto) | 56.1 | 122 | 332 |
+| pair | PASETO v4.public (paseto-ts) | 2903 | 5754 | 332 |
 
-- `replay: (jti) => boolean` runs as the replay check; the token is
-  `replayed` when it returns false.
-- `proofReplay: (jti) => boolean` runs as the proof replay check when a
-  `proof` is given; a proof with neither `proofReplay` nor
-  `proof_seen_jti` is `rules_incomplete`, as the library requires.
+The same benchmark in the browser pane of the Claude desktop app
+(Chromium 152, not cross-origin isolated), same machine and day. A
+second run was up to 37% slower on the fastest operations, so read these
+as rough:
 
-Both run inside the call only: they are installed in the wasm table for
-the duration of `open` or `verify` and removed afterwards. An exception
-thrown inside one refuses the id.
+| key | token | issue (us) | verify (us) | token bytes |
+|---|---|--:|--:|--:|
+| shared | cb2.local (cb2, wasm) | 32.2 | 8.1 | 430 |
+| shared | JWT HS256 (jose) | 9.3 | 8.8 | 285 |
+| shared | PASETO v4.local (paseto-ts) | 48.0 | 41.4 | 331 |
+| pair | cb2.public, Ed25519 + ML-DSA-65 (cb2, wasm) | 491 | 220 | 4843 |
+| pair | JWT EdDSA, Ed25519 (jose) | 30.3 | 54.3 | 328 |
+| pair | JWT ES256 (jose) | 55.5 | 106 | 328 |
+| pair | PASETO v4.public (paseto) | 31.3 | 57.4 | 332 |
+| pair | PASETO v4.public (paseto-ts) | 2175 | 4625 | 332 |
 
-### Errors
+What the tables say:
 
-Every refusal is a `Cb2Error` with `code` (the `cb2_code` value) and
-`name`, the stable verdict name ("invalid", "expired", "replayed",
-"proof_mismatch", ...), typed as the union `Cb2ErrorName`. Nothing else
-is thrown for a refused token.
+- With a shared key, cb2.local verifies faster than the other two in
+  both runtimes and issues slower than HS256. The three do not do the
+  same thing: HS256 only authenticates and anyone can read its claims,
+  while cb2.local and v4.local encrypt them.
+- cb2.public is the slowest key-pair token apart from pure-JavaScript
+  paseto-ts, and by far the largest, by design. It carries an ML-DSA-65
+  signature (3,309 bytes) next to the Ed25519 one and both must verify,
+  so it stays secure if Ed25519 is broken by a quantum computer; the
+  classical formats carry one 64-byte signature and do not. Against
+  jose's EdDSA and ES256, issuing costs 9 to 12 times as much in Node
+  and 9 to 16 times in the browser, where WebCrypto is faster;
+  verifying costs 2 to 3 times as much in Node and 2 to 4 times in the
+  browser. The token is about 15 times the size.
+- cb2 tokens name the key in a footer by default, which is 85 of the
+  bytes above; after `clearKeyId()` the two cb2 tokens are 345 and 4,758
+  bytes. The JWT and PASETO tokens here carry no key id.
 
-### Memory
+To run it: `cd bench && npm install && npm run bench` for Node (`npm run
+smoke` is the short run CI uses), and for the browser serve `bench/`
+with any static server, such as `python3 -m http.server`, and open
+`/browser/index.html`.
 
-Keys are handles into the wasm heap: call `free()` when done. Every other
-result is copied out and released inside the call; key material in
-transit (the bytes and PASERK text given to the secret constructors, the
-PASERK text of a secret) is wiped before release.
-
-## Developing
+## Development
 
     npm ci                 the dev tools: TypeScript and arethetypeswrong
     npm test               node --test: the API, the package, CommonJS
@@ -243,23 +368,26 @@ PASERK text of a secret) is wiped before release.
 
 `types/cb2.d.ts` is the source of the declarations; the CommonJS copy
 must stay identical, and a test says so when it is not. Another test
-compares the `_cb2_*` functions declared on `Cb2Core` with `cb2_c.h`,
-and the members of the runtime API with the ones declared.
+compares the `_cb2_*` functions declared on `Cb2Core` with `cb2_c.h`
+and with the exports of the wasm, and the members of the runtime API
+with the ones declared.
 
 ### Building the core
 
 The wasm32 dependencies (libsodium, BLAKE3, liboqs) come from
 `web/deps/wasm32`, built by `web/build_deps.sh` when they are missing.
-With Emscripten on the PATH:
+With Emscripten on the PATH, from the repository root:
 
     bash bindings/js/build.sh
 
-`build.sh` exports every `cb2_*` function of `cb2_c.h` plus `malloc` and
-`free`, with table growth enabled for the replay callbacks. The dist
-files are committed, like `web/dist`, so users of the package do not need
-Emscripten.
+`build.sh` compiles `bindings/c/src/cb2_c.cpp` and exports every `cb2_*`
+function of `cb2_c.h` plus `malloc` and `free`, with table growth
+enabled for the replay callbacks. The build has cb2.public and kcb2.seal
+through liboqs and uses libsodium's XChaCha20 for cb2.local; it has no
+OpenSSL. The dist files are committed, like `web/dist`, so users of the
+package do not need Emscripten.
 
-## Layout
+### Layout
 
     package.json          exports map, files, engines; no dependencies
     build.sh              compiles bindings/c/src/cb2_c.cpp to dist/
@@ -276,3 +404,5 @@ Emscripten.
     scripts/check-pack.mjs
     examples/node         the node:http login server
     examples/browser      the static page
+    bench/                the benchmark against jose and PASETO v4,
+                          with its own package.json

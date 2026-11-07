@@ -4,6 +4,38 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, the JavaScript package README and its benchmark
+
+`bindings/js/README.md` is rewritten for someone new to cb2: what it is,
+install, quick starts for Node and a browser, the token kinds and when
+to use each, an API overview with the TypeScript types, errors, memory,
+bundlers, the example apps, benchmarks, and development last. The Node
+quick start was run as printed and gave `user-1 admin` and `refused:
+audience_mismatch`; the browser quick start was served and opened in the
+built-in browser and showed `verified a 4695-character token for web`
+with nothing on the console. The TypeScript overview type-checks, and
+the declared `Cb2` satisfies it.
+
+`bindings/js/bench` has its own package.json, so the package's
+dependencies and its 14 packed files are unchanged (the package test
+that pins the list passes). One payload (iss, sub, aud, exp, iat, jti,
+role) is issued and verified, with the issuer, audience and expiry
+checked, by cb2, jose 6.2.15 (HS256, EdDSA, ES256), panva's paseto 4.0.1
+(v4.public; its v4.local needs user-supplied XChaCha20 and BLAKE2b) and
+paseto-ts 2.0.7 (v4.local and v4.public). Each operation is warmed up,
+timed in batches of at least 10 ms and reported as the median of 21
+batches over 5 interleaved rounds. On this Mac, macOS 26.6.2, Node
+26.12.1, load average about 4 to 5, two full runs agreed within 14%:
+cb2.local issued in 25.1 us and verified in 7.1 us against 15.9 and 15.0
+for HS256 and 44.5 and 38.4 for v4.local; cb2.public issued in 470 us and
+verified in 217 us against 54.9 and 123 for EdDSA, 40.6 and 75.8 for
+ES256 and 56.1 and 122 for panva's v4.public; tokens were 430 and 4,843
+bytes against 285 to 332. A first attempt under a load average near 7
+gave jose timings up to 2.4 times higher from one run to the next and
+was discarded. Two runs in the built-in browser (Chromium 152) differed
+by up to 37% on the fastest operations and are reported as rough. CI
+runs the quick profile on Node 22.12.0 and 24.
+
 ## 2026-11-07, the C library's README and a benchmark against libjwt and libpaseto
 
 `bindings/c/README.md` is rewritten for someone new to cb2: what it is,

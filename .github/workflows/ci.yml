@@ -408,6 +408,11 @@ jobs:
           npm ci
           npm test
           bash smoke.sh
+      - name: A quick smoke run of the benchmark against jose and PASETO v4
+        working-directory: bindings/js/bench
+        run: |
+          npm ci
+          npm run smoke
       - name: The browser example in headless Chrome
         working-directory: bindings/js/examples/browser
         run: |

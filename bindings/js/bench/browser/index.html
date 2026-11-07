@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cb2 benchmark in the browser</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 0 auto; max-width: 60rem; padding: 2rem 1rem; font: 15px/1.5 system-ui, sans-serif; }
+    pre { white-space: pre-wrap; font: 13px/1.45 ui-monospace, monospace; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "cb2": "/node_modules/cb2/src/cb2.js",
+        "jose": "/node_modules/jose/dist/webapi/index.js",
+        "paseto": "/node_modules/paseto/index.js",
+        "paseto/v4/public": "/node_modules/paseto/v4/public.js",
+        "paseto-ts/v4": "/node_modules/paseto-ts/dist/v4/index.js",
+        "@stablelib/binary": "/node_modules/@stablelib/binary/lib/binary.js",
+        "@stablelib/blake2b": "/node_modules/@stablelib/blake2b/lib/blake2b.js",
+        "@stablelib/chacha": "/node_modules/@stablelib/chacha/lib/chacha.js",
+        "@stablelib/ed25519": "/node_modules/@stablelib/ed25519/lib/ed25519.js",
+        "@stablelib/hash": "/node_modules/@stablelib/hash/lib/hash.js",
+        "@stablelib/int": "/node_modules/@stablelib/int/lib/int.js",
+        "@stablelib/random": "/node_modules/@stablelib/random/lib/random.js",
+        "@stablelib/sha512": "/node_modules/@stablelib/sha512/lib/sha512.js",
+        "@stablelib/wipe": "/node_modules/@stablelib/wipe/lib/wipe.js",
+        "@stablelib/xchacha20": "/node_modules/@stablelib/xchacha20/lib/xchacha20.js"
+      }
+    }
+  </script>
+  <script type="module" src="./browser.mjs"></script>
+</head>
+<body>
+  <h1>cb2 benchmark in the browser</h1>
+  <p id="status" role="status">Running; this takes about a minute. Keep the tab in front.</p>
+  <pre id="out"></pre>
+</body>
+</html>

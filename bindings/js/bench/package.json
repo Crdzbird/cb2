@@ -1,0 +1,21 @@
+{
+  "name": "cb2-bench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "cb2 against jose (JWT) and PASETO v4 libraries, in Node and in a browser",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "bench": "node node.mjs",
+    "smoke": "node node.mjs --quick"
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "dependencies": {
+    "cb2": "file:..",
+    "jose": "6.2.15",
+    "paseto": "4.0.1",
+    "paseto-ts": "2.0.7"
+  }
+}
