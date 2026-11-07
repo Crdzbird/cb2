@@ -4,6 +4,46 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, the C library's README and a benchmark against libjwt and libpaseto
+
+`bindings/c/README.md` is rewritten for someone new to cb2: what it is,
+install, a quick start, the token kinds, an API overview, errors,
+threads and lifetimes, the example, benchmarks, and the build notes
+last. The quick start was extracted from the README, built against an
+install in a temporary prefix with pkg-config and `-Wall -Wextra
+-Wpedantic`, and run: it prints the token and its claims, and with the
+audience rule changed it prints `refused: audience_mismatch` and exits 1.
+
+`bindings/c/bench` is a new target, `cb2_c_bench`, built only with
+`-DCB2_C_BENCH=ON`. It compares cb2 through libcb2_c with JWT through
+libjwt 3.6.1 (Homebrew) and PASETO v4 through libpaseto, the kennt fork
+of authenticvision/libpaseto (the original has only v2), whose C sources
+`bench/run.sh` fetches at commit 15540dc and compiles into the bench.
+All formats carry the same claims and every check validates issuer,
+audience and expiry; for libpaseto, which leaves claims to the
+application, the bench parses them with jansson. Median microseconds per
+call of 101 rounds, on the M3 Max with load average about 5 from other
+work:
+
+| format | issue | check | bytes |
+|---|--:|--:|--:|
+| cb2.local seal and open | 5.61 | 4.51 | 430 |
+| JWT HS256 | 5.53 | 7.13 | 285 |
+| PASETO v4.local | 5.55 | 8.49 | 344 |
+| cb2.public sign and verify | 169.06 | 116.06 | 4,843 |
+| JWT EdDSA | 42.56 | 111.41 | 328 |
+| JWT ES256 | 26.05 | 64.28 | 328 |
+| PASETO v4.public | 18.49 | 51.98 | 345 |
+
+A second run was within 15% on the shared-key rows and 10% on the
+public-key rows. JWT ML-DSA-65 is not measured: the Homebrew libjwt
+refuses to generate the key ("Algorithm does not match the requested key
+type"). The bench also builds and runs with neither competitor, printing
+them as not measured. It is not in CI, since the runners would need
+libjwt and the libpaseto fetch. `cb2_c_test`, the example and
+`install_check.sh` still pass on the default build, which configures
+without the bench.
+
 ## 2026-11-07, Swift benchmarks against jwt-kit and swift-paseto
 
 `bindings/swift/Benchmarks` is a separate package that times cb2 against

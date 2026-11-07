@@ -1,7 +1,8 @@
 # The C ABI as a shared and a static library, its test, the example CLI,
 # and the install rules: the header, both libraries, a CMake package
 # (find_package(cb2_c), targets cb2_c::cb2_c and cb2_c::cb2_c_static) and
-# a pkg-config file (cb2_c.pc). Included from the root CMakeLists.txt when
+# a pkg-config file (cb2_c.pc), and with CB2_C_BENCH the benchmark
+# against JWT and PASETO. Included from the root CMakeLists.txt when
 # CB2_BUILD_BINDINGS is on. The shared library stays at
 # build/bindings/c/libcb2_c, where every language bridge links it.
 
@@ -88,6 +89,11 @@ if(CB2_BUILD_EXAMPLES)
     if(CB2_BUILD_TESTS)
         add_test(NAME cb2_c_example COMMAND cb2_c_example)
     endif()
+endif()
+
+option(CB2_C_BENCH "Build cb2_c_bench, cb2 against libjwt and libpaseto (bindings/c/bench)" OFF)
+if(CB2_C_BENCH)
+    add_subdirectory(bench)
 endif()
 
 set(_cb2_c_cmakedir "${CMAKE_INSTALL_LIBDIR}/cmake/cb2_c")
