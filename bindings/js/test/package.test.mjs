@@ -75,13 +75,15 @@ test("Cb2Core declares every function of cb2_c.h and the core exports each", asy
 test("the runtime API has the members the declarations name", async () => {
     const cb2 = await load();
     assert.deepEqual(Object.keys(cb2).sort(), [
-        "Cb2Error", "Holder", "KeyWrap", "Local", "LocalKey", "Public", "PublicKey", "RecipientKey",
+        "Cb2Error", "Compact", "Holder", "KeyWrap", "Local", "LocalKey", "Public", "PublicKey", "RecipientKey",
         "RecipientPublicKey", "Seal", "SecretKey", "Token", "core", "errorName", "hasPublic", "hasSeal", "version",
     ]);
     const methods = (o) => Object.keys(o).filter((k) => typeof o[k] === "function").sort();
     assert.deepEqual(methods(cb2.Local), ["open", "seal"]);
     assert.deepEqual(methods(cb2.Public), ["sign", "verify"]);
     assert.deepEqual(methods(cb2.Token), ["open", "peekKeyId", "seal", "sign", "verify"]);
+    assert.deepEqual(methods(cb2.Compact), ["keyDigest", "open", "peekKeyDigest", "seal", "sign", "verify"]);
+    assert.equal(cb2.Compact.keyDigestBytes, 16);
     assert.deepEqual(methods(cb2.Holder), ["normalizeTarget", "prove", "proveLocal"]);
     assert.deepEqual(methods(cb2.KeyWrap), ["unwrap", "wrap"]);
     assert.deepEqual(methods(cb2.Seal), ["seal", "unseal"]);

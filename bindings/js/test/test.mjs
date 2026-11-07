@@ -1,7 +1,7 @@
 /**
  * The JavaScript bridge exercised from Node, mirroring bindings/c/test/test_c.c:
- * keys, raw tokens, claims tokens with rules and both replay callbacks, a
- * holder proofs of both modes, key wrapping and sealing, and every verdict the bridge
+ * keys, raw tokens, claims tokens with rules and both replay callbacks,
+ * compact claims tokens, holder proofs of both modes, key wrapping and sealing, and every verdict the bridge
  * relies on. Run from the repository root: node --test bindings/js/test/
  */
 import assert from "node:assert/strict";
@@ -105,6 +105,111 @@ test("claims tokens and verdicts", () => {
     refused(() => Token.seal(k, { sub: "a\u200bb", exp: "2099-01-01T00:00:00+00:00" }), "argument");
     refused(() => Token.open(token, LocalKey.generate(), RULES), "invalid");
     k.free();
+});
+
+test("compact claims tokens and verdicts", () => {
+    const { LocalKey, Token, Compact } = cb2;
+    const k = LocalKey.generate();
+    const compact = Compact.seal(k, CLAIMS);
+    const full = Token.seal(k, CLAIMS);
+    assert.ok(compact.startsWith("cb3.local."));
+    assert.ok(compact.length < full.length, `${compact.length} < ${full.length}`);
+    assert.deepEqual(Compact.open(compact, k, RULES), Token.open(full, k, RULES));
+    refused(() => Token.open(compact, k, RULES), "invalid");
+    refused(() => Compact.open(full, k, RULES), "invalid");
+    refused(() => Compact.open(compact, k, {}), "rules_incomplete");
+    refused(() => Compact.open(compact, k, { ...RULES, audience: "web" }), "audience_mismatch");
+    refused(() => Compact.open(compact, k, { ...RULES, now: 4102444800 }), "expired");
+    refused(() => Compact.open(compact, k, { ...RULES, seen_jti: ["id-1"] }), "replayed");
+    refused(() => Compact.open(compact, k, RULES, "x"), "invalid");
+    refused(() => Compact.open(compact, LocalKey.generate(), RULES), "invalid");
+
+    const seen = new Set();
+    const remember = (jti) => {
+        if (seen.has(jti)) return false;
+        seen.add(jti);
+        return true;
+    };
+    assert.equal(Compact.open(compact, k, { ...RULES, replay: remember }).jti, "id-1");
+    refused(() => Compact.open(compact, k, { ...RULES, replay: remember }), "replayed");
+    refused(() => Compact.open(compact, k, { ...RULES, replay: () => { throw new Error("store down"); } }), "replayed");
+    assert.equal(Compact.open(Compact.seal(k, CLAIMS, "imp"), k, RULES, "imp").role, "admin");
+
+    const peeked = Compact.peekKeyDigest(compact);
+    assert.ok(peeked instanceof Uint8Array);
+    assert.equal(peeked.length, Compact.keyDigestBytes);
+    assert.equal(Compact.keyDigestBytes, 16);
+    assert.deepEqual(peeked, Compact.keyDigest(k.keyId));
+    assert.deepEqual(Compact.keyDigest(k.paserkId()), peeked);
+    assert.notDeepEqual(Compact.keyDigest("rotation-1"), peeked);
+    assert.equal(Compact.peekKeyDigest(full), null);
+    assert.equal(Compact.peekKeyDigest(""), null);
+    refused(() => Compact.keyDigest("a\nb"), "argument");
+    assert.equal(Compact.keyDigest("").length, 16);
+
+    assert.deepEqual(Compact.peekKeyDigest(Compact.seal(k.setKeyId("rotation-1"), CLAIMS)), Compact.keyDigest("rotation-1"));
+    k.clearKeyId();
+    const bare = Compact.seal(k, CLAIMS);
+    assert.equal(Compact.peekKeyDigest(bare), null);
+    refused(() => Compact.open(compact, k, RULES), "invalid");
+    assert.equal(Compact.open(bare, k, RULES).sub, "user-1");
+
+    const fraction = { iss: "https://issuer.example", aud: "api", exp: "2099-01-01T00:00:00+00:00", n: 1.5 };
+    refused(() => Compact.seal(k, fraction), "argument");
+    assert.equal(Token.open(Token.seal(k, fraction), k, RULES).n, 1.5);
+    refused(() => Compact.seal(k, { ...fraction, n: 1e300 }), "argument");
+    assert.equal(Compact.open(Compact.seal(k, { ...fraction, n: -42 }), k, RULES).n, -42);
+    k.free();
+});
+
+test("compact access tokens with local holder proofs", () => {
+    const { LocalKey, Compact, Holder } = cb2;
+    const k = LocalKey.generate();
+    const proofKey = LocalKey.generate();
+    const cnf = proofKey.toPaserk();
+    const access = Compact.seal(k, { iss: "https://issuer.example", aud: "api", exp: "2099-01-01T00:00:00+00:00", cnf });
+    assert.ok(access.startsWith("cb3.local."));
+    refused(() => Compact.open(access, k, RULES), "missing_proof");
+    const proof = Holder.proveLocal(proofKey, { htm: "GET", htu: "https://api.example/v1/me" }, access, "p-1", 1700000000, 60);
+    const request = { htm: "GET", htu: "https://api.example/v1/me" };
+    const proofs = [];
+    const claims = Compact.open(access, k, { ...RULES, proof, request, proofReplay: (jti) => { proofs.push(jti); return true; } });
+    assert.equal(claims.cnf, cnf);
+    assert.deepEqual(proofs, ["p-1"]);
+    refused(() => Compact.open(access, k, { ...RULES, proof, request: { htm: "POST", htu: "https://api.example/v1/me" }, proof_seen_jti: [] }), "proof_mismatch");
+    refused(() => Compact.open(access, k, { ...RULES, proof, request, proofReplay: () => false }), "proof_replayed");
+    const stranger = LocalKey.generate();
+    const forged = Holder.proveLocal(stranger, request, access, "p-2", 1700000000, 60);
+    refused(() => Compact.open(access, k, { ...RULES, proof: forged, request, proof_seen_jti: [] }), "proof_invalid");
+    stranger.free();
+    proofKey.free();
+    k.free();
+});
+
+test("compact public sign and verify", { skip: !cb2.hasPublic() }, () => {
+    const { SecretKey, LocalKey, Token, Compact } = cb2;
+    const sk = SecretKey.generate();
+    const pk = sk.publicKey();
+    const signed = Compact.sign(sk, CLAIMS);
+    const full = Token.sign(sk, CLAIMS);
+    assert.ok(signed.startsWith("cb3.public."));
+    assert.ok(signed.length < full.length, `${signed.length} < ${full.length}`);
+    assert.deepEqual(Compact.verify(signed, pk, RULES), Token.verify(full, pk, RULES));
+    refused(() => Token.verify(signed, pk, RULES), "invalid");
+    refused(() => Compact.verify(full, pk, RULES), "invalid");
+    refused(() => Compact.verify(signed, pk, { ...RULES, audience: "web" }), "audience_mismatch");
+    refused(() => Compact.verify(signed, pk, { ...RULES, now: 4102444800 }), "expired");
+    refused(() => Compact.verify(signed, pk, { ...RULES, seen_jti: ["id-1"] }), "replayed");
+    const stranger = SecretKey.generate();
+    refused(() => Compact.verify(signed, stranger.publicKey(), RULES), "invalid");
+    assert.deepEqual(Compact.peekKeyDigest(signed), Compact.keyDigest(sk.keyId));
+    const proofKey = LocalKey.generate();
+    const bound = { iss: "https://issuer.example", aud: "api", exp: "2099-01-01T00:00:00+00:00", cnf: proofKey.toPaserk() };
+    refused(() => Compact.sign(sk, bound), "argument");
+    proofKey.free();
+    stranger.free();
+    pk.free();
+    sk.free();
 });
 
 test("key wrapping", () => {
