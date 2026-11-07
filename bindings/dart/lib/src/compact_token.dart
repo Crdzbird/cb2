@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:cb2/src/claim_table.dart';
 import 'package:cb2/src/claims_calls.dart';
 import 'package:cb2/src/digest_call.dart' as digest;
 import 'package:cb2/src/ffi/loaded.dart';
@@ -7,6 +8,7 @@ import 'package:cb2/src/local_key.dart';
 import 'package:cb2/src/public_key.dart';
 import 'package:cb2/src/rules.dart';
 import 'package:cb2/src/secret_key.dart';
+import 'package:cb2/src/tabled_calls.dart';
 
 /// Compact claims tokens, the experimental cb3.local and cb3.public
 /// formats: the claims, [Rules] and verdicts of `Token`, with the claims
@@ -18,6 +20,11 @@ import 'package:cb2/src/secret_key.dart';
 /// 1e3, -0), a time outside years 0000 to 9999, and a cnf that is not a
 /// kcb2.local or kcb2.public key. A cb2 token never opens here and a
 /// compact token never opens through `Token`; either is invalid.
+///
+/// Each call takes an optional [ClaimTable]. A token made under a table
+/// opens only under that same table, and one made without opens only
+/// without; any other pairing is invalid. Without a table, an implicit
+/// assertion that begins with kcb3.table. is refused with argument.
 final class CompactToken {
   const CompactToken._();
 
@@ -29,14 +36,16 @@ final class CompactToken {
     LocalKey key,
     Map<String, Object?> claims, {
     Uint8List? implicit,
-  }) => issueClaims(bindings.compact.seal, key.handle, claims, implicit);
+    ClaimTable? table,
+  }) => issueClaims(compactSeal(table), key.handle, claims, implicit);
 
   /// Signs [claims] with [key] as a cb3.public token.
   static String sign(
     SecretKey key,
     Map<String, Object?> claims, {
     Uint8List? implicit,
-  }) => issueClaims(bindings.compact.sign, key.handle, claims, implicit);
+    ClaimTable? table,
+  }) => issueClaims(compactSign(table), key.handle, claims, implicit);
 
   /// Opens a cb3.local [token] under [key] and checks it against [rules].
   static Map<String, Object?> open(
@@ -44,7 +53,8 @@ final class CompactToken {
     String token,
     Rules rules, {
     Uint8List? implicit,
-  }) => checkClaims(bindings.compact.open, key.handle, token, rules, implicit);
+    ClaimTable? table,
+  }) => checkClaims(compactOpen(table), key.handle, token, rules, implicit);
 
   /// Verifies a cb3.public [token] with [key] and checks it against
   /// [rules].
@@ -53,8 +63,8 @@ final class CompactToken {
     String token,
     Rules rules, {
     Uint8List? implicit,
-  }) =>
-      checkClaims(bindings.compact.verify, key.handle, token, rules, implicit);
+    ClaimTable? table,
+  }) => checkClaims(compactVerify(table), key.handle, token, rules, implicit);
 
   /// The key digest carried by the footer of [token], unverified; null
   /// when it carries none.

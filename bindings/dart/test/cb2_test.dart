@@ -1,5 +1,6 @@
 import 'package:test/test.dart';
 
+import 'checks/claim_table_checks.dart' as claim_table;
 import 'checks/compact_checks.dart' as compact;
 import 'checks/compact_holder_checks.dart' as compact_holder;
 import 'checks/holder_checks.dart' as holder;
@@ -8,6 +9,7 @@ import 'checks/local_key_checks.dart' as local_key;
 import 'checks/local_token_checks.dart' as local_token;
 import 'checks/public_checks.dart' as public;
 import 'checks/seal_checks.dart' as seal;
+import 'checks/tabled_token_checks.dart' as tabled_token;
 
 /// The checks of bindings/c/test/test_c.c, one group per area, run against
 /// the library named by CB2_C_LIBRARY.
@@ -20,4 +22,6 @@ void main() {
   group('seal', seal.run);
   group('compact', compact.run);
   group('compact holder', compact_holder.run);
+  group('claim table', claim_table.run);
+  group('tabled tokens', tabled_token.run);
 }

@@ -91,7 +91,8 @@ sees the same `jti` again and the replay check refuses it.
 | `LocalKey`, `SecretKey`, `PublicKey` | Keys for cb2.local and cb2.public, from bytes, PASERK text, or fresh randomness; `keyId` names the key in token footers. |
 | `RecipientKey`, `RecipientPublicKey` | X-Wing pairs for kcb2.seal. |
 | `Token` | Claims tokens as `Map<String, Object?>`: `seal`, `open`, `sign`, `verify`, and `peekKeyId` to pick a key before checking. |
-| `CompactToken` | The same claims, rules and verdicts as `Token` as the experimental compact cb3.local and cb3.public tokens: `seal`, `open`, `sign`, `verify`, and `peekKeyDigest` with `keyDigest` to pick a key before checking. |
+| `CompactToken` | The same claims, rules and verdicts as `Token` as the experimental compact cb3.local and cb3.public tokens: `seal`, `open`, `sign`, `verify`, and `peekKeyDigest` with `keyDigest` to pick a key before checking. Each takes an optional `table:`. |
+| `ClaimTable` | An ordered list of strings, typically the issuer and its audiences, that an issuer and its verifiers both configure; under it a compact token carries an iss or aud in the list as an index, and opens only under the same table. `fromEntries`, `digest` to compare tables, `dispose`. |
 | `Rules` | What a claims token is checked against: issuer, audience, subject, clock and skew, lifetime, replay, `cnf`. |
 | `HolderRules`, `ProofRequest` | The holder proof presented with a token and the request it must match. |
 | `Holder` | Makes holder proofs, public and local mode, and normalizes request targets. |
@@ -148,8 +149,8 @@ above kept as the fallback for local builds.
 ## Example
 
 `example/cb2_example.dart` issues, opens and verifies a cb2.local and a
-cb2.public token, opens a compact cb3.local token, and shows three
-refusals:
+cb2.public token, opens a compact cb3.local token alone and under a
+claim table, and shows three refusals:
 
     dart run example/cb2_example.dart
 
@@ -160,6 +161,8 @@ opened: sub user-1, role reader
 the same token again: refused with replayed
 cb3.local token: cb3.local.uSEf1Ahb9aR6Ec...(205 chars)
 opened compact: sub user-1, jti local-2
+under a claim table: cb3.local.mI82SZ_TTubq1H...(172 chars)
+opened tabled: iss https://issuer.example, aud api
 a tampered token: refused with invalid
 cb2.public token: cb2.public.eyJpc3MiOiJod...(4762 chars)
 verified: sub user-1, role reader
@@ -195,6 +198,7 @@ warmup. Times are microseconds per token. Runs differed by up to about
 | --- | --- | ---: | ---: | ---: |
 | cb2.local | cb2 0.1.0 (native, FFI) | 8.2 | 8.6 | 389 |
 | cb3.local | cb2 0.1.0 (native, FFI) | 7.0 | 6.7 | 209 |
+| cb3.local, claim table | cb2 0.1.0 (native, FFI) | 7.2 | 6.7 | 176 |
 | JWT HS256 | dart_jsonwebtoken 3.4.1 (pure Dart) | 31.3 | 29.8 | 244 |
 | PASETO v4.local | paseto_dart 2.1.0 (pure Dart) | 128 | 115 | 303 |
 | cb2.public | cb2 0.1.0 (native, FFI) | 181 | 146 | 4802 |
@@ -219,7 +223,10 @@ The compact cb3.local token carries the same claims as CBOR and a
 16-byte digest of the key id instead of its text, which brings it to 209
 bytes, below PASETO v4.local, and makes it slightly quicker to issue and
 check. cb3.public saves the same 180 bytes, which matters little next to
-the signatures.
+the signatures. Under a claim table of the issuer and the audience, both
+travel as one-byte indexes and cb3.local comes to 176 bytes for the
+same time. That row was measured later than the others, with other work
+running on the machine, as the median of seven runs.
 
 Run it yourself:
 

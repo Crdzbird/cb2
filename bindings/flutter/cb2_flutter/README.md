@@ -78,7 +78,8 @@ millisecond, so run token work off the UI isolate as above.
 
 Everything in package `cb2` is available through
 `package:cb2_flutter/cb2_flutter.dart`: `LocalKey`, `SecretKey`,
-`PublicKey`, `Token`, `CompactToken`, `Rules`, `HolderRules`, `Holder`,
+`PublicKey`, `Token`, `CompactToken`, `ClaimTable`, `Rules`,
+`HolderRules`, `Holder`,
 `Local`, `Public`, `KeyWrap`, `Seal`, `Cb2Exception` and the rest; see the
 [package cb2 README](../../dart/README.md) for each. The plugin adds one
 class, `Cb2Flutter`, whose `ensureInitialized()` points the loader at
@@ -134,8 +135,9 @@ Build the dependencies as static libraries for a self-contained
 ## Example app
 
 `example/` seals and opens a cb2.local token and a compact cb3.local
-token, signs and verifies a cb2.public token, and shows the library refusing a replayed token, a
-tampered token and a token for another audience, off the UI isolate.
+token, alone and under a claim table, signs and verifies a cb2.public
+token, and shows the library refusing a replayed token, a tampered token
+and a token for another audience, off the UI isolate.
 It runs on iOS and macOS and has an integration test:
 
     cd example
@@ -152,7 +154,8 @@ issues and checks a token in about 9 microseconds; cb2.public in about
 150 to 190 microseconds, with tokens of about 4.8 KB because every token
 carries a post-quantum ML-DSA-65 signature next to Ed25519. The
 experimental compact cb3.local token is about 7 microseconds and 209
-bytes against 389.
+bytes against 389, and 176 bytes under a claim table of the issuer and
+the audience.
 
 ## Development
 
