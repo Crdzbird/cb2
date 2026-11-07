@@ -34,7 +34,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519
 
 import cb2
-from cb2 import Compact, LocalKey, Rules, SecretKey, Token
+from cb2 import ClaimTable, Compact, LocalKey, Rules, SecretKey, Token
 
 ISSUER = "https://issuer.example"
 AUDIENCE = "api"
@@ -113,12 +113,18 @@ def cases() -> list[Case]:
     now = int(time.time())
     numeric, text = _numeric_claims(now), _text_claims(now)
     rules = Rules(issuer=ISSUER, audience=AUDIENCE)
+    table = ClaimTable([ISSUER, AUDIENCE])
     local = LocalKey.generate()
     shared = secrets.token_bytes(32)
     paseto_local = pyseto.Key.new(version=4, purpose="local", key=secrets.token_bytes(32))
     found = [
         Case("cb2.local", lambda: Token.seal(local, text), lambda t: Token.open(t, local, rules)),
         Case("cb3.local (compact)", lambda: Compact.seal(local, text), lambda t: Compact.open(t, local, rules)),
+        Case(
+            "cb3.local (compact, table)",
+            lambda: Compact.seal(local, text, table=table),
+            lambda t: Compact.open(t, local, rules, table=table),
+        ),
         _jwt_case("JWT HS256 (PyJWT)", "HS256", shared, shared, numeric),
         _paseto_case("PASETO v4.local (pyseto)", paseto_local, paseto_local, text),
     ]
@@ -129,6 +135,11 @@ def cases() -> list[Case]:
             Case("cb2.public", lambda: Token.sign(secret, text), lambda t: Token.verify(t, public, rules)),
             Case(
                 "cb3.public (compact)", lambda: Compact.sign(secret, text), lambda t: Compact.verify(t, public, rules)
+            ),
+            Case(
+                "cb3.public (compact, table)",
+                lambda: Compact.sign(secret, text, table=table),
+                lambda t: Compact.verify(t, public, rules, table=table),
             ),
         ]
     edwards = ed25519.Ed25519PrivateKey.generate()
