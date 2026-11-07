@@ -5,24 +5,24 @@ package cb2
 */
 import "C"
 
-import "runtime"
-
 // HolderProve signs a proof with the client's pair for one request
 // (method, target and optional nonce) and one access token, with the
 // given proof id, issue time and lifetime in seconds: the public mode.
 func HolderProve(client *SecretKey, htm, htu string, nonce *string, accessToken, jti string, now, lifetime int64) (string, error) {
-	if client == nil || client.h == nil {
-		return "", errClosed
+	h := client.handle()
+	p := h.acquire()
+	defer h.release()
+	if p == nil {
+		return "", ErrClosed
 	}
 	noncePtr, nonceLen := optionalText(nonce)
 	var out *C.char
 	var n C.size_t
-	code := C.cb2_holder_prove(client.h, strPtr(htm), C.size_t(len(htm)),
+	code := C.cb2_holder_prove(p, strPtr(htm), C.size_t(len(htm)),
 		strPtr(htu), C.size_t(len(htu)), noncePtr, nonceLen,
 		strPtr(accessToken), C.size_t(len(accessToken)),
 		strPtr(jti), C.size_t(len(jti)),
 		C.int64_t(now), C.int64_t(lifetime), &out, &n)
-	runtime.KeepAlive(client)
 	if err := check(code); err != nil {
 		return "", err
 	}
@@ -34,18 +34,20 @@ func HolderProve(client *SecretKey, htm, htu string, nonce *string, accessToken,
 // client with it, for one request and that token: the local mode,
 // available in every build.
 func HolderProveLocal(proofKey *LocalKey, htm, htu string, nonce *string, accessToken, jti string, now, lifetime int64) (string, error) {
-	if proofKey == nil || proofKey.h == nil {
-		return "", errClosed
+	h := proofKey.handle()
+	p := h.acquire()
+	defer h.release()
+	if p == nil {
+		return "", ErrClosed
 	}
 	noncePtr, nonceLen := optionalText(nonce)
 	var out *C.char
 	var n C.size_t
-	code := C.cb2_holder_prove_local(proofKey.h, strPtr(htm), C.size_t(len(htm)),
+	code := C.cb2_holder_prove_local(p, strPtr(htm), C.size_t(len(htm)),
 		strPtr(htu), C.size_t(len(htu)), noncePtr, nonceLen,
 		strPtr(accessToken), C.size_t(len(accessToken)),
 		strPtr(jti), C.size_t(len(jti)),
 		C.int64_t(now), C.int64_t(lifetime), &out, &n)
-	runtime.KeepAlive(proofKey)
 	if err := check(code); err != nil {
 		return "", err
 	}

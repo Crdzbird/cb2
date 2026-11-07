@@ -1,16 +1,6 @@
-// Package cb2 is the Go bridge to cb2, a post-quantum token library,
-// through its C ABI (bindings/c/include/cb2_c.h).
-//
-// Keys wrap C handles: every key has an explicit Close and a finalizer
-// that releases the handle when the key is collected. Raw tokens carry
-// any bytes; claims tokens carry a JSON object that is checked against
-// Rules on the way back. Every verdict of the library comes back as an
-// *Error whose Code and Name are the library's own.
 package cb2
 
 /*
-#cgo CFLAGS: -I${SRCDIR}/../c/include
-#cgo LDFLAGS: -L${SRCDIR}/../../build/bindings/c -lcb2_c -Wl,-rpath,${SRCDIR}/../../build/bindings/c
 #include <stdlib.h>
 #include "cb2_c.h"
 */

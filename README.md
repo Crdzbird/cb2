@@ -548,7 +548,7 @@ tests mirroring the C test.
 |---|---|---|---|
 | C | `bindings/c` | the ABI itself, installable with CMake and pkg-config | `cb2_c_test`, and the example built against an install through both |
 | Python | `bindings/python` | ctypes over `libcb2_c`, no compile step | 25 unittest cases |
-| Go | `bindings/go` | cgo, callbacks through exported trampolines | `go test`, `go vet`, `go test -race` |
+| Go | `bindings/go` | a cgo module, `github.com/Crdzbird/cb2/bindings/go`, callbacks through exported trampolines; an HTTP service with holder proofs and a CLI as examples | `go vet`, staticcheck, `go test -race` with runnable examples, the example service driven with curl |
 | JavaScript and Node | `bindings/js` | the C ABI compiled to WebAssembly with Emscripten, one module for Node and browsers, callbacks through the wasm table | `node --test`, and the same module in a browser |
 | Java | `bindings/java` | JNI glue over the C ABI, classes in `com.cipherbird.cb2` | a Java test program |
 | Kotlin | `bindings/java/src/main/kotlin` | a DSL and extensions over the Java classes | a Kotlin test program |

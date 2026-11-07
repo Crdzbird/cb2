@@ -8,49 +8,65 @@ import "C"
 import "runtime"
 
 // PublicKey is the verifying half of a cb2.public pair (kcb2.public).
+//
+// A PublicKey is safe for concurrent use by multiple goroutines, Close
+// and SetKeyID included. Close it when done; a finalizer releases the C
+// handle of a key that becomes unreachable without Close.
 type PublicKey struct {
-	h *C.cb2_public_key
+	h handle[*C.cb2_public_key]
 }
 
-func newPublicKey(h *C.cb2_public_key) *PublicKey {
-	k := &PublicKey{h: h}
+func newPublicKey(p *C.cb2_public_key) *PublicKey {
+	k := &PublicKey{}
+	k.h.init(p, func(p *C.cb2_public_key) { C.cb2_public_key_free(p) })
 	runtime.SetFinalizer(k, (*PublicKey).Close)
 	return k
 }
 
+func (k *PublicKey) handle() *handle[*C.cb2_public_key] {
+	if k == nil {
+		return new(handle[*C.cb2_public_key])
+	}
+	return &k.h
+}
+
 // PublicKeyFromBytes builds a verifying key from its raw bytes.
 func PublicKeyFromBytes(b []byte) (*PublicKey, error) {
-	var h *C.cb2_public_key
-	if err := check(C.cb2_public_key_from_bytes(bytesPtr(b), C.size_t(len(b)), &h)); err != nil {
+	var p *C.cb2_public_key
+	if err := check(C.cb2_public_key_from_bytes(bytesPtr(b), C.size_t(len(b)), &p)); err != nil {
 		return nil, err
 	}
-	return newPublicKey(h), nil
+	return newPublicKey(p), nil
 }
 
 // PublicKeyFromPaserk parses a kcb2.public string.
 func PublicKeyFromPaserk(text string) (*PublicKey, error) {
-	var h *C.cb2_public_key
-	if err := check(C.cb2_public_key_from_paserk(strPtr(text), C.size_t(len(text)), &h)); err != nil {
+	var p *C.cb2_public_key
+	if err := check(C.cb2_public_key_from_paserk(strPtr(text), C.size_t(len(text)), &p)); err != nil {
 		return nil, err
 	}
-	return newPublicKey(h), nil
+	return newPublicKey(p), nil
 }
 
-// Close releases the handle; later calls on the key fail with argument.
+// Close releases the key. Calls already in flight finish first; later
+// calls fail with ErrClosed. Close is idempotent.
 func (k *PublicKey) Close() {
-	if k.h != nil {
-		C.cb2_public_key_free(k.h)
-		k.h = nil
+	if k == nil {
+		return
 	}
+	runtime.SetFinalizer(k, nil)
+	k.h.close()
 }
 
 // ToPaserk serializes the key as kcb2.public.
 func (k *PublicKey) ToPaserk() (string, error) {
-	if k.h == nil {
-		return "", errClosed
+	h := k.handle()
+	p := h.acquire()
+	defer h.release()
+	if p == nil {
+		return "", ErrClosed
 	}
-	s, ok := takeCString(C.cb2_public_key_to_paserk(k.h))
-	runtime.KeepAlive(k)
+	s, ok := takeCString(C.cb2_public_key_to_paserk(p))
 	if !ok {
 		return "", nilResult()
 	}
@@ -59,44 +75,46 @@ func (k *PublicKey) ToPaserk() (string, error) {
 
 // PaserkID returns the key's kcb2.pid identifier.
 func (k *PublicKey) PaserkID() (string, error) {
-	if k.h == nil {
-		return "", errClosed
+	h := k.handle()
+	p := h.acquire()
+	defer h.release()
+	if p == nil {
+		return "", ErrClosed
 	}
-	s, ok := takeCString(C.cb2_public_key_paserk_id(k.h))
-	runtime.KeepAlive(k)
+	s, ok := takeCString(C.cb2_public_key_paserk_id(p))
 	if !ok {
 		return "", nilResult()
 	}
 	return s, nil
 }
 
-// KeyID returns the id bound into token footers and false when none is
-// set.
+// KeyID returns the id the key expects in token footers and false when
+// none is set or the key is closed.
 func (k *PublicKey) KeyID() (string, bool) {
-	if k.h == nil {
+	h := k.handle()
+	p := h.acquire()
+	defer h.release()
+	if p == nil {
 		return "", false
 	}
-	s, ok := takeCString(C.cb2_public_key_key_id(k.h))
-	runtime.KeepAlive(k)
-	return s, ok
+	return takeCString(C.cb2_public_key_key_id(p))
 }
 
 // SetKeyID sets the key id; an id with forbidden characters is refused
-// with argument.
+// with ErrArgument. It waits for calls in flight on the key to finish.
 func (k *PublicKey) SetKeyID(id string) error {
-	if k.h == nil {
-		return errClosed
+	var code C.int
+	if !k.handle().mutate(func(p *C.cb2_public_key) {
+		code = C.cb2_public_key_set_key_id(p, strPtr(id), C.size_t(len(id)))
+	}) {
+		return ErrClosed
 	}
-	err := check(C.cb2_public_key_set_key_id(k.h, strPtr(id), C.size_t(len(id))))
-	runtime.KeepAlive(k)
-	return err
+	return check(code)
 }
 
-// ClearKeyID removes the key id.
+// ClearKeyID removes the key id; it does nothing on a closed key.
 func (k *PublicKey) ClearKeyID() {
-	if k.h == nil {
-		return
-	}
-	C.cb2_public_key_clear_key_id(k.h)
-	runtime.KeepAlive(k)
+	k.handle().mutate(func(p *C.cb2_public_key) {
+		C.cb2_public_key_clear_key_id(p)
+	})
 }

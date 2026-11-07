@@ -5,7 +5,8 @@ package cb2
 */
 import "C"
 
-// The error codes of the C ABI; 0 is success.
+// The error codes of the C ABI, the Code of an *Error; 0 is success and
+// never appears in an error.
 const (
 	CodeInvalid          = 1
 	CodeTooLarge         = 2
@@ -35,8 +36,9 @@ const (
 
 // Error is a verdict of the library: its positive code and the stable
 // name the library gives that code ("invalid", "expired", ...).
-// errors.Is matches two Errors by Code, so the sentinels below work as
-// targets; errors.As gives access to the code itself.
+// errors.Is matches two Errors by Code, so the Err sentinels work as
+// targets; errors.As gives access to the code itself. Every call returns
+// a fresh *Error, so a caller may keep or change the one it receives.
 type Error struct {
 	Code int
 	Name string
@@ -92,7 +94,20 @@ var (
 	ErrProofReplayed    = NewError(CodeProofReplayed)
 )
 
-var errClosed = ErrArgument
+// ErrClosed is returned by every call made with a closed or nil key. It
+// wraps an argument error, the code the C ABI gives a missing handle, so
+// errors.Is(err, ErrArgument) holds for it as well.
+var ErrClosed error = closedError{}
+
+type closedError struct{}
+
+func (closedError) Error() string {
+	return "cb2: key is closed"
+}
+
+func (closedError) Unwrap() error {
+	return NewError(CodeArgument)
+}
 
 func check(code C.int) error {
 	if code == 0 {
@@ -102,5 +117,5 @@ func check(code C.int) error {
 }
 
 func nilResult() error {
-	return ErrInternal
+	return NewError(CodeInternal)
 }

@@ -4,6 +4,37 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, the Go binding as a module library
+
+`bindings/go` is the module `github.com/Crdzbird/cb2/bindings/go`, with a
+package `doc.go`, godoc on every exported identifier, runnable `Example`
+functions, and two example programs: a net/http service that issues a
+cb2.local access token bound to a proof key on login and accepts it only
+with a holder proof for the exact request, and a CLI that makes those
+proofs. Key handles are reference counted: `Close` is idempotent and lets
+calls in flight finish, `SetKeyID` waits for them, and a call on a closed
+key returns `ErrClosed`, which also matches `ErrArgument`. A test runs
+seals, opens, wraps, key id changes and `Close` on one key from 17
+goroutines under the race detector.
+
+`go build ./...`, `go vet ./...`, staticcheck 2026.2.2 and golangci-lint
+2.13.2 report nothing; `go test -race ./...` passes with Go 1.27.1,
+including the 10 examples with checked output (an eleventh, for
+cb2.public signing, is compiled but not run, since cb2.public is
+optional in the library) and the service tests under `httptest`. The service binaries were run and driven with curl: a bound
+request answered 200; the same request again, a proof for another
+target, a proof for another method, a request without a proof, a token
+with one character changed and, on an instance with a one-second token
+lifetime, a request after the 5 second skew allowance were refused with
+401 and `proof_replayed`, `proof_mismatch`, `proof_mismatch`,
+`missing_proof`, `invalid` and `expired`. The first attempt at the expiry
+case waited only 3 seconds and was accepted, which is the skew allowance
+working as configured. Outside the repository, a copy of the module
+linked and passed its tests under the race detector through the new
+`cb2_pkgconfig` build tag and the `cb2_c.pc` that `cmake --install`
+writes, and through `CGO_CFLAGS` and `CGO_LDFLAGS`; CI runs the tag
+against a fresh install on macOS and Linux.
+
 ## 2026-11-07, the C ABI as an installable library
 
 `bindings/c` installs as a C library: the header, `libcb2_c` shared

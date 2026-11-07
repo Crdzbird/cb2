@@ -8,60 +8,76 @@ import "C"
 import "runtime"
 
 // LocalKey is the symmetric key of cb2.local tokens (kcb2.local).
+//
+// A LocalKey is safe for concurrent use by multiple goroutines, Close
+// and SetKeyID included. Close it when done; a finalizer releases the C
+// handle of a key that becomes unreachable without Close.
 type LocalKey struct {
-	h *C.cb2_local_key
+	h handle[*C.cb2_local_key]
 }
 
-func newLocalKey(h *C.cb2_local_key) *LocalKey {
-	k := &LocalKey{h: h}
+func newLocalKey(p *C.cb2_local_key) *LocalKey {
+	k := &LocalKey{}
+	k.h.init(p, func(p *C.cb2_local_key) { C.cb2_local_key_free(p) })
 	runtime.SetFinalizer(k, (*LocalKey).Close)
 	return k
 }
 
+func (k *LocalKey) handle() *handle[*C.cb2_local_key] {
+	if k == nil {
+		return new(handle[*C.cb2_local_key])
+	}
+	return &k.h
+}
+
 // GenerateLocalKey draws a fresh key from the library's generator.
 func GenerateLocalKey() (*LocalKey, error) {
-	var h *C.cb2_local_key
-	if err := check(C.cb2_local_key_generate(&h)); err != nil {
+	var p *C.cb2_local_key
+	if err := check(C.cb2_local_key_generate(&p)); err != nil {
 		return nil, err
 	}
-	return newLocalKey(h), nil
+	return newLocalKey(p), nil
 }
 
 // LocalKeyFromBytes builds a key from its 32 raw bytes; weak material
-// is refused with argument.
+// is refused with ErrArgument.
 func LocalKeyFromBytes(b []byte) (*LocalKey, error) {
-	var h *C.cb2_local_key
-	if err := check(C.cb2_local_key_from_bytes(bytesPtr(b), C.size_t(len(b)), &h)); err != nil {
+	var p *C.cb2_local_key
+	if err := check(C.cb2_local_key_from_bytes(bytesPtr(b), C.size_t(len(b)), &p)); err != nil {
 		return nil, err
 	}
-	return newLocalKey(h), nil
+	return newLocalKey(p), nil
 }
 
 // LocalKeyFromPaserk parses a kcb2.local string.
 func LocalKeyFromPaserk(text string) (*LocalKey, error) {
-	var h *C.cb2_local_key
-	if err := check(C.cb2_local_key_from_paserk(strPtr(text), C.size_t(len(text)), &h)); err != nil {
+	var p *C.cb2_local_key
+	if err := check(C.cb2_local_key_from_paserk(strPtr(text), C.size_t(len(text)), &p)); err != nil {
 		return nil, err
 	}
-	return newLocalKey(h), nil
+	return newLocalKey(p), nil
 }
 
-// Close releases the handle; later calls on the key fail with argument.
+// Close releases the key. Calls already in flight finish first; later
+// calls fail with ErrClosed. Close is idempotent.
 func (k *LocalKey) Close() {
-	if k.h != nil {
-		C.cb2_local_key_free(k.h)
-		k.h = nil
+	if k == nil {
+		return
 	}
+	runtime.SetFinalizer(k, nil)
+	k.h.close()
 }
 
 // ToPaserk serializes the key as kcb2.local. The Go string holds key
 // material and cannot be wiped; keep it short-lived.
 func (k *LocalKey) ToPaserk() (string, error) {
-	if k.h == nil {
-		return "", errClosed
+	h := k.handle()
+	p := h.acquire()
+	defer h.release()
+	if p == nil {
+		return "", ErrClosed
 	}
-	s, ok := takeSecret(C.cb2_local_key_to_paserk(k.h))
-	runtime.KeepAlive(k)
+	s, ok := takeSecret(C.cb2_local_key_to_paserk(p))
 	if !ok {
 		return "", nilResult()
 	}
@@ -70,11 +86,13 @@ func (k *LocalKey) ToPaserk() (string, error) {
 
 // PaserkID returns the key's kcb2.lid identifier.
 func (k *LocalKey) PaserkID() (string, error) {
-	if k.h == nil {
-		return "", errClosed
+	h := k.handle()
+	p := h.acquire()
+	defer h.release()
+	if p == nil {
+		return "", ErrClosed
 	}
-	s, ok := takeCString(C.cb2_local_key_paserk_id(k.h))
-	runtime.KeepAlive(k)
+	s, ok := takeCString(C.cb2_local_key_paserk_id(p))
 	if !ok {
 		return "", nilResult()
 	}
@@ -82,32 +100,33 @@ func (k *LocalKey) PaserkID() (string, error) {
 }
 
 // KeyID returns the id bound into token footers and false when none is
-// set.
+// set or the key is closed.
 func (k *LocalKey) KeyID() (string, bool) {
-	if k.h == nil {
+	h := k.handle()
+	p := h.acquire()
+	defer h.release()
+	if p == nil {
 		return "", false
 	}
-	s, ok := takeCString(C.cb2_local_key_key_id(k.h))
-	runtime.KeepAlive(k)
-	return s, ok
+	return takeCString(C.cb2_local_key_key_id(p))
 }
 
-// SetKeyID sets the key id; an id with forbidden characters is refused
-// with argument.
+// SetKeyID sets the key id bound into the footer of the tokens the key
+// makes from now on; an id with forbidden characters is refused with
+// ErrArgument. It waits for calls in flight on the key to finish.
 func (k *LocalKey) SetKeyID(id string) error {
-	if k.h == nil {
-		return errClosed
+	var code C.int
+	if !k.handle().mutate(func(p *C.cb2_local_key) {
+		code = C.cb2_local_key_set_key_id(p, strPtr(id), C.size_t(len(id)))
+	}) {
+		return ErrClosed
 	}
-	err := check(C.cb2_local_key_set_key_id(k.h, strPtr(id), C.size_t(len(id))))
-	runtime.KeepAlive(k)
-	return err
+	return check(code)
 }
 
-// ClearKeyID removes the key id.
+// ClearKeyID removes the key id; it does nothing on a closed key.
 func (k *LocalKey) ClearKeyID() {
-	if k.h == nil {
-		return
-	}
-	C.cb2_local_key_clear_key_id(k.h)
-	runtime.KeepAlive(k)
+	k.handle().mutate(func(p *C.cb2_local_key) {
+		C.cb2_local_key_clear_key_id(p)
+	})
 }

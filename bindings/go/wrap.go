@@ -5,18 +5,17 @@ package cb2
 */
 import "C"
 
-import "runtime"
-
 // Wrap encrypts key under wrapping as a kcb2.local-wrap string.
 func Wrap(wrapping, key *LocalKey) (string, error) {
-	if wrapping == nil || wrapping.h == nil || key == nil || key.h == nil {
-		return "", errClosed
+	wh, kh := wrapping.handle(), key.handle()
+	wp, kp := wh.acquire(), kh.acquire()
+	defer wh.release()
+	defer kh.release()
+	if wp == nil || kp == nil {
+		return "", ErrClosed
 	}
 	var out *C.char
-	code := C.cb2_wrap(wrapping.h, key.h, &out)
-	runtime.KeepAlive(wrapping)
-	runtime.KeepAlive(key)
-	if err := check(code); err != nil {
+	if err := check(C.cb2_wrap(wp, kp, &out)); err != nil {
 		return "", err
 	}
 	s, ok := takeCString(out)
@@ -26,30 +25,34 @@ func Wrap(wrapping, key *LocalKey) (string, error) {
 	return s, nil
 }
 
-// Unwrap recovers the key a kcb2.local-wrap string holds.
+// Unwrap recovers the key a kcb2.local-wrap string holds, as a new key
+// with its own lifetime.
 func Unwrap(text string, wrapping *LocalKey) (*LocalKey, error) {
-	if wrapping == nil || wrapping.h == nil {
-		return nil, errClosed
+	wh := wrapping.handle()
+	wp := wh.acquire()
+	defer wh.release()
+	if wp == nil {
+		return nil, ErrClosed
 	}
-	var h *C.cb2_local_key
-	code := C.cb2_unwrap(strPtr(text), C.size_t(len(text)), wrapping.h, &h)
-	runtime.KeepAlive(wrapping)
-	if err := check(code); err != nil {
+	var out *C.cb2_local_key
+	if err := check(C.cb2_unwrap(strPtr(text), C.size_t(len(text)), wp, &out)); err != nil {
 		return nil, err
 	}
-	return newLocalKey(h), nil
+	return newLocalKey(out), nil
 }
 
-// Seal encrypts key to a recipient as a kcb2.seal string.
+// Seal encrypts key to a recipient as a kcb2.seal string; ErrUnavailable
+// without kcb2.seal.
 func Seal(to *RecipientPublicKey, key *LocalKey) (string, error) {
-	if to == nil || to.h == nil || key == nil || key.h == nil {
-		return "", errClosed
+	th, kh := to.handle(), key.handle()
+	tp, kp := th.acquire(), kh.acquire()
+	defer th.release()
+	defer kh.release()
+	if tp == nil || kp == nil {
+		return "", ErrClosed
 	}
 	var out *C.char
-	code := C.cb2_seal(to.h, key.h, &out)
-	runtime.KeepAlive(to)
-	runtime.KeepAlive(key)
-	if err := check(code); err != nil {
+	if err := check(C.cb2_seal(tp, kp, &out)); err != nil {
 		return "", err
 	}
 	s, ok := takeCString(out)
@@ -60,16 +63,17 @@ func Seal(to *RecipientPublicKey, key *LocalKey) (string, error) {
 }
 
 // Unseal recovers the key a kcb2.seal string holds with the recipient
-// pair.
+// pair, as a new key with its own lifetime.
 func Unseal(text string, by *RecipientKey) (*LocalKey, error) {
-	if by == nil || by.h == nil {
-		return nil, errClosed
+	bh := by.handle()
+	bp := bh.acquire()
+	defer bh.release()
+	if bp == nil {
+		return nil, ErrClosed
 	}
-	var h *C.cb2_local_key
-	code := C.cb2_unseal(strPtr(text), C.size_t(len(text)), by.h, &h)
-	runtime.KeepAlive(by)
-	if err := check(code); err != nil {
+	var out *C.cb2_local_key
+	if err := check(C.cb2_unseal(strPtr(text), C.size_t(len(text)), bp, &out)); err != nil {
 		return nil, err
 	}
-	return newLocalKey(h), nil
+	return newLocalKey(out), nil
 }
