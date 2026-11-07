@@ -94,9 +94,10 @@ var (
 	ErrProofReplayed    = NewError(CodeProofReplayed)
 )
 
-// ErrClosed is returned by every call made with a closed or nil key. It
-// wraps an argument error, the code the C ABI gives a missing handle, so
-// errors.Is(err, ErrArgument) holds for it as well.
+// ErrClosed is returned by every call made with a closed or nil key, or
+// with a closed claim table. It wraps an argument error, the code the C
+// ABI gives a missing handle, so errors.Is(err, ErrArgument) holds for it
+// as well.
 var ErrClosed error = closedError{}
 
 type closedError struct{}

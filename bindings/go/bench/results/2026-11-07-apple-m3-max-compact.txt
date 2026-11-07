@@ -3,91 +3,131 @@ machine: Apple M3 Max, macOS 26.6.2 (25G83)
 go: go1.27.1 darwin/arm64
 cb2: 0.1.0, liboqs 0.16.0, Release build
 command: go test -run '^$' -bench '/(cb2|compact)\.' -benchmem -benchtime 1s -count 10
-loadavg-at-start: 11.32 7.96 6.73
-loadavg-at-end: 16.60 10.64 7.90
+loadavg-at-start: 15.76 12.93 9.79
+loadavg-at-end: 32.10 20.63 13.32
 goos: darwin
 goarch: arm64
 pkg: github.com/Crdzbird/cb2/bindings/go/bench
 cpu: Apple M3 Max
-BenchmarkIssue/cb2.local-14         	  167772	      7152 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
-BenchmarkIssue/cb2.local-14         	  168063	      7202 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
-BenchmarkIssue/cb2.local-14         	  168063	      7161 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
-BenchmarkIssue/cb2.local-14         	  167344	      7126 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
-BenchmarkIssue/cb2.local-14         	  167037	      7162 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
-BenchmarkIssue/cb2.local-14         	  165945	      7148 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
-BenchmarkIssue/cb2.local-14         	  168140	      7153 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
-BenchmarkIssue/cb2.local-14         	  169341	      7170 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
-BenchmarkIssue/cb2.local-14         	  168079	      7192 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
-BenchmarkIssue/cb2.local-14         	  165051	      7210 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
-BenchmarkIssue/compact.local-14     	  200810	      6063 ns/op	       224.0 token-bytes	     664 B/op	      21 allocs/op
-BenchmarkIssue/compact.local-14     	  198494	      6209 ns/op	       224.0 token-bytes	     665 B/op	      21 allocs/op
-BenchmarkIssue/compact.local-14     	  196492	      6176 ns/op	       224.0 token-bytes	     664 B/op	      21 allocs/op
-BenchmarkIssue/compact.local-14     	  193015	      6182 ns/op	       224.0 token-bytes	     664 B/op	      21 allocs/op
-BenchmarkIssue/compact.local-14     	  195028	      6483 ns/op	       224.0 token-bytes	     665 B/op	      21 allocs/op
-BenchmarkIssue/compact.local-14     	  186945	      6627 ns/op	       224.0 token-bytes	     664 B/op	      21 allocs/op
-BenchmarkIssue/compact.local-14     	  190953	      6613 ns/op	       224.0 token-bytes	     664 B/op	      21 allocs/op
-BenchmarkIssue/compact.local-14     	  189002	      6653 ns/op	       224.0 token-bytes	     664 B/op	      21 allocs/op
-BenchmarkIssue/compact.local-14     	  183039	      6554 ns/op	       224.0 token-bytes	     664 B/op	      21 allocs/op
-BenchmarkIssue/compact.local-14     	  183021	      6551 ns/op	       224.0 token-bytes	     664 B/op	      21 allocs/op
-BenchmarkIssue/cb2.public-14        	    6574	    178436 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
-BenchmarkIssue/cb2.public-14        	    7234	    179796 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
-BenchmarkIssue/cb2.public-14        	    7309	    197001 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
-BenchmarkIssue/cb2.public-14        	    6756	    178885 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
-BenchmarkIssue/cb2.public-14        	    6352	    179388 ns/op	      4816 token-bytes	    5311 B/op	      21 allocs/op
-BenchmarkIssue/cb2.public-14        	    6936	    186649 ns/op	      4816 token-bytes	    5311 B/op	      21 allocs/op
-BenchmarkIssue/cb2.public-14        	    6054	    186659 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
-BenchmarkIssue/cb2.public-14        	    6405	    188175 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
-BenchmarkIssue/cb2.public-14        	    6667	    186348 ns/op	      4816 token-bytes	    5313 B/op	      21 allocs/op
-BenchmarkIssue/cb2.public-14        	    5745	    184076 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
-BenchmarkIssue/compact.public-14    	    7441	    180496 ns/op	      4637 token-bytes	    5312 B/op	      21 allocs/op
-BenchmarkIssue/compact.public-14    	    6272	    181206 ns/op	      4637 token-bytes	    5312 B/op	      21 allocs/op
-BenchmarkIssue/compact.public-14    	    7045	    180857 ns/op	      4637 token-bytes	    5311 B/op	      21 allocs/op
-BenchmarkIssue/compact.public-14    	    6301	    229518 ns/op	      4637 token-bytes	    5312 B/op	      21 allocs/op
-BenchmarkIssue/compact.public-14    	    4645	    235408 ns/op	      4637 token-bytes	    5313 B/op	      21 allocs/op
-BenchmarkIssue/compact.public-14    	    5659	    199564 ns/op	      4637 token-bytes	    5312 B/op	      21 allocs/op
-BenchmarkIssue/compact.public-14    	    5463	    209210 ns/op	      4637 token-bytes	    5313 B/op	      21 allocs/op
-BenchmarkIssue/compact.public-14    	    6712	    195632 ns/op	      4637 token-bytes	    5312 B/op	      21 allocs/op
-BenchmarkIssue/compact.public-14    	    6544	    191077 ns/op	      4637 token-bytes	    5312 B/op	      21 allocs/op
-BenchmarkIssue/compact.public-14    	    5594	    191592 ns/op	      4637 token-bytes	    5312 B/op	      21 allocs/op
-BenchmarkCheck/cb2.local-14         	  152774	      7940 ns/op	    1708 B/op	      42 allocs/op
-BenchmarkCheck/cb2.local-14         	  154633	      8720 ns/op	    1709 B/op	      42 allocs/op
-BenchmarkCheck/cb2.local-14         	  157170	      7680 ns/op	    1708 B/op	      42 allocs/op
-BenchmarkCheck/cb2.local-14         	  149656	      8474 ns/op	    1709 B/op	      42 allocs/op
-BenchmarkCheck/cb2.local-14         	  144638	      9508 ns/op	    1709 B/op	      42 allocs/op
-BenchmarkCheck/cb2.local-14         	  123596	     11302 ns/op	    1709 B/op	      42 allocs/op
-BenchmarkCheck/cb2.local-14         	  102339	     12860 ns/op	    1710 B/op	      42 allocs/op
-BenchmarkCheck/cb2.local-14         	   68136	     15395 ns/op	    1710 B/op	      42 allocs/op
-BenchmarkCheck/cb2.local-14         	  105849	     12861 ns/op	    1710 B/op	      42 allocs/op
-BenchmarkCheck/cb2.local-14         	  102403	     12478 ns/op	    1709 B/op	      42 allocs/op
-BenchmarkCheck/compact.local-14     	  120630	      8497 ns/op	    1709 B/op	      42 allocs/op
-BenchmarkCheck/compact.local-14     	  129961	      7736 ns/op	    1709 B/op	      42 allocs/op
-BenchmarkCheck/compact.local-14     	  183592	      6704 ns/op	    1708 B/op	      42 allocs/op
-BenchmarkCheck/compact.local-14     	  177964	      7774 ns/op	    1709 B/op	      42 allocs/op
-BenchmarkCheck/compact.local-14     	  148548	      7122 ns/op	    1708 B/op	      42 allocs/op
-BenchmarkCheck/compact.local-14     	  181902	      8950 ns/op	    1709 B/op	      42 allocs/op
-BenchmarkCheck/compact.local-14     	  130016	      8865 ns/op	    1709 B/op	      42 allocs/op
-BenchmarkCheck/compact.local-14     	  150836	      7697 ns/op	    1709 B/op	      42 allocs/op
-BenchmarkCheck/compact.local-14     	  168327	      6884 ns/op	    1708 B/op	      42 allocs/op
-BenchmarkCheck/compact.local-14     	  177883	      6843 ns/op	    1709 B/op	      42 allocs/op
-BenchmarkCheck/cb2.public-14        	    9278	    125663 ns/op	    1711 B/op	      42 allocs/op
-BenchmarkCheck/cb2.public-14        	    9776	    121364 ns/op	    1710 B/op	      42 allocs/op
-BenchmarkCheck/cb2.public-14        	    9946	    121534 ns/op	    1709 B/op	      42 allocs/op
-BenchmarkCheck/cb2.public-14        	    9192	    126411 ns/op	    1711 B/op	      42 allocs/op
-BenchmarkCheck/cb2.public-14        	    9853	    126806 ns/op	    1714 B/op	      42 allocs/op
-BenchmarkCheck/cb2.public-14        	    9937	    123576 ns/op	    1711 B/op	      42 allocs/op
-BenchmarkCheck/cb2.public-14        	    9246	    124743 ns/op	    1711 B/op	      42 allocs/op
-BenchmarkCheck/cb2.public-14        	    9896	    124042 ns/op	    1711 B/op	      42 allocs/op
-BenchmarkCheck/cb2.public-14        	    9735	    125007 ns/op	    1710 B/op	      42 allocs/op
-BenchmarkCheck/cb2.public-14        	    9759	    123043 ns/op	    1709 B/op	      42 allocs/op
-BenchmarkCheck/compact.public-14    	   10000	    120786 ns/op	    1712 B/op	      42 allocs/op
-BenchmarkCheck/compact.public-14    	    9696	    122222 ns/op	    1712 B/op	      42 allocs/op
-BenchmarkCheck/compact.public-14    	    9817	    122584 ns/op	    1711 B/op	      42 allocs/op
-BenchmarkCheck/compact.public-14    	    9872	    121247 ns/op	    1713 B/op	      42 allocs/op
-BenchmarkCheck/compact.public-14    	   10000	    120965 ns/op	    1711 B/op	      42 allocs/op
-BenchmarkCheck/compact.public-14    	    9973	    121157 ns/op	    1712 B/op	      42 allocs/op
-BenchmarkCheck/compact.public-14    	    9830	    124038 ns/op	    1713 B/op	      42 allocs/op
-BenchmarkCheck/compact.public-14    	    9958	    120928 ns/op	    1713 B/op	      42 allocs/op
-BenchmarkCheck/compact.public-14    	   10000	    129003 ns/op	    1712 B/op	      42 allocs/op
-BenchmarkCheck/compact.public-14    	    9286	    121721 ns/op	    1713 B/op	      42 allocs/op
+BenchmarkIssue/cb2.local-14         	  154662	      7543 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  157671	      7473 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  167586	      7323 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  164418	      7986 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  128917	      8865 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  157311	      7476 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  170161	      7618 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  162529	      8932 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  136380	      8204 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  155912	      7543 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/compact.local-14     	  201141	      6117 ns/op	       224.0 token-bytes	     664 B/op	      21 allocs/op
+BenchmarkIssue/compact.local-14     	  189712	      6190 ns/op	       224.0 token-bytes	     664 B/op	      21 allocs/op
+BenchmarkIssue/compact.local-14     	  193141	      6181 ns/op	       224.0 token-bytes	     665 B/op	      21 allocs/op
+BenchmarkIssue/compact.local-14     	  192826	      6208 ns/op	       224.0 token-bytes	     664 B/op	      21 allocs/op
+BenchmarkIssue/compact.local-14     	  195014	      6119 ns/op	       224.0 token-bytes	     664 B/op	      21 allocs/op
+BenchmarkIssue/compact.local-14     	  199236	      6424 ns/op	       224.0 token-bytes	     664 B/op	      21 allocs/op
+BenchmarkIssue/compact.local-14     	  193166	      6177 ns/op	       224.0 token-bytes	     664 B/op	      21 allocs/op
+BenchmarkIssue/compact.local-14     	  194814	      6167 ns/op	       224.0 token-bytes	     664 B/op	      21 allocs/op
+BenchmarkIssue/compact.local-14     	  193305	      6543 ns/op	       224.0 token-bytes	     665 B/op	      21 allocs/op
+BenchmarkIssue/compact.local-14     	  171140	      6323 ns/op	       224.0 token-bytes	     665 B/op	      21 allocs/op
+BenchmarkIssue/compact.local.table-14         	  169981	      6686 ns/op	       191.0 token-bytes	     632 B/op	      21 allocs/op
+BenchmarkIssue/compact.local.table-14         	  194103	      6679 ns/op	       191.0 token-bytes	     632 B/op	      21 allocs/op
+BenchmarkIssue/compact.local.table-14         	  192843	      6254 ns/op	       191.0 token-bytes	     632 B/op	      21 allocs/op
+BenchmarkIssue/compact.local.table-14         	  186364	      6372 ns/op	       191.0 token-bytes	     632 B/op	      21 allocs/op
+BenchmarkIssue/compact.local.table-14         	  175920	      6323 ns/op	       191.0 token-bytes	     632 B/op	      21 allocs/op
+BenchmarkIssue/compact.local.table-14         	  189219	      6253 ns/op	       191.0 token-bytes	     632 B/op	      21 allocs/op
+BenchmarkIssue/compact.local.table-14         	  194277	      6232 ns/op	       191.0 token-bytes	     632 B/op	      21 allocs/op
+BenchmarkIssue/compact.local.table-14         	  196881	      6244 ns/op	       191.0 token-bytes	     632 B/op	      21 allocs/op
+BenchmarkIssue/compact.local.table-14         	  197809	      6177 ns/op	       191.0 token-bytes	     632 B/op	      21 allocs/op
+BenchmarkIssue/compact.local.table-14         	  196833	      6305 ns/op	       191.0 token-bytes	     632 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14                  	    6775	    178404 ns/op	      4816 token-bytes	    5311 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14                  	    5646	    183847 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14                  	    6823	    195177 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14                  	    6950	    182229 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14                  	    6091	    182617 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14                  	    6398	    182005 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14                  	    6470	    183128 ns/op	      4816 token-bytes	    5311 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14                  	    6622	    183704 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14                  	    7126	    178793 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14                  	    6615	    185236 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/compact.public-14              	    7238	    182016 ns/op	      4637 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/compact.public-14              	    6520	    178305 ns/op	      4637 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/compact.public-14              	    6975	    183373 ns/op	      4637 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/compact.public-14              	    6882	    183998 ns/op	      4637 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/compact.public-14              	    5769	    185184 ns/op	      4637 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/compact.public-14              	    6567	    182900 ns/op	      4637 token-bytes	    5311 B/op	      21 allocs/op
+BenchmarkIssue/compact.public-14              	    6589	    182878 ns/op	      4637 token-bytes	    5311 B/op	      21 allocs/op
+BenchmarkIssue/compact.public-14              	    7094	    185077 ns/op	      4637 token-bytes	    5311 B/op	      21 allocs/op
+BenchmarkIssue/compact.public-14              	    5998	    179982 ns/op	      4637 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/compact.public-14              	    6756	    182581 ns/op	      4637 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/compact.public.table-14        	    6764	    182639 ns/op	      4604 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/compact.public.table-14        	    6591	    182292 ns/op	      4604 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/compact.public.table-14        	    6140	    189930 ns/op	      4604 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/compact.public.table-14        	    6040	    185961 ns/op	      4604 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/compact.public.table-14        	    6655	    186741 ns/op	      4604 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/compact.public.table-14        	    6961	    174522 ns/op	      4604 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/compact.public.table-14        	    6958	    174288 ns/op	      4604 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/compact.public.table-14        	    7256	    178441 ns/op	      4604 token-bytes	    5311 B/op	      21 allocs/op
+BenchmarkIssue/compact.public.table-14        	    6416	    173847 ns/op	      4604 token-bytes	    5313 B/op	      21 allocs/op
+BenchmarkIssue/compact.public.table-14        	    6906	    177147 ns/op	      4604 token-bytes	    5311 B/op	      21 allocs/op
+BenchmarkCheck/cb2.local-14                   	  157988	      7642 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14                   	  156249	      7663 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14                   	  156720	      7777 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14                   	  150434	      7912 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14                   	  156517	      7845 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14                   	  147441	      7752 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14                   	  152479	      7810 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14                   	  154279	      8992 ns/op	    1709 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14                   	  156873	      8996 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14                   	  158182	      7782 ns/op	    1709 B/op	      42 allocs/op
+BenchmarkCheck/compact.local-14               	  177963	      6663 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/compact.local-14               	  181738	      6649 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/compact.local-14               	  183039	      6968 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/compact.local-14               	  170673	      7858 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/compact.local-14               	  168679	     10587 ns/op	    1709 B/op	      42 allocs/op
+BenchmarkCheck/compact.local-14               	  155600	      6727 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/compact.local-14               	  175279	      6676 ns/op	    1709 B/op	      42 allocs/op
+BenchmarkCheck/compact.local-14               	  181399	      6693 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/compact.local-14               	  168788	     10774 ns/op	    1709 B/op	      42 allocs/op
+BenchmarkCheck/compact.local-14               	  113517	      9340 ns/op	    1709 B/op	      42 allocs/op
+BenchmarkCheck/compact.local.table-14         	  122086	     10502 ns/op	    1709 B/op	      42 allocs/op
+BenchmarkCheck/compact.local.table-14         	  139951	      7246 ns/op	    1709 B/op	      42 allocs/op
+BenchmarkCheck/compact.local.table-14         	  179881	      6587 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/compact.local.table-14         	  181527	      6677 ns/op	    1709 B/op	      42 allocs/op
+BenchmarkCheck/compact.local.table-14         	  181167	      6610 ns/op	    1709 B/op	      42 allocs/op
+BenchmarkCheck/compact.local.table-14         	  184788	     10596 ns/op	    1709 B/op	      42 allocs/op
+BenchmarkCheck/compact.local.table-14         	  177537	      7146 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/compact.local.table-14         	  177830	      6919 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/compact.local.table-14         	  172796	      7433 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/compact.local.table-14         	  181495	      6671 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14                  	    9861	    121397 ns/op	    1710 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14                  	    9855	    121137 ns/op	    1711 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14                  	    9732	    121108 ns/op	    1712 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14                  	    9930	    120959 ns/op	    1711 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14                  	    9900	    120853 ns/op	    1713 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14                  	    9895	    120988 ns/op	    1711 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14                  	   10000	    120554 ns/op	    1710 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14                  	    9796	    121152 ns/op	    1711 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14                  	    9882	    121598 ns/op	    1713 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14                  	    9978	    120563 ns/op	    1710 B/op	      42 allocs/op
+BenchmarkCheck/compact.public-14              	   10000	    119089 ns/op	    1713 B/op	      42 allocs/op
+BenchmarkCheck/compact.public-14              	   10000	    119323 ns/op	    1711 B/op	      42 allocs/op
+BenchmarkCheck/compact.public-14              	   10000	    119409 ns/op	    1711 B/op	      42 allocs/op
+BenchmarkCheck/compact.public-14              	   10000	    119127 ns/op	    1712 B/op	      42 allocs/op
+BenchmarkCheck/compact.public-14              	   10000	    119150 ns/op	    1713 B/op	      42 allocs/op
+BenchmarkCheck/compact.public-14              	   10000	    119171 ns/op	    1712 B/op	      42 allocs/op
+BenchmarkCheck/compact.public-14              	   10000	    118839 ns/op	    1712 B/op	      42 allocs/op
+BenchmarkCheck/compact.public-14              	   10000	    118914 ns/op	    1712 B/op	      42 allocs/op
+BenchmarkCheck/compact.public-14              	   10000	    119067 ns/op	    1710 B/op	      42 allocs/op
+BenchmarkCheck/compact.public-14              	   10000	    119035 ns/op	    1712 B/op	      42 allocs/op
+BenchmarkCheck/compact.public.table-14        	   10000	    119003 ns/op	    1713 B/op	      42 allocs/op
+BenchmarkCheck/compact.public.table-14        	   10000	    119004 ns/op	    1713 B/op	      42 allocs/op
+BenchmarkCheck/compact.public.table-14        	   10000	    118862 ns/op	    1712 B/op	      42 allocs/op
+BenchmarkCheck/compact.public.table-14        	   10000	    122687 ns/op	    1711 B/op	      42 allocs/op
+BenchmarkCheck/compact.public.table-14        	   10000	    119722 ns/op	    1713 B/op	      42 allocs/op
+BenchmarkCheck/compact.public.table-14        	   10000	    121540 ns/op	    1710 B/op	      42 allocs/op
+BenchmarkCheck/compact.public.table-14        	   10000	    119044 ns/op	    1711 B/op	      42 allocs/op
+BenchmarkCheck/compact.public.table-14        	   10000	    119580 ns/op	    1710 B/op	      42 allocs/op
+BenchmarkCheck/compact.public.table-14        	    9992	    121004 ns/op	    1709 B/op	      42 allocs/op
+BenchmarkCheck/compact.public.table-14        	    9894	    122063 ns/op	    1712 B/op	      42 allocs/op
 PASS
-ok  	github.com/Crdzbird/cb2/bindings/go/bench	99.206s
+ok  	github.com/Crdzbird/cb2/bindings/go/bench	148.260s
