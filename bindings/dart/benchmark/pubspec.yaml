@@ -1,0 +1,17 @@
+name: cb2_benchmark
+description: >-
+  Times cb2.local and cb2.public against dart_jsonwebtoken and paseto_dart
+  on the same claims, compiled ahead of time.
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  cb2:
+    path: ../
+  dart_jsonwebtoken: 3.4.1
+  paseto_dart: 2.1.0
+
+dev_dependencies:
+  very_good_analysis: ^11.0.0

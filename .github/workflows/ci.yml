@@ -289,6 +289,13 @@ jobs:
           dart analyze --fatal-infos
           dart test
           dart run example/cb2_example.dart
+      - name: Benchmark smoke run
+        working-directory: bindings/dart/benchmark
+        run: |
+          dart pub get
+          dart analyze --fatal-infos
+          dart compile exe bin/cb2_benchmark.dart -o build/cb2_benchmark
+          ./build/cb2_benchmark --quick
       - name: Plugin cb2_flutter
         working-directory: bindings/flutter/cb2_flutter
         run: |

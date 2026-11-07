@@ -4,6 +4,30 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, Dart READMEs and a benchmark against JWT and PASETO
+
+The READMEs of package cb2 and cb2_flutter are rewritten for a first
+time user. The Dart quick start was run as printed against the package
+fetched from git (it prints a 322-character cb2.local token, `user-1`
+and `refused: replayed`), and the Flutter quick start ran as a host test
+through `Isolate.run`.
+
+`bindings/dart/benchmark` is a separate package that times issuing and
+checking a token, claims validated, on the same seven claims for cb2,
+dart_jsonwebtoken 3.4.1 (HS256, EdDSA, ES256) and paseto_dart 2.1.0
+(v4.local, v4.public, with the issuer, audience and time checks it
+lacks added after it). Compiled with `dart compile exe`, Dart 3.13.7,
+macOS 26.6.2, in microseconds per token as the median of three runs of
+21 samples each: cb2.local 8.8 to issue and 9.2 to check, 389 bytes;
+JWT HS256 32.7 and 31.1, 244 bytes; PASETO v4.local 133 and 117, 303
+bytes; cb2.public 184 and 149, 4802 bytes; JWT EdDSA 2417 and 2396, 287
+bytes; JWT ES256 5484 and 8053, 287 bytes; PASETO v4.public 3378 and
+2402, 304 bytes. Runs differed by up to about 20 percent in the slow
+rows. cb2 runs native code through FFI and both competitors are pure
+Dart, so this compares implementations as a Dart developer meets them,
+not the formats; the README says so. CI compiles the benchmark and runs
+it in a quick mode as a smoke test only.
+
 ## 2026-11-07, Dart package and Flutter plugin as libraries
 
 Package `cb2` (`bindings/dart`) and the plugin `cb2_flutter` follow pub
