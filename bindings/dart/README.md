@@ -95,8 +95,15 @@ three refusals.
    elsewhere;
 3. the symbols of the running process, for a statically linked build.
 
+With `Cb2Library.preferBundled` set, the second step comes first and
+`CB2_C_LIBRARY` is only a fallback. `cb2_flutter` sets it, so an app
+always uses the library it ships and its environment cannot swap it,
+while a host test without a bundled library still finds the one
+`CB2_C_LIBRARY` names.
+
 The library is opened on the first call into cb2 and kept for the life
-of the isolate, so set `Cb2Library.name` before that call if needed.
+of the isolate, so set `Cb2Library.name` and `Cb2Library.preferBundled`
+before that call if needed.
 
 ### Why not build hooks (native assets)
 

@@ -22,6 +22,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
     }
     expect(running, findsNothing);
+    expect(find.byIcon(Icons.error), findsNothing);
+    expect(find.text('Load the native library'), findsOneWidget);
     for (final verdict in const [
       'refused with replayed',
       'refused with invalid',
@@ -30,6 +32,5 @@ void main() {
       await tester.scrollUntilVisible(find.text(verdict), 120);
       expect(find.text(verdict), findsOneWidget);
     }
-    expect(find.byIcon(Icons.error), findsNothing);
   });
 }

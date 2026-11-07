@@ -31,7 +31,12 @@ prints every accepted step and the refusals `replayed`, `invalid` and
 and the example app ran on an iPhone 18 Pro simulator (iOS 27.0) and on
 macOS with all eight steps as expected; its integration test passed on
 both. With Swift Package Manager turned off, through CocoaPods, the app
-built for both and its integration test passed on macOS. The Android, Linux and Windows native
+built for both and its integration test passed on macOS. The first CI run
+failed that test because the job exports CB2_C_LIBRARY, which the
+sandboxed app inherited and could not open; `cb2_flutter` now sets
+`Cb2Library.preferBundled`, so an app loads the framework it ships and
+the variable serves only host tests, and the whole sequence passes
+locally with the variable set. The Android, Linux and Windows native
 builds of the plugin were not run.
 
 ## 2026-11-07, the Swift bridge as a package with an XCFramework and examples

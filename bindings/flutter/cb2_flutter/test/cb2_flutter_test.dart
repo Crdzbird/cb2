@@ -11,6 +11,7 @@ void main() {
   test('ensureInitialized names the bundled library', () {
     Cb2Flutter.ensureInitialized();
     expect(Cb2Library.name, Cb2Flutter.libraryName);
+    expect(Cb2Library.preferBundled, isTrue);
     expect(Cb2Library.candidates(), isNotEmpty);
   });
 

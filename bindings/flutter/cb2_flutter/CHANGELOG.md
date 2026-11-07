@@ -4,6 +4,8 @@
   `tool/build_xcframework.sh` from hash-pinned libsodium, BLAKE3 and
   liboqs, in place of a static library that needed `-force_load`.
 - Swift Package Manager support next to CocoaPods.
+- `Cb2Flutter.ensureInitialized` prefers the bundled library to one
+  named by `CB2_C_LIBRARY`, so an app's environment cannot swap it.
 - An example app for iOS and macOS with widget, host and integration
   tests.
 - `very_good_analysis` with strict casts, inference and raw types; the

@@ -8,6 +8,8 @@
 - The holder proof members of `Rules` (`proof`, `request`,
   `proofLifetime`, `proofSeenJti`, `proofReplay`) move to `HolderRules`,
   given as `Rules(holder: ...)`.
+- `Cb2Library.preferBundled` tries the bundled library before
+  `CB2_C_LIBRARY`, so an app's environment cannot swap it.
 
 ## 0.1.0
 
