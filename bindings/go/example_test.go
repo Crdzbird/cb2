@@ -298,3 +298,66 @@ func ExampleTokenSign() {
 	}
 	fmt.Println(claims["sub"])
 }
+
+func ExampleCompactSeal() {
+	key, err := cb2.GenerateLocalKey()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer key.Close()
+
+	claims := map[string]any{
+		"iss": "https://issuer.example",
+		"aud": "api",
+		"sub": "user-1",
+		"exp": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+	}
+	compact, err := cb2.CompactSeal(key, claims, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	full, err := cb2.TokenSeal(key, claims, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	got, err := cb2.CompactOpen(key, compact, cb2.Rules{
+		Issuer:   cb2.String("https://issuer.example"),
+		Audience: cb2.String("api"),
+	}, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(got["sub"], len(compact) < len(full))
+	// Output: user-1 true
+}
+
+func ExamplePeekKeyDigest() {
+	key, err := cb2.GenerateLocalKey()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer key.Close()
+	if err := key.SetKeyID("2026-11"); err != nil {
+		log.Fatal(err)
+	}
+
+	token, err := cb2.CompactSeal(key, map[string]any{
+		"iss": "https://issuer.example",
+		"aud": "api",
+		"exp": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+	}, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	peeked, ok, err := cb2.PeekKeyDigest(token)
+	if err != nil {
+		log.Fatal(err)
+	}
+	want, err := cb2.KeyDigestOf("2026-11")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(ok, peeked == want)
+	// Output: true true
+}
