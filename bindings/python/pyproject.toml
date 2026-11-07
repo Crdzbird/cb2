@@ -32,6 +32,7 @@ Issues = "https://github.com/Crdzbird/cb2/issues"
 [dependency-groups]
 test = ["pytest>=8"]
 lint = ["mypy>=1.10", "ruff>=0.6", "pytest>=8"]
+bench = ["pyperf>=2.6", "pyjwt[crypto]>=2.10", "pyseto>=1.8"]
 dev = [{ include-group = "test" }, { include-group = "lint" }]
 
 [tool.scikit-build]
@@ -56,12 +57,16 @@ filterwarnings = ["error"]
 python_version = "3.10"
 strict = true
 warn_unreachable = true
-files = ["src", "tests", "examples"]
+files = ["src", "tests", "examples", "bench"]
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
 module = ["test_local", "test_public"]
 warn_unreachable = false
+
+[[tool.mypy.overrides]]
+module = ["pyperf"]
+ignore_missing_imports = true
 
 [tool.ruff]
 target-version = "py310"

@@ -202,7 +202,7 @@ jobs:
           pcdir="$(dirname "$(find "$prefix" -name cb2_c.pc)")"
           PKG_CONFIG_PATH="$pcdir${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" CGO_LDFLAGS="-Wl,-rpath,$(dirname "$pcdir")" \
             go test -tags cb2_pkgconfig ./...
-      - name: Python package (wheel with libcb2_c, auditwheel repair, tested in a fresh venv; ruff and mypy)
+      - name: Python package (wheel with libcb2_c, auditwheel repair, tested in a fresh venv; ruff, mypy, a benchmark smoke run)
         run: |
           python3 -m venv "$RUNNER_TEMP/pybuild"
           "$RUNNER_TEMP/pybuild/bin/python" -m pip install -q --upgrade pip build auditwheel patchelf
@@ -211,10 +211,11 @@ jobs:
           CB2_NOPQ_LIBRARY="$GITHUB_WORKSPACE/build-nopq/bindings/c/libcb2_c.so" \
             bash bindings/python/scripts/check_wheel.sh "$RUNNER_TEMP"/wheelhouse/cb2-*.whl
           cd bindings/python
-          "$RUNNER_TEMP/pybuild/bin/python" -m pip install -q --group lint
+          "$RUNNER_TEMP/pybuild/bin/python" -m pip install -q --group lint --group bench "$RUNNER_TEMP"/wheelhouse/cb2-*.whl
           "$RUNNER_TEMP/pybuild/bin/ruff" check .
           "$RUNNER_TEMP/pybuild/bin/ruff" format --check .
           "$RUNNER_TEMP/pybuild/bin/mypy"
+          "$RUNNER_TEMP/pybuild/bin/python" bench/bench_tokens.py --debug-single-value --quiet
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
         with:
           distribution: temurin

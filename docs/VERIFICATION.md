@@ -4,6 +4,45 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, the Python package README and a benchmark against PyJWT and pyseto
+
+`bindings/python/README.md`, also the package's long description, is
+rewritten for a first-time user: what cb2 is, install, a quick start,
+the token kinds and when to use each, the API with its types, the rules,
+errors, where the shared library comes from, the example, benchmarks and
+the checks. The quick start was run as printed against the installed
+wheel, and `twine check` passes on the wheel's metadata.
+
+`bindings/python/bench/bench_tokens.py` times creating a token and a
+validating decode (tag or signature, exp, issuer, audience) of one
+claims payload (iss, sub, aud, exp, iat, jti and a role) with cb2.local
+and cb2.public, PyJWT HS256, EdDSA and ES256, and pyseto v4.local and
+v4.public, and records each token's size. Its dependencies are the
+`bench` dependency group (pyperf, PyJWT with cryptography, pyseto), not
+the package's. On this Mac, macOS 26.6.2, Python 3.12.1, the delocated
+cb2 0.1.0 wheel, PyJWT 2.15.1, pyseto 1.10.0, cryptography 50.0.2 and
+pyperf 2.10.0, three full pyperf runs (20 worker processes each) were
+taken. The first, with other work on the machine, was discarded: its
+cb2.public verify median was 175 us with a median absolute deviation of
+45 us. The second and third agree within 6 percent in every cell; the
+third, medians per operation, create then validating decode:
+
+| token | create | validating decode | size |
+|---|---:|---:|---:|
+| cb2.local | 10.4 us | 12.7 us | 403 B |
+| JWT HS256 (PyJWT) | 12.2 us | 29.8 us | 259 B |
+| PASETO v4.local (pyseto) | 18.0 us | 26.9 us | 335 B |
+| cb2.public | 183.8 us | 131.3 us | 4816 B |
+| JWT EdDSA (PyJWT) | 41.8 us | 132.8 us | 302 B |
+| JWT ES256 (PyJWT) | 32.4 us | 88.3 us | 302 B |
+| PASETO v4.public (pyseto) | 42.0 us | 119.4 us | 336 B |
+
+Through ctypes, a raw 64-byte `Local.seal` and `Local.open` took 5.0 us
+and 3.5 us (timeit, median of seven), against 2.7 us and 1.3 us for the
+same operations in `cb2_bench`. CI installs the `bench` group on Linux,
+type-checks `bench` with the rest under mypy and runs the benchmark
+once with `--debug-single-value`.
+
 ## 2026-11-07, Dart READMEs and a benchmark against JWT and PASETO
 
 The READMEs of package cb2 and cb2_flutter are rewritten for a first
