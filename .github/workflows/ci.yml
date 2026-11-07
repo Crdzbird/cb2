@@ -348,7 +348,7 @@ jobs:
           flutter test
           flutter build ios --simulator --debug
           flutter build macos --debug
-          flutter test integration_test -d macos
+          flutter test integration_test/app_test.dart -d macos
 
   # The second implementation. tools/check_vectors.py was written from
   # docs/PROTOCOL.md alone and must still pass every committed vector with
