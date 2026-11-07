@@ -1,7 +1,8 @@
 name: cb2_benchmark
 description: >-
-  Times cb2.local and cb2.public against dart_jsonwebtoken and paseto_dart
-  on the same claims, compiled ahead of time.
+  Times cb2.local and cb2.public, and their compact cb3 forms, against
+  dart_jsonwebtoken and paseto_dart on the same claims, compiled ahead of
+  time.
 publish_to: none
 
 environment:

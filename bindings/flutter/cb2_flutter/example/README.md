@@ -6,6 +6,7 @@ isolate, and lists every step:
 - seal a cb2.local token and open it;
 - open it again, refused as `replayed`;
 - open a tampered copy, refused as `invalid`;
+- seal the same claims as a compact cb3.local token and open it;
 - sign a cb2.public token and verify it with the public key;
 - verify it for another audience, refused as `audience_mismatch`.
 

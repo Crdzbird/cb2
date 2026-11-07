@@ -1,5 +1,6 @@
 import 'dart:ffi';
 
+import 'package:cb2/src/ffi/compact_calls.dart';
 import 'package:cb2/src/ffi/core_calls.dart';
 import 'package:cb2/src/ffi/key_calls.dart';
 import 'package:cb2/src/ffi/proof_calls.dart';
@@ -20,6 +21,7 @@ final class Cb2Bindings {
       recipientKey = KeyCalls(library, 'recipient_key'),
       recipientPublicKey = KeyCalls(library, 'recipient_public_key'),
       tokens = TokenCalls(library),
+      compact = CompactCalls(library),
       proofs = ProofCalls(library);
 
   /// Version, features, error names and buffer release.
@@ -42,6 +44,9 @@ final class Cb2Bindings {
 
   /// Raw and claims tokens.
   final TokenCalls tokens;
+
+  /// Compact claims tokens and key digests.
+  final CompactCalls compact;
 
   /// Holder proofs, key wrapping and sealing.
   final ProofCalls proofs;

@@ -1,3 +1,11 @@
+## Unreleased
+
+- Re-exports `CompactToken` from package cb2, the experimental compact
+  claims tokens cb3.local and cb3.public. The native library on every
+  platform is built from bindings/c/src/cb2_c.cpp, so it carries the new
+  `cb2_compact_*` functions without a vendored copy to refresh.
+- A host test of a compact token round trip and its key digest.
+
 ## 0.2.0
 
 - iOS and macOS ship `cb2_c.framework`, a dynamic framework built by

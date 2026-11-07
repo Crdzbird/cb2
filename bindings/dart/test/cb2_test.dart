@@ -1,5 +1,7 @@
 import 'package:test/test.dart';
 
+import 'checks/compact_checks.dart' as compact;
+import 'checks/compact_holder_checks.dart' as compact_holder;
 import 'checks/holder_checks.dart' as holder;
 import 'checks/holder_local_checks.dart' as holder_local;
 import 'checks/local_key_checks.dart' as local_key;
@@ -16,4 +18,6 @@ void main() {
   group('holder', holder.run);
   group('holder local', holder_local.run);
   group('seal', seal.run);
+  group('compact', compact.run);
+  group('compact holder', compact_holder.run);
 }
