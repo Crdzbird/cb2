@@ -144,7 +144,7 @@ The core of Phase 1 is on the branch: cb3.local and cb3.public in the C++ librar
 
 The bound public token now fits one 8 KB header field (7,317 to 7,334 characters), the case the plan named first. Sealing is faster because there is less to encrypt and no JSON to write (cb3.local seal 3.65 us against 5.40, open 2.56 against 3.64 on the same run); signing and verifying are unchanged within noise, as the signatures dominate. Every item of the security floor holds by construction and is tested: the nonce and tag lengths, the signature pair, cross-header refusal, the key digest binding, the verdicts, and a tamper sweep of every character.
 
-Not yet done in Phase 1: the C ABI and the seven language bindings do not expose cb3. They follow once the format is reviewed, so that a change to the format does not have to be made eight times.
+The C ABI exposes cb3 through cb2_compact_seal, cb2_compact_open, cb2_compact_sign and cb2_compact_verify, which take the same claims JSON and rules JSON as the cb2_token functions, plus cb2_compact_peek_key_digest and cb2_compact_key_digest for choosing a key. The seven language bindings build on it, one at a time.
 
 ### Protocol and test-vector changes
 

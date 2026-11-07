@@ -4,6 +4,27 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, Phase 1 of the compact-tokens branch: cb3 in the C ABI
+
+bindings/c exposes the compact tokens: cb2_compact_seal, cb2_compact_open,
+cb2_compact_sign and cb2_compact_verify take the claims JSON and rules
+JSON of the cb2_token group, and cb2_compact_peek_key_digest and
+cb2_compact_key_digest give the 16-byte key digest. The four cb2_token
+functions now share the same two helpers, with unchanged behaviour.
+
+Tests: test_compact in bindings/c/test/test_c.c checks that a cb3.local
+token is shorter than the cb2.local token of the same claims and opens
+to the same claims JSON, that neither format opens as the other, the
+verdicts rules_incomplete, audience_mismatch, expired, replayed and
+invalid on a wrong implicit assertion, the peeked digest against the
+computed one, a key without an id, the refusal of a fraction the cb2
+issuer accepts, NULL handles, a cb3.local token bound to a local proof
+key with its holder proof, and cb3.public sign, verify and refusals.
+cb2_c_test passed in the release, ASan/UBSan and no-liboqs builds, the
+release CTest 11 of 11, and cb2_c.cpp compiles without warnings under
+GCC 16 with -Wall -Wextra -Wpedantic -Wshadow -Wconversion, with and
+without liboqs.
+
 ## 2026-11-07, Phase 1 of the compact-tokens branch: cb3.local and cb3.public
 
 The experimental cb3 headers (PROTOCOL.md section 15) are in the C++

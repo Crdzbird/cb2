@@ -1,8 +1,8 @@
 /*
  * The C ABI exercised from C: keys, raw tokens, claims tokens with
- * rules and both replay callbacks, holder proofs of both modes, key wrapping and
- * sealing, the boundary contract of the header, and every verdict the
- * bridges rely on. Exits non-zero on the first failed check.
+ * rules and both replay callbacks, holder proofs of both modes, the
+ * compact claims tokens, key wrapping and sealing, the boundary contract
+ * of the header, and every verdict the bridges rely on. Exits non-zero on the first failed check.
  */
 
 #include "cb2_c.h"
@@ -348,6 +348,130 @@ static void test_boundary(void) {
     cb2_local_key_free(k);
 }
 
+/* Compact claims tokens: the same claims and rules JSON as the cb2 group,
+ * the same verdicts, a shorter token, no crossing between the formats,
+ * the key digest, the issuer refusals of the profile and holder proofs. */
+static void test_compact(void) {
+    cb2_local_key* k = NULL;
+    CHECK(cb2_local_key_generate(&k) == CB2_OK);
+    char* compact = NULL;
+    size_t clen_token = 0;
+    char* full = NULL;
+    size_t flen = 0;
+    CHECK(cb2_compact_seal(k, CLAIMS, strlen(CLAIMS), NULL, 0, &compact, &clen_token) == CB2_OK);
+    CHECK(cb2_token_seal(k, CLAIMS, strlen(CLAIMS), NULL, 0, &full, &flen) == CB2_OK);
+    CHECK(strncmp(compact, "cb3.local.", 10) == 0 && clen_token == strlen(compact) && clen_token < flen);
+    char* a = NULL;
+    char* b = NULL;
+    size_t alen = 0;
+    size_t blen = 0;
+    CHECK(cb2_compact_open(k, compact, clen_token, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_OK);
+    CHECK(cb2_token_open(k, full, flen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &b, &blen) == CB2_OK);
+    CHECK(a != NULL && b != NULL && alen == blen && strcmp(a, b) == 0);
+    cb2_free(a);
+    cb2_free(b);
+    CHECK(cb2_token_open(k, compact, clen_token, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_INVALID);
+    CHECK(cb2_compact_open(k, full, flen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_INVALID);
+    CHECK(cb2_compact_open(k, compact, clen_token, "{}", 2, NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_RULES_INCOMPLETE);
+    const char* other = "{\"issuer\":\"https://issuer.example\",\"audience\":\"web\",\"now\":1700000000}";
+    CHECK(cb2_compact_open(k, compact, clen_token, other, strlen(other), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_AUDIENCE_MISMATCH);
+    const char* late = "{\"issuer\":\"https://issuer.example\",\"audience\":\"api\",\"now\":4102444800}";
+    CHECK(cb2_compact_open(k, compact, clen_token, late, strlen(late), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_EXPIRED);
+    const char* seen_rules = "{\"issuer\":\"https://issuer.example\",\"audience\":\"api\",\"now\":1700000000,\"seen_jti\":[\"id-1\"]}";
+    CHECK(cb2_compact_open(k, compact, clen_token, seen_rules, strlen(seen_rules), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_REPLAYED);
+    CHECK(cb2_compact_open(k, compact, clen_token, RULES, strlen(RULES), (const uint8_t*)"x", 1, NULL, NULL, NULL, &a, &alen) == CB2_INVALID);
+
+    uint8_t* peeked = NULL;
+    uint8_t* expected = NULL;
+    char* kid = cb2_local_key_key_id(k);
+    CHECK(cb2_compact_peek_key_digest(compact, clen_token, &peeked) == CB2_OK && peeked != NULL);
+    CHECK(cb2_compact_key_digest(kid, strlen(kid), &expected) == CB2_OK && expected != NULL);
+    CHECK(peeked != NULL && expected != NULL && memcmp(peeked, expected, CB2_KEY_DIGEST_BYTES) == 0);
+    cb2_free(peeked);
+    cb2_free(expected);
+    cb2_free(kid);
+    CHECK(cb2_compact_peek_key_digest(full, flen, &peeked) == CB2_OK && peeked == NULL);
+    CHECK(cb2_compact_peek_key_digest(compact, clen_token, NULL) == CB2_ARGUMENT);
+    expected = NULL;
+    CHECK(cb2_compact_key_digest("a\nb", 3, &expected) == CB2_ARGUMENT && expected == NULL);
+    CHECK(cb2_compact_key_digest("", 0, &expected) == CB2_OK && expected != NULL);
+    cb2_free(expected);
+    cb2_local_key_clear_key_id(k);
+    char* bare = NULL;
+    size_t bare_len = 0;
+    CHECK(cb2_compact_seal(k, CLAIMS, strlen(CLAIMS), NULL, 0, &bare, &bare_len) == CB2_OK);
+    CHECK(cb2_compact_peek_key_digest(bare, bare_len, &peeked) == CB2_OK && peeked == NULL);
+    CHECK(cb2_compact_open(k, compact, clen_token, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_INVALID);
+    CHECK(cb2_compact_open(k, bare, bare_len, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_OK);
+    cb2_free(a);
+    cb2_free(bare);
+
+    const char* fraction = "{\"iss\":\"https://issuer.example\",\"aud\":\"api\",\"exp\":\"2099-01-01T00:00:00+00:00\",\"n\":1.5}";
+    char* refused = NULL;
+    CHECK(cb2_compact_seal(k, fraction, strlen(fraction), NULL, 0, &refused, NULL) == CB2_ARGUMENT && refused == NULL);
+    CHECK(cb2_token_seal(k, fraction, strlen(fraction), NULL, 0, &refused, NULL) == CB2_OK);
+    cb2_free(refused);
+    CHECK(cb2_compact_seal(NULL, CLAIMS, strlen(CLAIMS), NULL, 0, &refused, NULL) == CB2_ARGUMENT);
+    CHECK(cb2_compact_seal(k, "nope", 4, NULL, 0, &refused, NULL) == CB2_ARGUMENT);
+    CHECK(cb2_compact_open(NULL, compact, clen_token, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_ARGUMENT);
+
+    cb2_local_key* proof_key = NULL;
+    CHECK(cb2_local_key_generate(&proof_key) == CB2_OK);
+    char* cnf = cb2_local_key_to_paserk(proof_key);
+    char bound[512];
+    snprintf(bound, sizeof bound, "{\"iss\":\"https://issuer.example\",\"aud\":\"api\",\"exp\":\"2099-01-01T00:00:00+00:00\",\"cnf\":\"%s\"}", cnf);
+    char* access = NULL;
+    size_t access_len = 0;
+    CHECK(cb2_compact_seal(k, bound, strlen(bound), NULL, 0, &access, &access_len) == CB2_OK);
+    CHECK(cb2_compact_open(k, access, access_len, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_MISSING_PROOF);
+    char* proof = NULL;
+    CHECK(cb2_holder_prove_local(proof_key, "GET", 3, "https://api.example/v1/me", 25, NULL, 0, access, access_len, "p-1", 3, 1700000000, 60, &proof, NULL) == CB2_OK);
+    char rules[2048];
+    snprintf(rules, sizeof rules, "{\"issuer\":\"https://issuer.example\",\"audience\":\"api\",\"now\":1700000000,\"proof\":\"%s\",\"request\":{\"htm\":\"GET\",\"htu\":\"https://api.example/v1/me\"}}", proof);
+    CHECK(cb2_compact_open(k, access, access_len, rules, strlen(rules), NULL, 0, NULL, accept_all, NULL, &a, &alen) == CB2_OK);
+    CHECK(a != NULL && strstr(a, cnf) != NULL);
+    cb2_free(a);
+    snprintf(rules, sizeof rules, "{\"issuer\":\"https://issuer.example\",\"audience\":\"api\",\"now\":1700000000,\"proof\":\"%s\",\"request\":{\"htm\":\"POST\",\"htu\":\"https://api.example/v1/me\"},\"proof_seen_jti\":[]}", proof);
+    CHECK(cb2_compact_open(k, access, access_len, rules, strlen(rules), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_PROOF_MISMATCH);
+    cb2_free(proof);
+
+    if (cb2_has_public()) {
+        cb2_secret_key* sk = NULL;
+        cb2_public_key* pk = NULL;
+        CHECK(cb2_secret_key_generate(&sk) == CB2_OK);
+        CHECK(cb2_secret_key_public_key(sk, &pk) == CB2_OK);
+        char* signed_token = NULL;
+        size_t slen = 0;
+        char* signed_full = NULL;
+        size_t sflen = 0;
+        CHECK(cb2_compact_sign(sk, CLAIMS, strlen(CLAIMS), NULL, 0, &signed_token, &slen) == CB2_OK);
+        CHECK(cb2_token_sign(sk, CLAIMS, strlen(CLAIMS), NULL, 0, &signed_full, &sflen) == CB2_OK);
+        CHECK(strncmp(signed_token, "cb3.public.", 11) == 0 && slen < sflen);
+        CHECK(cb2_compact_verify(pk, signed_token, slen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_OK);
+        cb2_free(a);
+        CHECK(cb2_token_verify(pk, signed_token, slen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_INVALID);
+        CHECK(cb2_compact_verify(pk, signed_full, sflen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_INVALID);
+        CHECK(cb2_compact_verify(pk, signed_token, slen, other, strlen(other), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_AUDIENCE_MISMATCH);
+        CHECK(cb2_compact_peek_key_digest(signed_token, slen, &peeked) == CB2_OK && peeked != NULL);
+        cb2_free(peeked);
+        CHECK(cb2_compact_sign(sk, bound, strlen(bound), NULL, 0, &refused, NULL) == CB2_ARGUMENT);
+        cb2_free(signed_full);
+        cb2_free(signed_token);
+        cb2_public_key_free(pk);
+        cb2_secret_key_free(sk);
+    }
+    if (!cb2_has_public()) {
+        CHECK(cb2_compact_sign(NULL, CLAIMS, strlen(CLAIMS), NULL, 0, &refused, NULL) == CB2_UNAVAILABLE);
+        CHECK(cb2_compact_verify(NULL, compact, clen_token, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_UNAVAILABLE);
+    }
+    cb2_free(access);
+    cb2_free_secret(cnf);
+    cb2_free(full);
+    cb2_free(compact);
+    cb2_local_key_free(proof_key);
+    cb2_local_key_free(k);
+}
+
 int main(void) {
     printf("cb2_c %s, public %d, seal %d\n", cb2_version(), cb2_has_public(), cb2_has_seal());
     test_boundary();
@@ -355,6 +479,7 @@ int main(void) {
     test_holder_local();
     test_public();
     test_seal();
+    test_compact();
     if (failures != 0) {
         printf("%d failure(s)\n", failures);
         return 1;

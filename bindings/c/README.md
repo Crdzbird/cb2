@@ -127,6 +127,7 @@ Change `"audience":"api"` in the rules to `"billing"` and it prints
 | `cb2.local` | sessions and calls between services of one system. One 32-byte key issues and opens; the claims are encrypted, so only key holders can read them. | `cb2_token_seal`, `cb2_token_open` |
 | `cb2.public` | tokens many parties verify without being able to issue them. The issuer signs with the secret half of a key pair, anyone with the public half verifies. The claims are readable. The signature is Ed25519 and ML-DSA-65 together, so it stays unforgeable against a future quantum computer. | `cb2_token_sign`, `cb2_token_verify` |
 | holder proofs, `cb2.holder-local` and `cb2.holder-public` | access tokens that are useless when stolen. The issuer names a proof key in the token's `cnf` claim; the client proves it holds that key for every request, and the verifier checks token and proof together. | `cb2_holder_prove_local`, `cb2_holder_prove`, then `cb2_token_open` or `cb2_token_verify` with `proof` and `request` in the rules |
+| compact `cb3.local` and `cb3.public` (experimental, on the `compact-tokens` branch) | the same as `cb2.local` and `cb2.public` when the token must be short, such as a cookie or a header with a size limit. The same keys, claims JSON, rules JSON and verdicts; the claims travel as strict CBOR and the key id as a 16-byte digest, so a typical `cb3.local` token is about 45 percent shorter. A custom number that is not an int64 integer is refused with `CB2_ARGUMENT`. | `cb2_compact_seal`, `cb2_compact_open`, `cb2_compact_sign`, `cb2_compact_verify` |
 | raw `cb2.local` and `cb2.public` | any bytes as the message, when the payload is not a claims set. | `cb2_local_seal`, `cb2_local_open`, `cb2_public_sign`, `cb2_public_verify` |
 | `kcb2.local-wrap` | storing a local key encrypted under another local key. | `cb2_wrap`, `cb2_unwrap` |
 | `kcb2.seal` | sending a local key to a recipient, post-quantum (X-Wing). | `cb2_seal`, `cb2_unseal` |
@@ -147,6 +148,7 @@ full.
 | signing pairs (`cb2_secret_key`) and public keys (`cb2_public_key`) | `cb2_secret_key_generate`, `_from_bytes`, `_from_paserk`, `_to_paserk`, `_public_key`, `_key_id`, `_set_key_id`, `_clear_key_id`, `_free`; `cb2_public_key_from_bytes`, `_from_paserk`, `_to_paserk`, `_paserk_id`, `_key_id`, `_set_key_id`, `_clear_key_id`, `_free` |
 | recipient pairs for `kcb2.seal` | `cb2_recipient_key_*` and `cb2_recipient_public_key_*`: generate, from and to bytes and PASERK text, `_public_key`, `_paserk_id`, `_free` |
 | claims tokens | `cb2_token_seal`, `cb2_token_open`, `cb2_token_sign`, `cb2_token_verify`, `cb2_peek_key_id` |
+| compact claims tokens | `cb2_compact_seal`, `cb2_compact_open`, `cb2_compact_sign`, `cb2_compact_verify`, `cb2_compact_peek_key_digest`, `cb2_compact_key_digest` |
 | raw tokens | `cb2_local_seal`, `cb2_local_open`, `cb2_public_sign`, `cb2_public_verify` |
 | holder proofs | `cb2_holder_prove_local`, `cb2_holder_prove`, `cb2_holder_normalize_target` |
 | key wrapping and sealing | `cb2_wrap`, `cb2_unwrap`, `cb2_seal`, `cb2_unseal` |
@@ -157,6 +159,12 @@ functions, or as raw bytes through `_from_bytes`. A key's `_paserk_id`
 (`kcb2.lid.` for a local key) is a public identifier for it, the key id
 a token's footer carries.
 
+A compact token carries `BLAKE3("kcb3.kid." || key id)` cut to 16 bytes
+instead of the key id text. `cb2_compact_peek_key_digest` reads it from a
+token without verifying anything, and `cb2_compact_key_digest` computes
+it for a key id, so a verifier holding several keys can choose the one to
+try.
+
 Claims go in as a JSON object with the registered claims as strings and
 times in RFC 3339 (`"exp":"2099-01-01T00:00:00+00:00"`), plus any claims
 of your own. The checks a verifier wants go in as a JSON rules object:
@@ -166,8 +174,8 @@ of your own. The checks a verifier wants go in as a JSON rules object:
 `subject`, `replay`, `proof` and `request` add the rest. The comment
 above `cb2_token_seal` in the header lists every member.
 
-Replay checks are callbacks: `cb2_token_open` and `cb2_token_verify` take
-one for the token's `jti` and one for a holder proof's id. Each returns 1
+Replay checks are callbacks: `cb2_token_open`, `cb2_token_verify` and
+their compact counterparts take one for the token's `jti` and one for a holder proof's id. Each returns 1
 when the id is new (and remembers it) and 0 when it was seen before.
 
 ## Errors

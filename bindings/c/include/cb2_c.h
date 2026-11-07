@@ -276,6 +276,42 @@ CB2_API int cb2_token_verify(const cb2_public_key* key, const char* token, size_
 /* The key id a token's footer names, unverified; 0 and NULL when none. */
 CB2_API int cb2_peek_key_id(const char* token, size_t token_len, char** out_id);
 
+/* Compact claims tokens, the experimental cb3.local and cb3.public
+ * formats of docs/PROTOCOL.md section 15. They take and return the same
+ * claims JSON and rules JSON as the cb2_token group, and give the same
+ * verdicts, but carry the claims as strict CBOR and bind the key id as a
+ * CB2_KEY_DIGEST_BYTES digest instead of its text. The issuer refuses
+ * with CB2_ARGUMENT what the compact profile cannot carry: a custom
+ * number that is not an integer in int64 written in canonical form, a
+ * time outside years 0000 to 9999, and a cnf that is not a kcb2.local or
+ * kcb2.public key. A cb2 token never opens here and a compact token never
+ * opens in the cb2_token group. Holder proofs bind a compact access token
+ * exactly as they bind a cb2 one. */
+#define CB2_KEY_DIGEST_BYTES 16
+
+CB2_API int cb2_compact_seal(const cb2_local_key* key, const char* claims_json, size_t claims_len,
+                             const uint8_t* implicit, size_t implicit_len, char** out_token, size_t* out_len);
+CB2_API int cb2_compact_sign(const cb2_secret_key* key, const char* claims_json, size_t claims_len,
+                             const uint8_t* implicit, size_t implicit_len, char** out_token, size_t* out_len);
+CB2_API int cb2_compact_open(const cb2_local_key* key, const char* token, size_t token_len,
+                             const char* rules_json, size_t rules_len,
+                             const uint8_t* implicit, size_t implicit_len,
+                             cb2_replay_fn replay, cb2_replay_fn proof_replay, void* user,
+                             char** out_claims, size_t* out_len);
+CB2_API int cb2_compact_verify(const cb2_public_key* key, const char* token, size_t token_len,
+                               const char* rules_json, size_t rules_len,
+                               const uint8_t* implicit, size_t implicit_len,
+                               cb2_replay_fn replay, cb2_replay_fn proof_replay, void* user,
+                               char** out_claims, size_t* out_len);
+
+/* The key digest a compact token's footer carries, unverified, as
+ * CB2_KEY_DIGEST_BYTES malloc'd bytes; 0 and NULL when the token has none.
+ * cb2_compact_key_digest computes the digest of a key id (see the
+ * cb2_*_key_id functions), so a verifier holding several keys can pick the
+ * one whose digest matches. */
+CB2_API int cb2_compact_peek_key_digest(const char* token, size_t token_len, uint8_t** out_digest);
+CB2_API int cb2_compact_key_digest(const char* id, size_t len, uint8_t** out_digest);
+
 /* Holder proofs (sender constraint) for one request and one access token;
  * nonce may be NULL. cb2_holder_prove is the public mode, a proof by the
  * client's signing pair (only when cb2_has_public). cb2_holder_prove_local
