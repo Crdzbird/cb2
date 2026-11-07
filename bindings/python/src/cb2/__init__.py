@@ -9,6 +9,7 @@ library is opened on first use; library_path() says which file it was.
 from __future__ import annotations
 
 from ._lib import loaded
+from .claim_table import ClaimTable
 from .errors import Cb2Error, Code, LibraryNotFound, error_name
 from .keys import LocalKey, PublicKey, RecipientKey, RecipientPublicKey, SecretKey
 from .rules import ReplayCheck, Rules, RulesLike
@@ -18,6 +19,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "Cb2Error",
+    "ClaimTable",
     "Claims",
     "Code",
     "Compact",

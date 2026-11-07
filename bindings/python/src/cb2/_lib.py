@@ -27,6 +27,8 @@ _KEY_TYPES = ("local_key", "secret_key", "public_key", "recipient_key", "recipie
 
 _RAW = [c_void_p, c_char_p, c_size_t, c_char_p, c_size_t, c_char_p, c_size_t]
 _CLAIMS_READ = [*_RAW, ReplayFn, ReplayFn, c_void_p, _PTR_OUT, _LEN_OUT]
+_TABLED_MAKE = [c_void_p, c_void_p, c_char_p, c_size_t, c_char_p, c_size_t, _PTR_OUT, _LEN_OUT]
+_TABLED_READ = [c_void_p, c_void_p, *_CLAIMS_READ[1:]]
 _PROVE = [c_void_p, *([c_char_p, c_size_t] * 5), c_int64, c_int64, _PTR_OUT, _LEN_OUT]
 
 _PROTOTYPES: dict[str, tuple[Any, list[Any]]] = {
@@ -61,6 +63,13 @@ _PROTOTYPES: dict[str, tuple[Any, list[Any]]] = {
     "cb2_compact_verify": (c_int, _CLAIMS_READ),
     "cb2_compact_peek_key_digest": (c_int, [c_char_p, c_size_t, _PTR_OUT]),
     "cb2_compact_key_digest": (c_int, [c_char_p, c_size_t, _PTR_OUT]),
+    "cb2_claim_table_from_json": (c_int, [c_char_p, c_size_t, _PTR_OUT]),
+    "cb2_claim_table_digest": (c_int, [c_void_p, _PTR_OUT]),
+    "cb2_claim_table_free": (None, [c_void_p]),
+    "cb2_compact_seal_with_table": (c_int, _TABLED_MAKE),
+    "cb2_compact_sign_with_table": (c_int, _TABLED_MAKE),
+    "cb2_compact_open_with_table": (c_int, _TABLED_READ),
+    "cb2_compact_verify_with_table": (c_int, _TABLED_READ),
     "cb2_holder_prove": (c_int, _PROVE),
     "cb2_holder_prove_local": (c_int, _PROVE),
     "cb2_holder_normalize_target": (c_int, [c_char_p, c_size_t, _PTR_OUT]),
