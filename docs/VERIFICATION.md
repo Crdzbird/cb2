@@ -4,6 +4,38 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, the Python bridge as a package
+
+`bindings/python` is now a src-layout package built with
+scikit-build-core: `bindings/python/CMakeLists.txt` includes the root
+CMakeLists.txt, builds the `cb2_c` target of bindings/c and installs it
+unversioned inside the `cb2` package, so the wheel
+(`py3-none-<platform>`) carries the library. The loader takes
+`CB2_C_LIBRARY` alone when it is set, else the bundled copy, else
+`find_library`, and refuses a library whose `cb2_abi_version` is not 0.
+The package is typed (`py.typed`), the unittest cases became 41 pytest
+cases with every earlier assertion kept, and examples/token_service.py
+is an http.server token service with a client that checks each answer.
+
+`python -m build --wheel` built cb2-0.1.0-py3-none-macosx_26_0_arm64.whl
+in 5 s; `delocate-wheel` copied libsodium, libblake3 and libcrypto into
+it (liboqs is linked statically, and only the 61 `cb2_` functions are
+exported). scripts/check_wheel.sh installed it under Python 3.12 into a
+fresh virtual environment in a temporary directory outside the
+repository: `cb2.library_path()` was the copy in site-packages, 41 tests
+passed, `mypy --strict` found no issues in the tests and the example,
+and the example's nine steps (cb2.local open, a tampered token refused
+as `invalid`, cb2.public verify and a foreign signature refused, a bound
+token refused as `missing_proof`, accepted with its holder proof,
+refused as `proof_replayed` and `proof_mismatch`) all behaved as
+expected. Against a libcb2_c built with `-DCB2_PQ=OFF` through
+`CB2_C_LIBRARY`, 35 passed and 6 were skipped, and the example used a
+kcb2.local proof key instead. `pip install -e` resolves the library from
+site-packages while the sources stay in place. In the source tree `ruff
+check`, `ruff format --check` and `mypy` (strict, over src, tests and
+the example) are clean. CI now builds the wheel on macOS and Linux,
+repairs it with delocate-wheel and auditwheel, and runs the same script.
+
 ## 2026-11-07, the Go binding as a module library
 
 `bindings/go` is the module `github.com/Crdzbird/cb2/bindings/go`, with a

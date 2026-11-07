@@ -60,10 +60,9 @@ jobs:
           ./build-nopq/cb2_playground playground/demo_holder_local.cb2
           ./build-nopq/bindings/c/cb2_c_test
           ./build-nopq/bindings/c/cb2_c_example
-      - name: Bridges with a toolchain on this runner (Swift, Python, Node)
+      - name: Bridges with a toolchain on this runner (Swift, Node)
         run: |
           (cd bindings/swift && swift test -Xlinker -L"$GITHUB_WORKSPACE/build/bindings/c" -Xlinker -rpath -Xlinker "$GITHUB_WORKSPACE/build/bindings/c")
-          CB2_C_LIBRARY="$GITHUB_WORKSPACE/build/bindings/c/libcb2_c.dylib" python3 -m unittest discover -s bindings/python/tests
           node --test bindings/js/test/test.mjs
       - name: Go module (vet, staticcheck, race tests with the examples, the example service over HTTP, linking through pkg-config)
         working-directory: bindings/go
@@ -77,6 +76,14 @@ jobs:
           pcdir="$(dirname "$(find "$prefix" -name cb2_c.pc)")"
           PKG_CONFIG_PATH="$pcdir${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" CGO_LDFLAGS="-Wl,-rpath,$(dirname "$pcdir")" \
             go test -tags cb2_pkgconfig ./...
+      - name: Python package (wheel with libcb2_c, delocated, tested in a fresh venv)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pybuild"
+          "$RUNNER_TEMP/pybuild/bin/python" -m pip install -q --upgrade pip build delocate
+          "$RUNNER_TEMP/pybuild/bin/python" -m build --wheel --outdir "$RUNNER_TEMP/dist" bindings/python
+          "$RUNNER_TEMP/pybuild/bin/delocate-wheel" -w "$RUNNER_TEMP/wheelhouse" "$RUNNER_TEMP"/dist/cb2-*.whl
+          CB2_NOPQ_LIBRARY="$GITHUB_WORKSPACE/build-nopq/bindings/c/libcb2_c.dylib" \
+            bash bindings/python/scripts/check_wheel.sh "$RUNNER_TEMP"/wheelhouse/cb2-*.whl
       - name: Fuzz targets (time-boxed)
         env:
           CC: /opt/homebrew/opt/llvm/bin/clang
@@ -149,9 +156,8 @@ jobs:
           ./build-nopq/cb2_playground playground/demo_holder_local.cb2
           ./build-nopq/bindings/c/cb2_c_test
           ./build-nopq/bindings/c/cb2_c_example
-      - name: Bridges with a toolchain on this runner (Python, Node)
+      - name: Bridges with a toolchain on this runner (Node)
         run: |
-          CB2_C_LIBRARY="$GITHUB_WORKSPACE/build/bindings/c/libcb2_c.so" python3 -m unittest discover -s bindings/python/tests
           node --test bindings/js/test/test.mjs
       - name: Go module (vet, staticcheck, race tests with the examples, the example service over HTTP, linking through pkg-config)
         working-directory: bindings/go
@@ -165,6 +171,19 @@ jobs:
           pcdir="$(dirname "$(find "$prefix" -name cb2_c.pc)")"
           PKG_CONFIG_PATH="$pcdir${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" CGO_LDFLAGS="-Wl,-rpath,$(dirname "$pcdir")" \
             go test -tags cb2_pkgconfig ./...
+      - name: Python package (wheel with libcb2_c, auditwheel repair, tested in a fresh venv; ruff and mypy)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pybuild"
+          "$RUNNER_TEMP/pybuild/bin/python" -m pip install -q --upgrade pip build auditwheel patchelf
+          "$RUNNER_TEMP/pybuild/bin/python" -m build --wheel --outdir "$RUNNER_TEMP/dist" bindings/python
+          "$RUNNER_TEMP/pybuild/bin/auditwheel" repair -w "$RUNNER_TEMP/wheelhouse" "$RUNNER_TEMP"/dist/cb2-*.whl
+          CB2_NOPQ_LIBRARY="$GITHUB_WORKSPACE/build-nopq/bindings/c/libcb2_c.so" \
+            bash bindings/python/scripts/check_wheel.sh "$RUNNER_TEMP"/wheelhouse/cb2-*.whl
+          cd bindings/python
+          "$RUNNER_TEMP/pybuild/bin/python" -m pip install -q --group lint
+          "$RUNNER_TEMP/pybuild/bin/ruff" check .
+          "$RUNNER_TEMP/pybuild/bin/ruff" format --check .
+          "$RUNNER_TEMP/pybuild/bin/mypy"
       # Secrets are marked undefined and memcheck must report nothing:
       # verdicts and outgoing token bytes are declassified in the library
       # (detail::declassify), and the one accepted lookup is listed with

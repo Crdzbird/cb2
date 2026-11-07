@@ -42,17 +42,24 @@ class LibraryNotFound(OSError):
 class Cb2Error(Exception):
     """A verdict of the library: code is the integer, name its stable text."""
 
-    def __init__(self, code: int, name: str):
-        super().__init__("cb2: %s (%d)" % (name, code))
+    code: int
+    name: str
+
+    def __init__(self, code: int, name: str) -> None:
+        super().__init__(f"cb2: {name} ({int(code)})")
         self.code = int(code)
         self.name = name
+
+    def __reduce__(self) -> tuple[type[Cb2Error], tuple[int, str]]:
+        return (Cb2Error, (self.code, self.name))
 
 
 def error_name(code: int) -> str:
     """The stable name of a code, "ok" for 0 and "unknown" for unknown codes."""
     from ._lib import lib
 
-    return lib().cb2_error_name(int(code)).decode("ascii")
+    raw: bytes = lib().cb2_error_name(int(code))
+    return raw.decode("ascii")
 
 
 def check(code: int) -> None:
