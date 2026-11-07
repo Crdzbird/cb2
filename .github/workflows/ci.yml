@@ -295,6 +295,7 @@ jobs:
         run: |
           dart pub get
           dart analyze --fatal-infos
+          mkdir -p build
           dart compile exe bin/cb2_benchmark.dart -o build/cb2_benchmark
           ./build/cb2_benchmark --quick
       - name: Plugin cb2_flutter
