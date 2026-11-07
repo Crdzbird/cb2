@@ -126,7 +126,8 @@ function installPublicKey(m, Key, Public, prefix) {
 
 /**
  * Builds the five key classes over a core module.
- * @param {object} m the core module
+ * @param {import("../types/cb2.js").Cb2Core} m the core module
+ * @returns {Pick<import("../types/cb2.js").Cb2, "LocalKey" | "SecretKey" | "PublicKey" | "RecipientKey" | "RecipientPublicKey">}
  */
 export function makeKeys(m) {
     const classes = {};

@@ -249,3 +249,52 @@ jobs:
         run: |
           bash web/build.sh
           node web/smoke.cjs
+      - name: Build the JavaScript package's core from the C ABI and run its tests on the fresh build
+        run: |
+          bash bindings/js/build.sh
+          node --test bindings/js/test/test.mjs bindings/js/test/package.test.mjs bindings/js/test/cjs.test.cjs
+
+  # The JavaScript package as npm would ship it, on the oldest Node it
+  # supports and on the current LTS: the tests, tsc over typed consumers,
+  # arethetypeswrong, the packed tarball installed in a scratch project and
+  # used from ES modules, CommonJS and TypeScript, the Node example driven
+  # with curl, and the browser example pressing its own buttons in
+  # headless Chrome.
+  js:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        node: ["22.12.0", "24"]
+    defaults:
+      run:
+        working-directory: bindings/js
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install the dev tools
+        run: npm ci
+      - name: Tests, type check, arethetypeswrong and the packed tarball
+        run: |
+          npm test
+          npm run typecheck
+          npm run attw
+          npm run check:pack
+      - name: The Node example, its tests and a curl session against it
+        working-directory: bindings/js/examples/node
+        run: |
+          npm ci
+          npm test
+          bash smoke.sh
+      - name: The browser example in headless Chrome
+        working-directory: bindings/js/examples/browser
+        run: |
+          npm ci
+          PORT=8080 node serve.mjs &
+          for _ in $(seq 50); do curl -s -o /dev/null http://localhost:8080/ && break; sleep 0.1; done
+          curl -sI http://localhost:8080/node_modules/cb2/dist/cb2_core.wasm | grep -i 'content-type: application/wasm'
+          google-chrome --headless=new --no-sandbox --disable-gpu --no-first-run --user-data-dir="$(mktemp -d)" \
+            --virtual-time-budget=10000 --dump-dom 'http://localhost:8080/?selftest' > page.html
+          grep -o '<body[^>]*>' page.html
+          grep -q 'data-selftest="pass"' page.html

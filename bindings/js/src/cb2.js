@@ -2,7 +2,10 @@
  * cb2 for JavaScript: the C ABI of cb2 compiled to WebAssembly, one build
  * for Node and browsers. load() instantiates the core and returns the API:
  * the key classes, Local, Public, Token, Holder, KeyWrap and Seal, plus
- * hasPublic(), hasSeal(), version() and errorName(code).
+ * hasPublic(), hasSeal(), version() and errorName(code). The declarations
+ * are in types/cb2.d.ts.
+ *
+ * @module cb2
  */
 import createCb2Core from "../dist/cb2_core.js";
 import { Cb2Error } from "./error.js";
@@ -12,15 +15,37 @@ import { makeTokens } from "./tokens.js";
 export { Cb2Error };
 
 /**
- * Instantiates the WebAssembly core and returns the API over it. The
+ * The core for the options. The Emscripten build does not read wasmBinary
+ * itself, so bytes given there are instantiated through instantiateWasm,
+ * and a failure to instantiate them rejects instead of leaving the factory
+ * waiting.
+ */
+function instantiate(options) {
+    const { wasmBinary, ...rest } = options;
+    if (wasmBinary === undefined || rest.instantiateWasm !== undefined) return createCb2Core(rest);
+    let fail;
+    const failed = new Promise((_, reject) => {
+        fail = reject;
+    });
+    rest.instantiateWasm = (imports, done) => {
+        WebAssembly.instantiate(wasmBinary, imports).then((r) => done(r.instance, r.module), fail);
+        return {};
+    };
+    return Promise.race([createCb2Core(rest), failed]);
+}
+
+/**
+ * Instantiates the WebAssembly core and resolves to the API over it. The
  * options go to the Emscripten factory: locateFile(path, prefix) to say
- * where cb2_core.wasm is served from, or wasmBinary with its bytes.
- * Each call builds an independent instance.
- * @param {object} [options]
- * @returns {Promise<object>}
+ * where cb2_core.wasm is served from, wasmBinary with its bytes already
+ * fetched, or instantiateWasm to instantiate it yourself. Each call builds
+ * an independent core with its own heap and key classes.
+ *
+ * @param {import("../types/cb2.js").LoadOptions} [options]
+ * @returns {Promise<import("../types/cb2.js").Cb2>}
  */
 export async function load(options = {}) {
-    const m = await createCb2Core(options);
+    const m = await instantiate({ ...options });
     const keys = makeKeys(m);
     return {
         ...keys,

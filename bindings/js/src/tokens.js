@@ -134,8 +134,9 @@ function prove(m, fn, key, request, accessToken, jti, now, lifetime) {
 
 /**
  * Builds Local, Public, Token, Holder, KeyWrap and Seal over a core module.
- * @param {object} m the core module
+ * @param {import("../types/cb2.js").Cb2Core} m the core module
  * @param {object} keys the classes from makeKeys
+ * @returns {Pick<import("../types/cb2.js").Cb2, "Local" | "Public" | "Token" | "Holder" | "KeyWrap" | "Seal">}
  */
 export function makeTokens(m, keys) {
     const Local = {

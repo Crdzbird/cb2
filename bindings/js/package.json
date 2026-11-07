@@ -1,32 +1,70 @@
 {
   "name": "cb2",
   "version": "0.1.0",
-  "description": "cb2 tokens for Node and browsers: the C ABI compiled to WebAssembly",
+  "description": "cb2 tokens for Node and browsers: shared-key and post-quantum signed tokens, the C library compiled to WebAssembly",
+  "keywords": [
+    "token",
+    "paseto",
+    "jwt",
+    "authentication",
+    "post-quantum",
+    "ml-dsa",
+    "x-wing",
+    "webassembly"
+  ],
+  "homepage": "https://github.com/Crdzbird/cb2/tree/main/bindings/js#readme",
+  "bugs": {
+    "url": "https://github.com/Crdzbird/cb2/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Crdzbird/cb2.git",
+    "directory": "bindings/js"
+  },
   "license": "MIT",
   "type": "module",
   "main": "./cb2.cjs",
   "module": "./src/cb2.js",
+  "types": "./types/cb2.d.cts",
   "exports": {
     ".": {
-      "import": "./src/cb2.js",
-      "require": "./cb2.cjs"
+      "import": {
+        "types": "./types/cb2.d.ts",
+        "default": "./src/cb2.js"
+      },
+      "require": {
+        "types": "./types/cb2.d.cts",
+        "default": "./cb2.cjs"
+      }
     },
-    "./core": "./dist/cb2_core.js",
+    "./core": {
+      "types": "./types/core.d.ts",
+      "default": "./dist/cb2_core.js"
+    },
     "./core.wasm": "./dist/cb2_core.wasm",
     "./package.json": "./package.json"
   },
   "files": [
-    "src",
-    "dist",
     "cb2.cjs",
-    "README.md"
+    "src/",
+    "dist/cb2_core.js",
+    "dist/cb2_core.wasm",
+    "types/"
   ],
-  "scripts": {
-    "build": "bash ./build.sh",
-    "test": "node --test test/"
-  },
+  "sideEffects": false,
   "engines": {
     "node": ">=22.12"
   },
-  "dependencies": {}
+  "scripts": {
+    "build": "bash ./build.sh",
+    "test": "node --test test/test.mjs test/package.test.mjs test/cjs.test.cjs",
+    "typecheck": "tsc -p test/consumer",
+    "types:sync": "node -e \"require('node:fs').copyFileSync('types/cb2.d.ts', 'types/cb2.d.cts')\"",
+    "attw": "attw --pack . --profile node16 --exclude-entrypoints ./core.wasm --ignore-rules cjs-resolves-to-esm",
+    "check:pack": "node scripts/check-pack.mjs"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "typescript": "^7.0.2"
+  }
 }

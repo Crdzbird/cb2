@@ -4,6 +4,49 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, the JavaScript bridge as an npm package
+
+`bindings/js` is the npm package `cb2`: an exports map with `types`
+conditions for import (`types/cb2.d.ts`) and require (`types/cb2.d.cts`,
+an identical copy), `cb2/core` and `cb2/core.wasm`, `files`, `engines`
+(Node 22.12 and later), `sideEffects: false` and the repository fields.
+The declarations cover the whole API, with the five key types made
+distinct, `Cb2ErrorName` as the union of the 24 verdict names, and every
+`cb2_*` function of `cb2_c.h` on the raw core. The old README offered a
+`wasmBinary` option that never worked: the Emscripten glue compiles it
+out. `load()` now implements it through `instantiateWasm`, rejects when
+the bytes are not wasm, and copies its options so one object can serve
+two cores. `dist/` was rebuilt from the C ABI as it now stands, with
+`cb2_abi_version`.
+
+`npm test` passes 19 tests on Node 26.12.1 and on Node 22.12.0 (the API,
+the packed file list, the exports map, the two declaration copies, the
+declared ABI against the header and the wasm exports, the runtime API
+against the declared members, and CommonJS). `tsc` 7.0.2 checks typed
+ES module and CommonJS consumers under `strict` and
+`exactOptionalPropertyTypes`, including that a `PublicKey` is refused
+where a `LocalKey` is expected; arethetypeswrong 0.18.5 reports no
+problem for node16 from CJS and ESM and for bundlers. `npm pack` lists
+14 files (152.5 kB); the tarball installed into a scratch project ran an
+ES module and a CommonJS consumer by package name and passed `tsc`.
+Node 22.12.0 prints an ExperimentalWarning when the CommonJS entry loads
+the ES module; 22.13.0 does not.
+
+A page that seals, opens and refuses a token was bundled from the packed
+tarball and run in a browser: Vite 8.3.6 needed nothing, in its build
+and its dev server; webpack 5.112.2 needed an `IgnorePlugin` for the
+`node:` imports the core makes only under Node; esbuild 0.28.2 needed
+`--external:node:*` and a copy of the wasm next to its output. The Node
+example (a `node:http` server issuing a cb2.local token on login and
+checking it on `/me`) passes its 5 tests and its curl session: a wrong
+password 401, a login 200, the token 200, the token with one character
+changed 401 `invalid`, no token 401, the token after its two-second
+lifetime 401 `expired`. The browser example ran in the built-in browser
+and in headless Chrome: seal, open, a changed token refused as
+`invalid`, sign and verify, with nothing on the console. A new CI job
+runs all of this on Node 22.12.0 and 24, and the web job builds the core
+from the C ABI and runs the tests on that build.
+
 ## 2026-11-07, the Python bridge as a package
 
 `bindings/python` is now a src-layout package built with

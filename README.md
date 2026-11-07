@@ -549,7 +549,7 @@ tests mirroring the C test.
 | C | `bindings/c` | the ABI itself, installable with CMake and pkg-config | `cb2_c_test`, and the example built against an install through both |
 | Python | `bindings/python` | a typed package over `libcb2_c` through ctypes, built as a platform wheel that bundles the library (scikit-build-core), with an http.server example | 41 pytest cases, the example and `mypy --strict` against the wheel installed in a fresh environment; ruff |
 | Go | `bindings/go` | a cgo module, `github.com/Crdzbird/cb2/bindings/go`, callbacks through exported trampolines; an HTTP service with holder proofs and a CLI as examples | `go vet`, staticcheck, `go test -race` with runnable examples, the example service driven with curl |
-| JavaScript and Node | `bindings/js` | the C ABI compiled to WebAssembly with Emscripten, one module for Node and browsers, callbacks through the wasm table | `node --test`, and the same module in a browser |
+| JavaScript and Node | `bindings/js` | the npm package `cb2`: the C ABI compiled to WebAssembly with Emscripten, one module for Node and browsers, ES module and CommonJS entries with TypeScript declarations, callbacks through the wasm table; a Node login server and a browser page as examples | `node --test`, `tsc` over typed consumers, arethetypeswrong, the packed tarball from ES modules and CommonJS, the examples with curl and headless Chrome |
 | Java | `bindings/java` | JNI glue over the C ABI, classes in `com.cipherbird.cb2` | a Java test program |
 | Kotlin | `bindings/java/src/main/kotlin` | a DSL and extensions over the Java classes | a Kotlin test program |
 | Swift | `bindings/swift` | a Swift package with a system library target for the C ABI | 9 XCTest cases |
@@ -559,7 +559,8 @@ tests mirroring the C test.
 CI runs the Swift, Python, Node and Go tests on macOS and the Python,
 Node and Go tests on Linux after building the C ABI; the Java, Kotlin,
 Dart and Flutter tests run locally with their build scripts, since those
-toolchains are not on the runners.
+toolchains are not on the runners. A separate job checks the JavaScript
+package on Node 22.12 and 24 as npm would ship it.
 
 ## Repository layout
 

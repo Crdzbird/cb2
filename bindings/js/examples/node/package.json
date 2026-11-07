@@ -1,0 +1,18 @@
+{
+  "name": "cb2-example-node",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A node:http server that issues a cb2.local token on login and checks it on a protected route",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test.mjs"
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "dependencies": {
+    "cb2": "file:../.."
+  }
+}

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cb2 in the browser</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    { "imports": { "cb2": "./node_modules/cb2/src/cb2.js" } }
+  </script>
+  <script type="module" src="main.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>cb2 in the browser</h1>
+      <p id="status" role="status">Loading the WebAssembly core...</p>
+    </header>
+
+    <section aria-labelledby="claims-title">
+      <h2 id="claims-title">Claims</h2>
+      <label for="claims">The claims to put in a token, as JSON</label>
+      <textarea id="claims" rows="8" spellcheck="false"></textarea>
+    </section>
+
+    <section aria-labelledby="local-title">
+      <h2 id="local-title">cb2.local, one shared key</h2>
+      <p>XChaCha20 and keyed BLAKE3: the issuer and the service hold the same key.</p>
+      <div class="actions">
+        <button id="seal" disabled>Seal</button>
+        <button id="open" disabled>Open</button>
+        <button id="tamper" disabled>Change one character</button>
+      </div>
+      <label for="local-token">Token</label>
+      <textarea id="local-token" rows="4" spellcheck="false"></textarea>
+      <output id="local-result" for="local-token"></output>
+    </section>
+
+    <section aria-labelledby="public-title">
+      <h2 id="public-title">cb2.public, a signing pair</h2>
+      <p>Ed25519 and ML-DSA-65, both required: anyone with the public key can verify.</p>
+      <div class="actions">
+        <button id="sign" disabled>Sign</button>
+        <button id="verify" disabled>Verify</button>
+      </div>
+      <label for="public-token">Token</label>
+      <textarea id="public-token" rows="4" spellcheck="false"></textarea>
+      <output id="public-result" for="public-token"></output>
+    </section>
+  </main>
+</body>
+</html>
