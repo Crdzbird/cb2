@@ -1,8 +1,9 @@
 /**
  * The C ABI of cb2 over the C++ library: opaque key handles, malloc'd
  * results, integer codes, claims and rules as JSON text. Every entry
- * point catches everything and reports CB2_INTERNAL for what the library
- * never produces itself.
+ * point catches everything and reports CB2_INTERNAL (or NULL, for the
+ * ones returning a pointer) for what the library never produces itself,
+ * and refuses a NULL handle or output pointer with CB2_ARGUMENT.
  */
 
 #include "cb2_c.h"
@@ -26,9 +27,21 @@ struct cb2_recipient_key { cb2::RecipientKey key; };
 struct cb2_recipient_public_key { cb2::RecipientPublicKey key; };
 #endif
 
+#define CB2_C_STR2(x) #x
+#define CB2_C_STR(x) CB2_C_STR2(x)
+static_assert(cb2::VERSION == CB2_C_STR(CB2_C_VERSION_MAJOR) "." CB2_C_STR(CB2_C_VERSION_MINOR) "." CB2_C_STR(CB2_C_VERSION_PATCH),
+              "the version in cb2_c.h must match cb2::VERSION");
+
 namespace {
 
 using cb2::Error;
+
+constexpr int bad_argument = CB2_ARGUMENT;
+
+template <class... P>
+bool any_null(const P*... p) {
+    return ((p == nullptr) || ...);
+}
 
 int code_of(Error e) { return static_cast<int>(e) + 1; }
 
@@ -48,6 +61,7 @@ char* dup_text(std::string_view s) {
 }
 
 int give_text(std::string_view s, char** out, std::size_t* out_len) {
+    if (out == nullptr) return bad_argument;
     char* p = dup_text(s);
     if (p == nullptr) return CB2_INTERNAL;
     *out = p;
@@ -56,6 +70,7 @@ int give_text(std::string_view s, char** out, std::size_t* out_len) {
 }
 
 int give_bytes(std::span<const uint8_t> b, uint8_t** out, std::size_t* out_len) {
+    if (out == nullptr || out_len == nullptr) return bad_argument;
     auto* p = static_cast<uint8_t*>(std::malloc(b.size() + 1));
     if (p == nullptr) return CB2_INTERNAL;
     if (!b.empty()) std::memcpy(p, b.data(), b.size());
@@ -74,8 +89,19 @@ int guarded(F&& f) noexcept {
     }
 }
 
+/// Runs f, which returns a malloc'd pointer; NULL when it throws.
+template <class F>
+char* guarded_text(F&& f) noexcept {
+    try {
+        return f();
+    } catch (...) {
+        return nullptr;
+    }
+}
+
 template <class Key, class Wrapper>
 int wrap_key(cb2::Result<Key> r, Wrapper** out) {
+    if (out == nullptr) return bad_argument;
     if (r.is_err()) return code_of(r.error());
     *out = new Wrapper{std::move(r).value()};
     return CB2_OK;
@@ -176,6 +202,8 @@ extern "C" {
 
 const char* cb2_version(void) { return cb2::VERSION.data(); }
 
+int cb2_abi_version(void) { return CB2_C_ABI_VERSION; }
+
 int cb2_has_public(void) {
 #ifdef CB2_HAS_PQ
     return 1;
@@ -209,7 +237,10 @@ void cb2_free_secret(char* s) {
 /* Local keys */
 
 int cb2_local_key_generate(cb2_local_key** out) {
-    return guarded([&] { return wrap_key(cb2::LocalKey::generate(), out); });
+    return guarded([&] {
+        if (out == nullptr) return bad_argument;
+        return wrap_key(cb2::LocalKey::generate(), out);
+    });
 }
 
 int cb2_local_key_from_bytes(const uint8_t* bytes, size_t len, cb2_local_key** out) {
@@ -221,29 +252,41 @@ int cb2_local_key_from_paserk(const char* text, size_t len, cb2_local_key** out)
 }
 
 char* cb2_local_key_to_paserk(const cb2_local_key* key) {
-    const cb2::SecureString p = key->key.to_paserk();
-    return dup_text(std::string_view(p.data(), p.size()));
+    return guarded_text([&]() -> char* {
+        if (key == nullptr) return nullptr;
+        const cb2::SecureString p = key->key.to_paserk();
+        return dup_text(std::string_view(p.data(), p.size()));
+    });
 }
 
-char* cb2_local_key_paserk_id(const cb2_local_key* key) { return dup_text(key->key.paserk_id()); }
-char* cb2_local_key_key_id(const cb2_local_key* key) { return optional_text(key->key.key_id()); }
+char* cb2_local_key_paserk_id(const cb2_local_key* key) {
+    return guarded_text([&]() -> char* { return key == nullptr ? nullptr : dup_text(key->key.paserk_id()); });
+}
+char* cb2_local_key_key_id(const cb2_local_key* key) {
+    return guarded_text([&]() -> char* { return key == nullptr ? nullptr : optional_text(key->key.key_id()); });
+}
 
 int cb2_local_key_set_key_id(cb2_local_key* key, const char* id, size_t len) {
     return guarded([&] {
-        if (!cb2::text::identifier_ok(sv(id, len))) return static_cast<int>(CB2_ARGUMENT);
+        if (key == nullptr || !cb2::text::identifier_ok(sv(id, len))) return bad_argument;
         key->key.set_key_id(std::string(sv(id, len)));
         return static_cast<int>(CB2_OK);
     });
 }
 
-void cb2_local_key_clear_key_id(cb2_local_key* key) { key->key.clear_key_id(); }
+void cb2_local_key_clear_key_id(cb2_local_key* key) {
+    if (key != nullptr) key->key.clear_key_id();
+}
 void cb2_local_key_free(cb2_local_key* key) { delete key; }
 
 /* Signing pairs */
 
 #ifdef CB2_HAS_PQ
 int cb2_secret_key_generate(cb2_secret_key** out) {
-    return guarded([&] { return wrap_key(cb2::SecretKey::generate(), out); });
+    return guarded([&] {
+        if (out == nullptr) return bad_argument;
+        return wrap_key(cb2::SecretKey::generate(), out);
+    });
 }
 int cb2_secret_key_from_bytes(const uint8_t* bytes, size_t len, cb2_secret_key** out) {
     return guarded([&] { return wrap_key(cb2::SecretKey::from_bytes(bytes_of(bytes, len)), out); });
@@ -252,24 +295,32 @@ int cb2_secret_key_from_paserk(const char* text, size_t len, cb2_secret_key** ou
     return guarded([&] { return wrap_key(cb2::SecretKey::from_paserk(sv(text, len)), out); });
 }
 char* cb2_secret_key_to_paserk(const cb2_secret_key* key) {
-    const cb2::SecureString p = key->key.to_paserk();
-    return dup_text(std::string_view(p.data(), p.size()));
+    return guarded_text([&]() -> char* {
+        if (key == nullptr) return nullptr;
+        const cb2::SecureString p = key->key.to_paserk();
+        return dup_text(std::string_view(p.data(), p.size()));
+    });
 }
 int cb2_secret_key_public_key(const cb2_secret_key* key, cb2_public_key** out) {
     return guarded([&] {
+        if (any_null(key, out)) return bad_argument;
         *out = new cb2_public_key{key->key.public_key()};
         return static_cast<int>(CB2_OK);
     });
 }
-char* cb2_secret_key_key_id(const cb2_secret_key* key) { return optional_text(key->key.key_id()); }
+char* cb2_secret_key_key_id(const cb2_secret_key* key) {
+    return guarded_text([&]() -> char* { return key == nullptr ? nullptr : optional_text(key->key.key_id()); });
+}
 int cb2_secret_key_set_key_id(cb2_secret_key* key, const char* id, size_t len) {
     return guarded([&] {
-        if (!cb2::text::identifier_ok(sv(id, len))) return static_cast<int>(CB2_ARGUMENT);
+        if (key == nullptr || !cb2::text::identifier_ok(sv(id, len))) return bad_argument;
         key->key.set_key_id(std::string(sv(id, len)));
         return static_cast<int>(CB2_OK);
     });
 }
-void cb2_secret_key_clear_key_id(cb2_secret_key* key) { key->key.clear_key_id(); }
+void cb2_secret_key_clear_key_id(cb2_secret_key* key) {
+    if (key != nullptr) key->key.clear_key_id();
+}
 void cb2_secret_key_free(cb2_secret_key* key) { delete key; }
 
 int cb2_public_key_from_bytes(const uint8_t* bytes, size_t len, cb2_public_key** out) {
@@ -278,17 +329,25 @@ int cb2_public_key_from_bytes(const uint8_t* bytes, size_t len, cb2_public_key**
 int cb2_public_key_from_paserk(const char* text, size_t len, cb2_public_key** out) {
     return guarded([&] { return wrap_key(cb2::PublicKey::from_paserk(sv(text, len)), out); });
 }
-char* cb2_public_key_to_paserk(const cb2_public_key* key) { return dup_text(key->key.to_paserk()); }
-char* cb2_public_key_paserk_id(const cb2_public_key* key) { return dup_text(key->key.paserk_id()); }
-char* cb2_public_key_key_id(const cb2_public_key* key) { return optional_text(key->key.key_id()); }
+char* cb2_public_key_to_paserk(const cb2_public_key* key) {
+    return guarded_text([&]() -> char* { return key == nullptr ? nullptr : dup_text(key->key.to_paserk()); });
+}
+char* cb2_public_key_paserk_id(const cb2_public_key* key) {
+    return guarded_text([&]() -> char* { return key == nullptr ? nullptr : dup_text(key->key.paserk_id()); });
+}
+char* cb2_public_key_key_id(const cb2_public_key* key) {
+    return guarded_text([&]() -> char* { return key == nullptr ? nullptr : optional_text(key->key.key_id()); });
+}
 int cb2_public_key_set_key_id(cb2_public_key* key, const char* id, size_t len) {
     return guarded([&] {
-        if (!cb2::text::identifier_ok(sv(id, len))) return static_cast<int>(CB2_ARGUMENT);
+        if (key == nullptr || !cb2::text::identifier_ok(sv(id, len))) return bad_argument;
         key->key.set_key_id(std::string(sv(id, len)));
         return static_cast<int>(CB2_OK);
     });
 }
-void cb2_public_key_clear_key_id(cb2_public_key* key) { key->key.clear_key_id(); }
+void cb2_public_key_clear_key_id(cb2_public_key* key) {
+    if (key != nullptr) key->key.clear_key_id();
+}
 void cb2_public_key_free(cb2_public_key* key) { delete key; }
 #else
 int cb2_secret_key_generate(cb2_secret_key**) { return CB2_UNAVAILABLE; }
@@ -314,7 +373,10 @@ void cb2_public_key_free(cb2_public_key*) {}
 
 #ifdef CB2_HAS_SEAL
 int cb2_recipient_key_generate(cb2_recipient_key** out) {
-    return guarded([&] { return wrap_key(cb2::RecipientKey::generate(), out); });
+    return guarded([&] {
+        if (out == nullptr) return bad_argument;
+        return wrap_key(cb2::RecipientKey::generate(), out);
+    });
 }
 int cb2_recipient_key_from_bytes(const uint8_t* bytes, size_t len, cb2_recipient_key** out) {
     return guarded([&] { return wrap_key(cb2::RecipientKey::from_bytes(bytes_of(bytes, len)), out); });
@@ -323,16 +385,22 @@ int cb2_recipient_key_from_paserk(const char* text, size_t len, cb2_recipient_ke
     return guarded([&] { return wrap_key(cb2::RecipientKey::from_paserk(sv(text, len)), out); });
 }
 char* cb2_recipient_key_to_paserk(const cb2_recipient_key* key) {
-    const cb2::SecureString p = key->key.to_paserk();
-    return dup_text(std::string_view(p.data(), p.size()));
+    return guarded_text([&]() -> char* {
+        if (key == nullptr) return nullptr;
+        const cb2::SecureString p = key->key.to_paserk();
+        return dup_text(std::string_view(p.data(), p.size()));
+    });
 }
 int cb2_recipient_key_public_key(const cb2_recipient_key* key, cb2_recipient_public_key** out) {
     return guarded([&] {
+        if (any_null(key, out)) return bad_argument;
         *out = new cb2_recipient_public_key{key->key.public_key()};
         return static_cast<int>(CB2_OK);
     });
 }
-char* cb2_recipient_key_paserk_id(const cb2_recipient_key* key) { return dup_text(key->key.paserk_id()); }
+char* cb2_recipient_key_paserk_id(const cb2_recipient_key* key) {
+    return guarded_text([&]() -> char* { return key == nullptr ? nullptr : dup_text(key->key.paserk_id()); });
+}
 void cb2_recipient_key_free(cb2_recipient_key* key) { delete key; }
 int cb2_recipient_public_key_from_bytes(const uint8_t* bytes, size_t len, cb2_recipient_public_key** out) {
     return guarded([&] { return wrap_key(cb2::RecipientPublicKey::from_bytes(bytes_of(bytes, len)), out); });
@@ -340,8 +408,12 @@ int cb2_recipient_public_key_from_bytes(const uint8_t* bytes, size_t len, cb2_re
 int cb2_recipient_public_key_from_paserk(const char* text, size_t len, cb2_recipient_public_key** out) {
     return guarded([&] { return wrap_key(cb2::RecipientPublicKey::from_paserk(sv(text, len)), out); });
 }
-char* cb2_recipient_public_key_to_paserk(const cb2_recipient_public_key* key) { return dup_text(key->key.to_paserk()); }
-char* cb2_recipient_public_key_paserk_id(const cb2_recipient_public_key* key) { return dup_text(key->key.paserk_id()); }
+char* cb2_recipient_public_key_to_paserk(const cb2_recipient_public_key* key) {
+    return guarded_text([&]() -> char* { return key == nullptr ? nullptr : dup_text(key->key.to_paserk()); });
+}
+char* cb2_recipient_public_key_paserk_id(const cb2_recipient_public_key* key) {
+    return guarded_text([&]() -> char* { return key == nullptr ? nullptr : dup_text(key->key.paserk_id()); });
+}
 void cb2_recipient_public_key_free(cb2_recipient_public_key* key) { delete key; }
 #else
 int cb2_recipient_key_generate(cb2_recipient_key**) { return CB2_UNAVAILABLE; }
@@ -363,6 +435,7 @@ void cb2_recipient_public_key_free(cb2_recipient_public_key*) {}
 int cb2_local_seal(const cb2_local_key* key, const uint8_t* msg, size_t msg_len, const uint8_t* footer, size_t footer_len,
                    const uint8_t* implicit, size_t implicit_len, char** out_token, size_t* out_len) {
     return guarded([&] {
+        if (key == nullptr) return bad_argument;
         auto r = cb2::Local::seal(key->key, bytes_of(msg, msg_len), bytes_of(footer, footer_len), bytes_of(implicit, implicit_len));
         if (r.is_err()) return code_of(r.error());
         return give_text(r.value(), out_token, out_len);
@@ -372,6 +445,7 @@ int cb2_local_seal(const cb2_local_key* key, const uint8_t* msg, size_t msg_len,
 int cb2_local_open(const cb2_local_key* key, const char* token, size_t token_len, const uint8_t* footer, size_t footer_len,
                    const uint8_t* implicit, size_t implicit_len, size_t max_token_bytes, uint8_t** out_msg, size_t* out_len) {
     return guarded([&] {
+        if (key == nullptr) return bad_argument;
         auto r = cb2::Local::open(sv(token, token_len), key->key, bytes_of(footer, footer_len), bytes_of(implicit, implicit_len),
                                   max_token_bytes == 0 ? cb2::DEFAULT_RAW_MAX_TOKEN_BYTES : max_token_bytes);
         if (r.is_err()) return code_of(r.error());
@@ -383,6 +457,7 @@ int cb2_public_sign(const cb2_secret_key* key, const uint8_t* msg, size_t msg_le
                     const uint8_t* implicit, size_t implicit_len, char** out_token, size_t* out_len) {
 #ifdef CB2_HAS_PQ
     return guarded([&] {
+        if (key == nullptr) return bad_argument;
         auto r = cb2::Public::sign(key->key, bytes_of(msg, msg_len), bytes_of(footer, footer_len), bytes_of(implicit, implicit_len));
         if (r.is_err()) return code_of(r.error());
         return give_text(r.value(), out_token, out_len);
@@ -397,6 +472,7 @@ int cb2_public_verify(const cb2_public_key* key, const char* token, size_t token
                       const uint8_t* implicit, size_t implicit_len, size_t max_token_bytes, uint8_t** out_msg, size_t* out_len) {
 #ifdef CB2_HAS_PQ
     return guarded([&] {
+        if (key == nullptr) return bad_argument;
         auto r = cb2::Public::verify(sv(token, token_len), key->key, bytes_of(footer, footer_len), bytes_of(implicit, implicit_len),
                                      max_token_bytes == 0 ? cb2::DEFAULT_RAW_MAX_TOKEN_BYTES : max_token_bytes);
         if (r.is_err()) return code_of(r.error());
@@ -413,8 +489,9 @@ int cb2_public_verify(const cb2_public_key* key, const char* token, size_t token
 int cb2_token_seal(const cb2_local_key* key, const char* claims_json, size_t claims_len, const uint8_t* implicit, size_t implicit_len,
                    char** out_token, size_t* out_len) {
     return guarded([&] {
+        if (key == nullptr) return bad_argument;
         auto c = cb2::Claims::from_json(sv(claims_json, claims_len));
-        if (c.is_err()) return static_cast<int>(CB2_ARGUMENT);
+        if (c.is_err()) return bad_argument;
         const std::string_view imp(reinterpret_cast<const char*>(implicit), implicit == nullptr ? 0 : implicit_len);
         auto r = cb2::Token::seal(key->key, c.value(), imp);
         if (r.is_err()) return code_of(r.error());
@@ -426,8 +503,9 @@ int cb2_token_sign(const cb2_secret_key* key, const char* claims_json, size_t cl
                    char** out_token, size_t* out_len) {
 #ifdef CB2_HAS_PQ
     return guarded([&] {
+        if (key == nullptr) return bad_argument;
         auto c = cb2::Claims::from_json(sv(claims_json, claims_len));
-        if (c.is_err()) return static_cast<int>(CB2_ARGUMENT);
+        if (c.is_err()) return bad_argument;
         const std::string_view imp(reinterpret_cast<const char*>(implicit), implicit == nullptr ? 0 : implicit_len);
         auto r = cb2::Token::sign(key->key, c.value(), imp);
         if (r.is_err()) return code_of(r.error());
@@ -443,8 +521,9 @@ int cb2_token_open(const cb2_local_key* key, const char* token, size_t token_len
                    const uint8_t* implicit, size_t implicit_len, cb2_replay_fn replay, cb2_replay_fn proof_replay, void* user,
                    char** out_claims, size_t* out_len) {
     return guarded([&] {
+        if (any_null(key, out_claims)) return bad_argument;
         Rules r;
-        if (!read_rules(sv(rules_json, rules_len), r)) return static_cast<int>(CB2_ARGUMENT);
+        if (!read_rules(sv(rules_json, rules_len), r)) return bad_argument;
         install_callbacks(r, replay, proof_replay, user);
         const std::string_view imp(reinterpret_cast<const char*>(implicit), implicit == nullptr ? 0 : implicit_len);
         return finish_claims(cb2::Token::open(sv(token, token_len), key->key, r.rules, imp), out_claims, out_len);
@@ -456,8 +535,9 @@ int cb2_token_verify(const cb2_public_key* key, const char* token, size_t token_
                      char** out_claims, size_t* out_len) {
 #ifdef CB2_HAS_PQ
     return guarded([&] {
+        if (any_null(key, out_claims)) return bad_argument;
         Rules r;
-        if (!read_rules(sv(rules_json, rules_len), r)) return static_cast<int>(CB2_ARGUMENT);
+        if (!read_rules(sv(rules_json, rules_len), r)) return bad_argument;
         install_callbacks(r, replay, proof_replay, user);
         const std::string_view imp(reinterpret_cast<const char*>(implicit), implicit == nullptr ? 0 : implicit_len);
         return finish_claims(cb2::Token::verify(sv(token, token_len), key->key, r.rules, imp), out_claims, out_len);
@@ -471,6 +551,7 @@ int cb2_token_verify(const cb2_public_key* key, const char* token, size_t token_
 
 int cb2_peek_key_id(const char* token, size_t token_len, char** out_id) {
     return guarded([&] {
+        if (out_id == nullptr) return bad_argument;
         const auto kid = cb2::Token::peek_key_id(sv(token, token_len));
         *out_id = kid ? dup_text(kid->value) : nullptr;
         return static_cast<int>(CB2_OK);
@@ -484,6 +565,7 @@ int cb2_holder_prove(const cb2_secret_key* client, const char* htm, size_t htm_l
                      const char* jti, size_t jti_len, int64_t now, int64_t lifetime, char** out_proof, size_t* out_len) {
 #ifdef CB2_HAS_PQ
     return guarded([&] {
+        if (any_null(client, out_proof)) return bad_argument;
         cb2::HolderRequest req;
         req.method = std::string(sv(htm, htm_len));
         req.target = std::string(sv(htu, htu_len));
@@ -504,6 +586,7 @@ int cb2_holder_prove_local(const cb2_local_key* proof_key, const char* htm, size
                            size_t access_len, const char* jti, size_t jti_len, int64_t now, int64_t lifetime,
                            char** out_proof, size_t* out_len) {
     return guarded([&] {
+        if (any_null(proof_key, out_proof)) return bad_argument;
         cb2::HolderRequest req;
         req.method = std::string(sv(htm, htm_len));
         req.target = std::string(sv(htu, htu_len));
@@ -518,7 +601,7 @@ int cb2_holder_prove_local(const cb2_local_key* proof_key, const char* htm, size
 int cb2_holder_normalize_target(const char* uri, size_t len, char** out) {
     return guarded([&] {
         const auto t = cb2::Holder::normalize_target(sv(uri, len));
-        if (!t) return static_cast<int>(CB2_ARGUMENT);
+        if (!t) return bad_argument;
         return give_text(*t, out, nullptr);
     });
 }
@@ -527,6 +610,7 @@ int cb2_holder_normalize_target(const char* uri, size_t len, char** out) {
 
 int cb2_wrap(const cb2_local_key* wrapping, const cb2_local_key* key, char** out) {
     return guarded([&] {
+        if (any_null(wrapping, key, out)) return bad_argument;
         auto r = cb2::KeyWrap::wrap(wrapping->key, key->key);
         if (r.is_err()) return code_of(r.error());
         return give_text(r.value(), out, nullptr);
@@ -534,12 +618,16 @@ int cb2_wrap(const cb2_local_key* wrapping, const cb2_local_key* key, char** out
 }
 
 int cb2_unwrap(const char* text, size_t len, const cb2_local_key* wrapping, cb2_local_key** out) {
-    return guarded([&] { return wrap_key(cb2::KeyWrap::unwrap(sv(text, len), wrapping->key), out); });
+    return guarded([&] {
+        if (any_null(wrapping, out)) return bad_argument;
+        return wrap_key(cb2::KeyWrap::unwrap(sv(text, len), wrapping->key), out);
+    });
 }
 
 int cb2_seal(const cb2_recipient_public_key* to, const cb2_local_key* key, char** out) {
 #ifdef CB2_HAS_SEAL
     return guarded([&] {
+        if (any_null(to, key, out)) return bad_argument;
         auto r = cb2::Seal::seal(to->key, key->key);
         if (r.is_err()) return code_of(r.error());
         return give_text(r.value(), out, nullptr);
@@ -552,7 +640,10 @@ int cb2_seal(const cb2_recipient_public_key* to, const cb2_local_key* key, char*
 
 int cb2_unseal(const char* text, size_t len, const cb2_recipient_key* by, cb2_local_key** out) {
 #ifdef CB2_HAS_SEAL
-    return guarded([&] { return wrap_key(cb2::Seal::unseal(sv(text, len), by->key), out); });
+    return guarded([&] {
+        if (any_null(by, out)) return bad_argument;
+        return wrap_key(cb2::Seal::unseal(sv(text, len), by->key), out);
+    });
 #else
     (void)text; (void)len; (void)by; (void)out;
     return CB2_UNAVAILABLE;

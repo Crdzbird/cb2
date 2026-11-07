@@ -535,12 +535,18 @@ and rules as JSON text, and replay checks as callbacks (or a list of
 seen ids for simple cases). `bindings/c/include/cb2_c.h` is the whole
 surface and `bindings/c/test/test_c.c` exercises every call and
 verdict; `-DCB2_BUILD_BINDINGS=ON` (the default) builds `libcb2_c` as a
-shared and a static library and runs the test. Each bridge has its own
+shared and a static library and runs the test. It is a C library in its
+own right: `cmake --install` puts the header, both libraries, a CMake
+package (`find_package(cb2_c)`) and a pkg-config file under the prefix,
+the shared library exports only the `cb2_` functions, and
+`bindings/c/README.md` states the ownership rules, the ABI promise and an
+example program built against the install. Each bridge has its own
 README with the build and loading steps and one example, and its own
 tests mirroring the C test.
 
 | language | where | mechanism | verified here |
 |---|---|---|---|
+| C | `bindings/c` | the ABI itself, installable with CMake and pkg-config | `cb2_c_test`, and the example built against an install through both |
 | Python | `bindings/python` | ctypes over `libcb2_c`, no compile step | 25 unittest cases |
 | Go | `bindings/go` | cgo, callbacks through exported trampolines | `go test`, `go vet`, `go test -race` |
 | JavaScript and Node | `bindings/js` | the C ABI compiled to WebAssembly with Emscripten, one module for Node and browsers, callbacks through the wasm table | `node --test`, and the same module in a browser |

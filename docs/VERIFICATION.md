@@ -4,6 +4,32 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, the C ABI as an installable library
+
+`bindings/c` installs as a C library: the header, `libcb2_c` shared
+(SOVERSION 0) and static, a CMake package with the targets
+`cb2_c::cb2_c` and `cb2_c::cb2_c_static`, and `cb2_c.pc`. Before the
+change the shared library exported 1,364 symbols, 1,304 of them from the
+statically linked liboqs; it now exports the 61 `cb2_` functions (the 60
+of before and `cb2_abi_version`) and nothing else (an export list on
+macOS, a version script on Linux). The header gained
+`CB2_C_VERSION_MAJOR`, `_MINOR`, `_PATCH`, `CB2_C_ABI_VERSION` and
+`cb2_abi_version`, and states the ownership,
+lifetime, thread and ABI rules; every existing declaration is unchanged.
+The ABI now refuses a NULL handle or output pointer with `CB2_ARGUMENT`
+instead of dereferencing it, and the functions returning a pointer catch
+exceptions like the rest. `cb2_c_test` gained a boundary case and passes
+in the release, ASan and UBSan, and no-liboqs builds; the new example
+`cb2_c_example` passes in all three, and `bindings/c/examples/install_check.sh`
+built and ran it against an installed prefix through `find_package` with
+the shared and the static library and through pkg-config, for the
+release and the no-liboqs builds. Against this build the other bridges
+pass: Swift 10 XCTest cases, Python 26 unittest cases, Node 9 tests, Go
+`go test` and `go vet`, Java and Kotlin through `bindings/java/build.sh`,
+Dart 14 tests. The export list parsed from the header by
+`bindings/js/build.sh` equals the library's exports, and `cb2_c.cpp`
+still compiles under em++ with the flags of that script.
+
 ## 2026-11-06, ASCII fast path in the claims layer
 
 The identifier and UTF-8 checks skip a leading run of printable ASCII

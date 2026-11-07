@@ -1,8 +1,8 @@
 /*
  * The C ABI exercised from C: keys, raw tokens, claims tokens with
  * rules and both replay callbacks, holder proofs of both modes, key wrapping and
- * sealing, and every verdict the bridges rely on. Exits non-zero on the
- * first failed check.
+ * sealing, the boundary contract of the header, and every verdict the
+ * bridges rely on. Exits non-zero on the first failed check.
  */
 
 #include "cb2_c.h"
@@ -308,8 +308,49 @@ static void test_seal(void) {
     cb2_recipient_key_free(r);
 }
 
+/* The boundary contract of cb2_c.h: the version query, NULL handles and
+ * outputs refused, NULL accepted by every free function, and an output
+ * left as it was when a call fails. */
+static void test_boundary(void) {
+    CHECK(cb2_abi_version() == CB2_C_ABI_VERSION);
+    char version[32];
+    snprintf(version, sizeof version, "%d.%d.%d", CB2_C_VERSION_MAJOR, CB2_C_VERSION_MINOR, CB2_C_VERSION_PATCH);
+    CHECK(strcmp(cb2_version(), version) == 0);
+    CHECK(cb2_local_key_generate(NULL) == CB2_ARGUMENT);
+    CHECK(cb2_local_key_to_paserk(NULL) == NULL && cb2_local_key_paserk_id(NULL) == NULL && cb2_local_key_key_id(NULL) == NULL);
+    CHECK(cb2_local_key_set_key_id(NULL, "a", 1) == CB2_ARGUMENT);
+    cb2_local_key_clear_key_id(NULL);
+    cb2_local_key_free(NULL);
+    cb2_secret_key_free(NULL);
+    cb2_public_key_free(NULL);
+    cb2_recipient_key_free(NULL);
+    cb2_recipient_public_key_free(NULL);
+    cb2_free(NULL);
+    cb2_free_secret(NULL);
+    char* token = NULL;
+    size_t len = 0;
+    uint8_t* msg = NULL;
+    CHECK(cb2_local_seal(NULL, (const uint8_t*)"m", 1, NULL, 0, NULL, 0, &token, &len) == CB2_ARGUMENT);
+    CHECK(cb2_token_open(NULL, "x", 1, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &token, &len) == CB2_ARGUMENT);
+    CHECK(cb2_peek_key_id("x", 1, NULL) == CB2_ARGUMENT);
+    CHECK(cb2_holder_normalize_target("https://a.example/", 18, NULL) == CB2_ARGUMENT);
+    cb2_local_key* k = NULL;
+    CHECK(cb2_local_key_generate(&k) == CB2_OK);
+    CHECK(cb2_local_seal(k, (const uint8_t*)"m", 1, NULL, 0, NULL, 0, NULL, &len) == CB2_ARGUMENT);
+    CHECK(cb2_local_seal(k, (const uint8_t*)"m", 1, NULL, 0, NULL, 0, &token, &len) == CB2_OK);
+    CHECK(cb2_local_open(k, token, len, NULL, 0, NULL, 0, 0, &msg, NULL) == CB2_ARGUMENT);
+    CHECK(cb2_wrap(k, NULL, &token) == CB2_ARGUMENT && token != NULL);
+    char* kept = token;
+    CHECK(cb2_local_open(k, "cb2.local.x", 11, NULL, 0, NULL, 0, 0, &msg, &len) == CB2_INVALID && msg == NULL);
+    CHECK(cb2_token_open(k, "cb2.local.x", 11, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &token, &len) != CB2_OK);
+    CHECK(token == kept);
+    cb2_free(token);
+    cb2_local_key_free(k);
+}
+
 int main(void) {
     printf("cb2_c %s, public %d, seal %d\n", cb2_version(), cb2_has_public(), cb2_has_seal());
+    test_boundary();
     test_local();
     test_holder_local();
     test_public();

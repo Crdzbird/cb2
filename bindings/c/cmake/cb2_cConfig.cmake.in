@@ -1,0 +1,5 @@
+@PACKAGE_INIT@
+
+set(cb2_c_HAS_PUBLIC @CB2_C_HAS_PUBLIC@)
+include("${CMAKE_CURRENT_LIST_DIR}/cb2_cTargets.cmake")
+check_required_components(cb2_c)

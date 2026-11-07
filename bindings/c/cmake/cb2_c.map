@@ -1,0 +1,6 @@
+{
+  global:
+    cb2_*;
+  local:
+    *;
+};

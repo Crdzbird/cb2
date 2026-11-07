@@ -33,10 +33,13 @@ jobs:
           ./build/cb2_playground playground/demo_public.cb2
           test -x build/cb2_bench
           ./build/bindings/c/cb2_c_test
+          ./build/bindings/c/cb2_c_example
+      - name: Install the C library and build its example against the install (CMake and pkg-config)
+        run: bindings/c/examples/install_check.sh build
       - name: Tests under ASan/UBSan
         run: |
           cmake -S . -B build-asan -G Ninja -DCB2_SANITIZE=ON -DCB2_BUILD_BENCH=OFF
-          cmake --build build-asan --target cb2_tests cb2_example_text cb2_playground cb2_c_test
+          cmake --build build-asan --target cb2_tests cb2_example_text cb2_playground cb2_c_test cb2_c_example
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_tests
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_example_text
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_playground playground/demo.cb2
@@ -44,17 +47,19 @@ jobs:
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_playground playground/demo_holder_local.cb2
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_playground playground/demo_public.cb2
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/bindings/c/cb2_c_test
+          ASAN_OPTIONS=detect_leaks=0 ./build-asan/bindings/c/cb2_c_example
       - name: Build without liboqs (cb2.local only)
         run: |
           cmake -S . -B build-nopq -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCB2_PQ=OFF -DCB2_BUILD_BENCH=OFF
-          cmake --build build-nopq --target cb2_tests cb2_example_text cb2_playground cb2_c_test
+          cmake --build build-nopq --target cb2_tests cb2_example_text cb2_playground cb2_c_test cb2_c_example
           ./build-nopq/cb2_tests
           ./build-nopq/cb2_example_text
           ./build-nopq/cb2_playground playground/demo.cb2
           ./build-nopq/cb2_playground playground/demo_text.cb2
           ./build-nopq/cb2_playground playground/demo_holder_local.cb2
           ./build-nopq/bindings/c/cb2_c_test
+          ./build-nopq/bindings/c/cb2_c_example
       - name: Bridges with a toolchain on this runner (Swift, Python, Node, Go)
         run: |
           (cd bindings/swift && swift test -Xlinker -L"$GITHUB_WORKSPACE/build/bindings/c" -Xlinker -rpath -Xlinker "$GITHUB_WORKSPACE/build/bindings/c")
@@ -106,10 +111,13 @@ jobs:
           ./build/cb2_playground playground/demo_public.cb2
           test -x build/cb2_bench
           ./build/bindings/c/cb2_c_test
+          ./build/bindings/c/cb2_c_example
+      - name: Install the C library and build its example against the install (CMake and pkg-config)
+        run: bindings/c/examples/install_check.sh build
       - name: Tests under ASan/UBSan
         run: |
           cmake -S . -B build-asan -G Ninja -DCB2_SANITIZE=ON -DCB2_BUILD_BENCH=OFF
-          cmake --build build-asan --target cb2_tests cb2_example_text cb2_playground cb2_c_test
+          cmake --build build-asan --target cb2_tests cb2_example_text cb2_playground cb2_c_test cb2_c_example
           ./build-asan/cb2_tests
           ./build-asan/cb2_example_text
           ./build-asan/cb2_playground playground/demo.cb2
@@ -117,17 +125,19 @@ jobs:
           ./build-asan/cb2_playground playground/demo_holder_local.cb2
           ./build-asan/cb2_playground playground/demo_public.cb2
           ./build-asan/bindings/c/cb2_c_test
+          ./build-asan/bindings/c/cb2_c_example
       - name: Build without liboqs (cb2.local only)
         run: |
           cmake -S . -B build-nopq -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCB2_PQ=OFF -DCB2_BUILD_BENCH=OFF
-          cmake --build build-nopq --target cb2_tests cb2_example_text cb2_playground cb2_c_test
+          cmake --build build-nopq --target cb2_tests cb2_example_text cb2_playground cb2_c_test cb2_c_example
           ./build-nopq/cb2_tests
           ./build-nopq/cb2_example_text
           ./build-nopq/cb2_playground playground/demo.cb2
           ./build-nopq/cb2_playground playground/demo_text.cb2
           ./build-nopq/cb2_playground playground/demo_holder_local.cb2
           ./build-nopq/bindings/c/cb2_c_test
+          ./build-nopq/bindings/c/cb2_c_example
       - name: Bridges with a toolchain on this runner (Python, Node, Go)
         run: |
           CB2_C_LIBRARY="$GITHUB_WORKSPACE/build/bindings/c/libcb2_c.so" python3 -m unittest discover -s bindings/python/tests

@@ -1,0 +1,12 @@
+prefix=@CB2_C_PC_PREFIX@
+libdir=@CB2_C_PC_LIBDIR@
+includedir=@CB2_C_PC_INCLUDEDIR@
+
+Name: cb2_c
+Description: The C ABI of cb2 tokens: cb2.local, cb2.public, kcb2.seal and holder proofs
+URL: https://github.com/Crdzbird/cb2
+Version: @CB2_C_VERSION@
+Requires.private: @CB2_C_PC_REQUIRES@
+Libs: -L${libdir} -lcb2_c
+Libs.private: @CB2_C_PC_LIBS_PRIVATE@
+Cflags: -I${includedir}
