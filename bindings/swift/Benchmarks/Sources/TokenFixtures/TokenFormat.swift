@@ -54,6 +54,7 @@ public enum Formats {
         var entries = [
             FormatEntry(name: "cb2.local") { try Cb2Local() },
             FormatEntry(name: "cb3.local (compact)") { try CompactLocal() },
+            FormatEntry(name: "cb3.local (compact, claim table)") { try CompactLocalTable() },
             FormatEntry(name: "JWT HS256 (jwt-kit)") { await JWTFormat.hs256() },
             FormatEntry(name: "PASETO v4.local (swift-paseto)") { PasetoLocal() },
             FormatEntry(name: "cb2.public") { try Cb2Public() },

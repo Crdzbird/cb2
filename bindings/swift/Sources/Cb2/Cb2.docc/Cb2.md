@@ -53,6 +53,7 @@ nonisolated: call it from whichever actor or task suits the app.
 
 - ``Token``
 - ``Compact``
+- ``ClaimTable``
 - ``Rules``
 - ``Claims``
 - ``ClaimValue``

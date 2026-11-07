@@ -1,7 +1,8 @@
 import CCb2
 import Foundation
 
-/// Owns one C key handle and releases it with the matching free function.
+/// Owns one C key or claim table handle and releases it with the matching
+/// free function.
 ///
 /// `@unchecked Sendable` rests on two facts: the handle is never mutated
 /// once a `KeyHandle` exists (a key id is set on a fresh handle before it
