@@ -116,6 +116,20 @@ final class Native {
 
     static native byte[] peekKeyId(byte[] token);
 
+    static native byte[] compactSeal(long key, byte[] claims, byte[] implicit);
+
+    static native byte[] compactSign(long key, byte[] claims, byte[] implicit);
+
+    static native byte[] compactOpen(long key, byte[] token, byte[] rules, byte[] implicit, ReplayCheck replay,
+            ReplayCheck proofReplay);
+
+    static native byte[] compactVerify(long key, byte[] token, byte[] rules, byte[] implicit, ReplayCheck replay,
+            ReplayCheck proofReplay);
+
+    static native byte[] compactPeekKeyDigest(byte[] token);
+
+    static native byte[] compactKeyDigest(byte[] id);
+
     static native byte[] holderProve(long client, byte[] htm, byte[] htu, byte[] nonce, byte[] accessToken,
             byte[] jti, long now, long lifetime);
 

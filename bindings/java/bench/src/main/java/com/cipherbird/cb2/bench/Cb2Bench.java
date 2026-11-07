@@ -1,5 +1,6 @@
 package com.cipherbird.cb2.bench;
 
+import com.cipherbird.cb2.Compact;
 import com.cipherbird.cb2.LocalKey;
 import com.cipherbird.cb2.PublicKey;
 import com.cipherbird.cb2.Rules;
@@ -18,7 +19,11 @@ import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Warmup;
 
-/** cb2.local and cb2.public through the Java bridge, claims checked against issuer, audience and exp. */
+/**
+ * cb2.local and cb2.public, and their compact cb3.local and cb3.public
+ * forms, through the Java bridge, claims checked against issuer, audience
+ * and exp.
+ */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
@@ -32,6 +37,8 @@ public class Cb2Bench {
     private String claims;
     private String localToken;
     private String publicToken;
+    private String compactLocalToken;
+    private String compactPublicToken;
 
     /** Makes the keys and one token of each kind. */
     @Setup
@@ -42,6 +49,8 @@ public class Cb2Bench {
         claims = Claims.json();
         localToken = Token.seal(localKey, claims);
         publicToken = Token.sign(secretKey, claims);
+        compactLocalToken = Compact.seal(localKey, claims);
+        compactPublicToken = Compact.sign(secretKey, claims);
     }
 
     /** Releases the keys. */
@@ -94,5 +103,45 @@ public class Cb2Bench {
     @Benchmark
     public String publicVerify() {
         return Token.verify(publicKey, publicToken, rules());
+    }
+
+    /**
+     * Seals the claims as a compact cb3.local token.
+     *
+     * @return the token
+     */
+    @Benchmark
+    public String compactLocalSeal() {
+        return Compact.seal(localKey, claims);
+    }
+
+    /**
+     * Opens a compact cb3.local token and checks its claims.
+     *
+     * @return the claims JSON
+     */
+    @Benchmark
+    public String compactLocalOpen() {
+        return Compact.open(localKey, compactLocalToken, rules());
+    }
+
+    /**
+     * Signs the claims as a compact cb3.public token.
+     *
+     * @return the token
+     */
+    @Benchmark
+    public String compactPublicSign() {
+        return Compact.sign(secretKey, claims);
+    }
+
+    /**
+     * Verifies a compact cb3.public token and checks its claims.
+     *
+     * @return the claims JSON
+     */
+    @Benchmark
+    public String compactPublicVerify() {
+        return Compact.verify(publicKey, compactPublicToken, rules());
     }
 }

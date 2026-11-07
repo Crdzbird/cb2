@@ -166,6 +166,7 @@ It prints (exp is an hour from the run):
 | `cb2.local` | sessions and calls between your own services: one secret key shared by issuer and verifier, the claims encrypted so nobody else can read them | `LocalKey` |
 | `cb2.public` | tokens many parties verify but only you issue: signed with Ed25519 and ML-DSA-65 together, the claims readable | `SecretKey` to sign, `PublicKey` to verify |
 | `cb2.holder-local`, `cb2.holder-public` | a proof the client makes for each request, so a stolen access token is useless alone; the issuer names the client's key in the token's `cnf` claim | the `LocalKey` proof key from `cnf`, or the client's `SecretKey` |
+| `cb3.local`, `cb3.public` | experimental compact forms of the two above, about half the size of a cb2.local token; see [Compact tokens](#compact-tokens-experimental) | the same keys, through `Compact` |
 | `kcb2.local-wrap` | storing a local key encrypted under another local key | `LocalKey`, through `KeyWrap` |
 | `kcb2.seal` | sending a local key to a recipient, safe against a future quantum computer (X-Wing) | `RecipientKey`, `RecipientPublicKey`, through `Seal` |
 
@@ -182,6 +183,7 @@ All classes are in `com.cipherbird.cb2`:
 | class | what it does |
 |---|---|
 | `Token` | claims tokens: `seal` and `open` for cb2.local, `sign` and `verify` for cb2.public, `peekKeyId` to pick a key before checking |
+| `Compact` | compact claims tokens, cb3.local and cb3.public: `seal`, `open`, `sign`, `verify` as in `Token`, `peekKeyDigest` and `keyDigest` to pick a key |
 | `Rules` | what a token is checked against: issuer, audience, subject, clock and skew, lifetime and size limits, the replay checks, the holder proof and the request it must match |
 | `ReplayCheck` | `boolean accept(String jti)`, called with each token id (or proof id); return false for one you have seen |
 | `Local`, `Public` | raw tokens of any bytes, with an optional footer and implicit assertion |
@@ -206,6 +208,8 @@ The Kotlin library, in `com.cipherbird.cb2.kotlin`, adds:
 | `claims("iss" to "...", "exp" to Instant.now())`, `Map.toClaimsJson()` | claims JSON from pairs or a map; `Instant` and `OffsetDateTime` become RFC 3339 |
 | `LocalKey.sealClaims`, `openClaims`, `seal`, `open`, `prove`, `wrapWith`, `sealTo` | extensions on the local key |
 | `SecretKey.signClaims`, `sign`, `prove`; `PublicKey.verifyClaims`, `verify` | extensions on the signing keys |
+| `LocalKey.sealCompact`, `openCompact`; `SecretKey.signCompact`; `PublicKey.verifyCompact` | compact claims tokens, in the style of `sealClaims` and the rest |
+| `String.peekCompactKeyDigest()`, `LocalKey.compactKeyDigest` (and on `SecretKey`, `PublicKey`) | the digest a compact token carries, and the one a key's id gives |
 | `Rules.onReplay { }`, `onProofReplay { }`, `rememberingCheck()` | replay checks as lambdas, or backed by a concurrent set |
 | `verdictOf { }`, `cb2OrNull { }`, `Cb2Exception.verdict` | a refusal as its verdict name, or as null |
 
@@ -214,6 +218,39 @@ client calls `Holder.prove` (or `proveLocal`) for each request, and the
 server opens the token with `Rules.proof(proof)`,
 `Rules.request(method, url)` and a proof replay check. The
 token-service example below does all of it over HTTP.
+
+## Compact tokens (experimental)
+
+`Compact` issues and checks the compact formats `cb3.local` and
+`cb3.public` of [docs/PROTOCOL.md](../../docs/PROTOCOL.md) section 15.
+The cryptography is the one of cb2.local and cb2.public, and so are the
+claims JSON, the `Rules`, the replay checks, the holder proofs and the
+verdicts; what changes is the encoding. The claims travel as strict
+canonical CBOR and the footer carries a 16-byte digest of the key id
+(`Compact.KEY_DIGEST_BYTES`) instead of the id itself. For the claims of
+the benchmarks below a cb3.local token is 224 bytes against 430 for
+cb2.local, and a cb3.public token 4637 against 4843.
+
+    String token = Compact.seal(key, claims);
+    String opened = Compact.open(key, token, rules);
+
+A verifier that holds several keys compares `Compact.peekKeyDigest(token)`
+with `Compact.keyDigest(key.keyId())` of each one; a token sealed by a
+key without an id carries no digest and `peekKeyDigest` returns null.
+In Kotlin the same calls are `key.sealCompact(claims)`,
+`key.openCompact(token) { ... }`, `token.peekCompactKeyDigest()` and
+`key.compactKeyDigest`.
+
+The two families never cross: a cb2 token is `invalid` through `Compact`
+and a compact token is `invalid` through `Token`. The compact profile
+carries less than cb2, and the issuer refuses with `argument` what it
+cannot carry: a custom number that is not an integer in the signed
+64-bit range written in canonical form (`1.5`, `1e3` and `-0` are
+refused; cb2 accepts them), a time outside the years 0000 to 9999, and a
+`cnf` that is not a kcb2.local or kcb2.public key. A cb3.public token
+cannot carry a kcb2.local proof key in `cnf`, since its claims are
+readable. The format is experimental and its header name `cb3` may
+change; nothing here should be stored for long.
 
 ## Errors
 
@@ -306,7 +343,8 @@ thief's proof:
     GET /me with a new proof                 200  sub user-1, scope read
 
 `examples/token-tour` walks the Kotlin library: a cb2.local token sealed,
-opened and refused four ways, a cb2.public token signed and verified, a
+opened and refused four ways, the same claims as a compact cb3.local
+token, a cb2.public token signed and verified, a
 local-mode holder proof checked and refused, and a key sealed to a
 recipient.
 
