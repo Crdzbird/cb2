@@ -156,6 +156,7 @@ claims are RFC 3339 strings, not numbers.
 | `cb2.public` | tokens that many parties verify but only the issuer can make; the claims are signed (Ed25519 and ML-DSA-65, both must verify) and readable | `GenerateSecretKey`, `TokenSign`, `TokenVerify` |
 | `cb2.holder-local` | a per-request proof from the client, so that a stolen access token is useless alone; the proof key travels to the client with the token | `HolderProveLocal`, then `Rules.Proof` and `Rules.Request` |
 | `cb2.holder-public` | the same with the client's own key pair, when the client can keep a secret key | `HolderProve`, then `Rules.Proof` and `Rules.Request` |
+| compact (`cb3.local`, `cb3.public`) | experimental: the same tokens with the claims as CBOR and a 16-byte key digest as footer, about half the length of `cb2.local` | `CompactSeal`, `CompactOpen`, `CompactSign`, `CompactVerify` |
 | `kcb2.local-wrap` | storing or moving a local key encrypted under another local key | `Wrap`, `Unwrap` |
 | `kcb2.seal` | delivering a local key to a recipient, safe against a future quantum computer (X-Wing) | `GenerateRecipientKey`, `Seal`, `Unseal` |
 
@@ -164,6 +165,48 @@ signature, so prefer `cb2.local` wherever the verifier can hold the
 secret key. A library built without liboqs has no `cb2.public` and no
 `kcb2.seal`; `HasPublic` and `HasSeal` tell, and the calls return
 `ErrUnavailable`.
+
+## Compact claims tokens (experimental)
+
+The compact formats of [docs/PROTOCOL.md](../../docs/PROTOCOL.md)
+section 15 are experimental and may change before they are released;
+their header, `cb3`, is a placeholder, so the Go names say "compact".
+They use the cryptography of `cb2.local` and `cb2.public` unchanged, but
+carry the claims as strict canonical CBOR and bind the key id as a
+16-byte digest instead of its text. A typical local token is about 260
+characters against 470.
+
+`CompactSeal`, `CompactOpen`, `CompactSign` and `CompactVerify` take the
+same claims map, `Rules`, replay callbacks and implicit assertion as
+the `Token` functions and give the same verdicts. A cb2 token never
+opens as a compact one and a compact token never opens as a cb2 one;
+both give `ErrInvalid`. Holder proofs bind a compact access token as
+they bind a cb2 one, so `HolderProveLocal` and `Rules.Proof` work
+unchanged.
+
+```go
+token, err := cb2.CompactSeal(key, claims, nil)
+if err != nil {
+	log.Fatal(err)
+}
+got, err := cb2.CompactOpen(key, token, rules, nil)
+```
+
+What the compact profile cannot carry is refused with `ErrArgument` when
+the token is made, where `TokenSeal` would accept it: a custom number
+that is not an int64 integer written in canonical form (`1.5`, `1e3`,
+`-0`), a time outside the years 0000 to 9999, and a `cnf` that is not a
+`kcb2.local` or `kcb2.public` key (`CompactSign` also refuses a
+`kcb2.local` one). Go integers always qualify; a float64, such as a
+number decoded from JSON, qualifies only when it holds a whole number
+within int64 and is not negative zero.
+
+The footer carries no key id, only its `KeyDigest`. To pick a key,
+compare `PeekKeyDigest(token)` with `KeyDigestOf(id)` for the id of each
+key you hold (`KeyID` on the key); `KeyDigest` is an array, so `==`
+compares two. `PeekKeyDigest` reports false for a token made with a key
+without id, and for any cb2 token. As with `PeekKeyID`, nothing it
+returns is authenticated.
 
 ## API overview
 
@@ -175,6 +218,7 @@ version is tagged.
 |---|---|
 | claims tokens | `TokenSeal`, `TokenOpen` (cb2.local); `TokenSign`, `TokenVerify` (cb2.public); `PeekKeyID` to pick a key before checking |
 | rules | `Rules` (issuer, audience, subject, clock skew, lifetime, size limit, replay callback or seen list, holder proof fields), `HolderRequest`, and the `String`, `Int64`, `Bool` helpers for its optional fields |
+| compact claims tokens | `CompactSeal`, `CompactOpen`, `CompactSign`, `CompactVerify`; `PeekKeyDigest`, `KeyDigestOf`, `KeyDigest` and `KeyDigestBytes` to pick a key |
 | raw tokens | `LocalSeal`, `LocalOpen`, `PublicSign`, `PublicVerify` carry any bytes with a footer and an implicit assertion, without claims checks |
 | holder proofs | `HolderProveLocal`, `HolderProve`, `NormalizeTarget` |
 | keys | `LocalKey`, `SecretKey`, `PublicKey`, `RecipientKey`, `RecipientPublicKey`: generate, from bytes, from and to PASERK text, `PaserkID`, `KeyID`, `SetKeyID`, `ClearKeyID`, `Close` |
@@ -239,7 +283,8 @@ raised again after the library returns.
 
 The `Example` functions in `example_test.go` run under `go test` with
 their output checked: a claims round trip, expiry, replay, holder
-proofs, errors, closed keys, key ids, raw tokens and key wrapping. The
+proofs, errors, closed keys, key ids, raw tokens, key wrapping and the
+compact tokens with their key digest. The
 cb2.public example is compiled only, since a library built without
 liboqs has no cb2.public.
 
@@ -334,6 +379,26 @@ What the numbers mean:
 - B/op and allocs/op count Go heap only. Memory the C library uses is
   not seen by the Go benchmark, so the cb2 rows understate their total
   memory use.
+
+The experimental compact formats have their own rows, `compact.local`
+and `compact.public`. They were measured in a separate run on the same
+machine, next to cb2.local and cb2.public, while other work kept the
+load average between 11 and 17, so their times spread by up to 24
+percent and compare only roughly. The token sizes and the Go heap
+figures do not depend on load. The raw output is in
+`bench/results/2026-11-07-apple-m3-max-compact.txt`.
+
+| format | token bytes | issue | issue B/op | issue allocs | check | check B/op | check allocs |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| cb2.local | 403 | 7.16 us | 857 | 21 | 10.4 us | 1,709 | 42 |
+| compact.local | 224 | 6.52 us | 664 | 21 | 7.72 us | 1,709 | 42 |
+| cb2.public | 4,816 | 185.2 us | 5,312 | 21 | 124.4 us | 1,711 | 42 |
+| compact.public | 4,637 | 193.6 us | 5,312 | 21 | 121.5 us | 1,712 | 42 |
+
+A compact local token is 56 percent of the size of a cb2.local one for
+these claims and costs no more to issue or check in this run. A compact
+public token saves the same 179 bytes, which matters little beside the
+3,309 byte ML-DSA-65 signature.
 
 ## Development
 

@@ -14,6 +14,15 @@
 // and are checked against Rules on the way back: issuer, audience,
 // expiry, replay and, for sender-constrained tokens, a holder proof.
 //
+// # Compact claims tokens
+//
+// The experimental compact formats (CompactSeal, CompactOpen,
+// CompactSign, CompactVerify) use the same keys, claims and Rules as the
+// claims tokens, but carry the claims as CBOR and bind the key id as a
+// KeyDigest, which makes a local token about half as long. They may
+// change before they are released. A cb2 token never opens as a compact
+// one, nor the reverse. PeekKeyDigest and KeyDigestOf pick a key.
+//
 // # Holder proofs
 //
 // An access token whose cnf claim holds a key is refused unless the
