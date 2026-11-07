@@ -1,7 +1,8 @@
 /**
  * The JavaScript bridge exercised from Node, mirroring bindings/c/test/test_c.c:
  * keys, raw tokens, claims tokens with rules and both replay callbacks,
- * compact claims tokens, holder proofs of both modes, key wrapping and sealing, and every verdict the bridge
+ * compact claims tokens with and without a claim table, holder proofs of
+ * both modes, key wrapping and sealing, and every verdict the bridge
  * relies on. Run from the repository root: node --test bindings/js/test/
  */
 import assert from "node:assert/strict";
@@ -210,6 +211,81 @@ test("compact public sign and verify", { skip: !cb2.hasPublic() }, () => {
     stranger.free();
     pk.free();
     sk.free();
+});
+
+test("claim tables", () => {
+    const { ClaimTable, LocalKey, Compact } = cb2;
+    const entries = ["https://issuer.example", "api", "billing"];
+    const t = ClaimTable.fromEntries(entries);
+    const same = ClaimTable.fromEntries(entries);
+    const other = ClaimTable.fromEntries(["api", "https://issuer.example", "billing"]);
+    for (const bad of [{}, [1], [], ["a", "a"], ["a", ""], ["a\nb"], undefined, "nope", Array(257).fill(0).map((_, i) => `e${i}`)]) {
+        refused(() => ClaimTable.fromEntries(bad), "argument");
+    }
+    assert.equal(ClaimTable.fromEntries(Array(256).fill(0).map((_, i) => `e${i}`)).digest().length, 32);
+
+    const digest = t.digest();
+    assert.equal(ClaimTable.digestBytes, 32);
+    assert.equal(Buffer.from(digest).toString("hex"), "767715f4054718828339b957f45d7bfd52b59bfca9188d0eb68d0389090fef4d");
+    assert.deepEqual(same.digest(), digest);
+    assert.notDeepEqual(other.digest(), digest);
+
+    const k = LocalKey.generate();
+    const tabled = Compact.seal(k, CLAIMS, null, t);
+    const plain = Compact.seal(k, CLAIMS);
+    assert.ok(tabled.startsWith("cb3.local."));
+    assert.ok(tabled.length + 30 < plain.length, `${tabled.length} + 30 < ${plain.length}`);
+    assert.deepEqual(Compact.open(tabled, k, RULES, null, same), Compact.open(plain, k, RULES));
+    refused(() => Compact.open(tabled, k, RULES), "invalid");
+    refused(() => Compact.open(tabled, k, RULES, null, null), "invalid");
+    refused(() => Compact.open(tabled, k, RULES, undefined, other), "invalid");
+    refused(() => Compact.open(plain, k, RULES, undefined, t), "invalid");
+    assert.equal(Compact.open(plain, k, RULES, undefined, null).sub, "user-1");
+    refused(() => Compact.open(tabled, k, { ...RULES, audience: "billing" }, null, t), "audience_mismatch");
+    refused(() => Compact.open(tabled, k, { ...RULES, issuer: "https://other.example" }, null, t), "issuer_mismatch");
+    const any = { allow_any_issuer: true, allow_any_audience: true, now: 1700000000 };
+    const opened = Compact.open(tabled, k, any, null, t);
+    assert.equal(opened.iss, "https://issuer.example");
+    assert.equal(opened.aud, "api");
+    const seen = [];
+    Compact.open(tabled, k, { ...RULES, replay: (jti) => { seen.push(jti); return true; } }, null, t);
+    assert.deepEqual(seen, ["id-1"]);
+
+    const reserved = "kcb3.table.";
+    refused(() => Compact.seal(k, CLAIMS, reserved), "argument");
+    refused(() => Compact.seal(k, CLAIMS, reserved, null), "argument");
+    refused(() => Compact.open(plain, k, RULES, reserved), "argument");
+    const withContext = Compact.seal(k, CLAIMS, reserved, t);
+    assert.equal(Compact.open(withContext, k, RULES, reserved, t).role, "admin");
+    refused(() => Compact.open(withContext, k, RULES, null, t), "invalid");
+
+    other.free();
+    assert.equal(other.freed, true);
+    assert.throws(() => Compact.open(tabled, k, RULES, null, other), /freed/);
+    assert.throws(() => other.digest(), /freed/);
+    other.free();
+    k.free();
+    same.free();
+    t.free();
+});
+
+test("claim tables with cb3.public", { skip: !cb2.hasPublic() }, () => {
+    const { ClaimTable, SecretKey, Compact } = cb2;
+    const t = ClaimTable.fromEntries(["https://issuer.example", "api", "billing"]);
+    const other = ClaimTable.fromEntries(["api", "https://issuer.example", "billing"]);
+    const sk = SecretKey.generate();
+    const pk = sk.publicKey();
+    const signed = Compact.sign(sk, CLAIMS, null, t);
+    assert.ok(signed.startsWith("cb3.public."));
+    assert.ok(signed.length < Compact.sign(sk, CLAIMS).length);
+    assert.equal(Compact.verify(signed, pk, RULES, null, t).aud, "api");
+    refused(() => Compact.verify(signed, pk, RULES), "invalid");
+    refused(() => Compact.verify(signed, pk, RULES, null, other), "invalid");
+    refused(() => Compact.verify(signed, pk, { ...RULES, audience: "billing" }, null, t), "audience_mismatch");
+    pk.free();
+    sk.free();
+    other.free();
+    t.free();
 });
 
 test("key wrapping", () => {

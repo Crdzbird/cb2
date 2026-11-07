@@ -36,6 +36,17 @@ function rawOpen(m, fn, key, token, footer, implicit, maxTokenBytes) {
     });
 }
 
+function tableSeal(m, fn, key, table, claims, implicit) {
+    return withArena(m, (a) => {
+        const c = a.bytes(JSON.stringify(claims));
+        const i = a.bytes(implicit);
+        const out = a.out();
+        const len = a.out();
+        check(m, fn(key.ptr, table?.ptr ?? 0, c.ptr, c.len, i.ptr, i.len, out, len));
+        return takeText(m, a.pointerAt(out));
+    });
+}
+
 function claimsSeal(m, fn, key, claims, implicit) {
     return withArena(m, (a) => {
         const c = a.bytes(JSON.stringify(claims));
@@ -87,6 +98,24 @@ function claimsOpen(m, fn, key, token, rules, implicit) {
             const out = a.out();
             const len = a.out();
             check(m, fn(key.ptr, t.ptr, t.len, rj.ptr, rj.len, i.ptr, i.len, r.replay, r.proofReplay, 0, out, len));
+            return JSON.parse(takeText(m, a.pointerAt(out)));
+        });
+    } finally {
+        r.release();
+    }
+}
+
+function tableOpen(m, fn, key, table, token, rules, implicit) {
+    const r = prepareRules(m, rules ?? {});
+    try {
+        return withArena(m, (a) => {
+            const t = a.bytes(token);
+            const rj = a.bytes(r.text);
+            const i = a.bytes(implicit);
+            const out = a.out();
+            const len = a.out();
+            check(m, fn(key.ptr, table?.ptr ?? 0, t.ptr, t.len, rj.ptr, rj.len, i.ptr, i.len,
+                r.replay, r.proofReplay, 0, out, len));
             return JSON.parse(takeText(m, a.pointerAt(out)));
         });
     } finally {
@@ -183,14 +212,18 @@ export function makeTokens(m, keys) {
     const Compact = {
         /** The bytes of a key digest. */
         keyDigestBytes: KEY_DIGEST_BYTES,
-        /** Seals a claims object under a LocalKey as a compact token. */
-        seal: (key, claims, implicit) => claimsSeal(m, m._cb2_compact_seal, key, claims, implicit),
-        /** Signs a claims object under a SecretKey as a compact token. */
-        sign: (key, claims, implicit) => claimsSeal(m, m._cb2_compact_sign, key, claims, implicit),
-        /** Opens a sealed compact token under the rules; the claims object. */
-        open: (token, key, rules, implicit) => claimsOpen(m, m._cb2_compact_open, key, token, rules, implicit),
-        /** Verifies a signed compact token under the rules; the claims object. */
-        verify: (token, key, rules, implicit) => claimsOpen(m, m._cb2_compact_verify, key, token, rules, implicit),
+        /** Seals a claims object under a LocalKey as a compact token, under a ClaimTable when given. */
+        seal: (key, claims, implicit, table) =>
+            tableSeal(m, m._cb2_compact_seal_with_table, key, table, claims, implicit),
+        /** Signs a claims object under a SecretKey as a compact token, under a ClaimTable when given. */
+        sign: (key, claims, implicit, table) =>
+            tableSeal(m, m._cb2_compact_sign_with_table, key, table, claims, implicit),
+        /** Opens a sealed compact token under the rules and the ClaimTable it was made under; the claims object. */
+        open: (token, key, rules, implicit, table) =>
+            tableOpen(m, m._cb2_compact_open_with_table, key, table, token, rules, implicit),
+        /** Verifies a signed compact token under the rules and the ClaimTable it was made under; the claims object. */
+        verify: (token, key, rules, implicit, table) =>
+            tableOpen(m, m._cb2_compact_verify_with_table, key, table, token, rules, implicit),
         /** The key digest a compact token's footer carries, unverified; null when none. */
         peekKeyDigest: (token) => digestResult(m, m._cb2_compact_peek_key_digest, token),
         /** The key digest of a key id, to match against peekKeyDigest. */
