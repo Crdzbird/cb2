@@ -34,15 +34,17 @@ merges each slice into one static `libcb2_c.a`:
 | iOS | arm64 | iOS 16 |
 | iOS simulator | arm64, x86_64 | iOS 16 |
 
-The headers directory carries `cb2_c.h` and a module map that defines
-`CCb2` and links the C++ runtime. The dependency builds are cached under
+The headers sit in `Headers/CCb2` with a module map that defines `CCb2`
+and links the C++ runtime, so they never collide with the module map of
+another static XCFramework in the same app. The dependency builds are cached under
 `bindings/swift/.build-xcframework`; a second run only recompiles
 `cb2_c.cpp`. The first run takes a few minutes. Both outputs are ignored
 by git.
 
-The archive bundles its dependencies. An app that links its own copy of
-libsodium or liboqs gets duplicate symbols; build the slices against that
-copy instead, or link the system-library layout.
+The archive carries its own libsodium. An app that also links libsodium
+through another package still builds, but the linker then takes each
+libsodium function from whichever copy it meets first; keep one version
+of libsodium in an app where you can.
 
 ## Develop against a CMake build
 

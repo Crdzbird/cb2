@@ -4,6 +4,36 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, Swift benchmarks against jwt-kit and swift-paseto
+
+`bindings/swift/Benchmarks` is a separate package that times cb2 against
+vapor/jwt-kit 5.7.1 and aidantwoods/swift-paseto 1.2.0 with
+package-benchmark 1.37.0, on the same claims (iss, sub, aud, exp, iat,
+jti and one custom claim) and with a validating verify (signature or tag,
+expiry, issuer, audience). Release builds, 1000 operations per sample, 3
+warmup samples, up to 200 samples or 10 s; median wall clock per
+operation on an Apple M3 Max, macOS 26.6.2, Swift 6.4, with `libcb2_c`
+from the CMake release build: cb2.local 8 us to issue and 12 us to
+verify, JWT HS256 21 and 14, PASETO v4.local 14 and 147, cb2.public 180
+and 127, JWT EdDSA 125 and 61, JWT ES256 152 and 145, JWT ML-DSA-65
+(CryptoKit) 1,283 and 111, PASETO v4.public 24 and 200. Tokens were 430,
+288, 333, 4,843, 331, 331, 4,663 and 334 bytes; `token-sizes` confirmed
+every format verifies its own token and refuses a tampered copy. On the
+XCFramework (portable liboqs) cb2.local took 7 and 11 us and cb2.public
+421 and 153 us.
+
+The first run showed the Swift layer costing about 27 of the 30 us of a
+cb2.local verify: `ClaimValue` decoding through `Codable` threw and
+caught three errors per string claim, and the rules went through
+`JSONEncoder` on every call. Claims and rules are now written byte by
+byte and read back through `JSONSerialization`, which took the cb2.local
+rows from 14 and 30 us to 8 and 12 us; a new test sends every claim value
+kind, the string escapes and a 2^53 + 1 integer through a seal and an
+open, and the suite passes 16 of 16 on both layouts. Linking the
+XCFramework next to swift-sodium's XCFramework failed with two module
+maps at the same include path, so the headers now sit in
+`Headers/CCb2`; the walkthrough answers 20 of 20 and the SwiftUI app
+builds for macOS and runs on the iOS 27 simulator with it.
 ## 2026-11-07, the Python package README and a benchmark against PyJWT and pyseto
 
 `bindings/python/README.md`, also the package's long description, is

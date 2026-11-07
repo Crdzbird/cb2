@@ -8,3 +8,5 @@ Examples/*/.swiftpm/
 Examples/*/Package.resolved
 xcuserdata/
 DerivedData/
+!Benchmarks/Package.resolved
+.benchmarkBaselines/

@@ -108,20 +108,13 @@ enum Bridge {
     }
 
     static func encode(_ claims: Claims) throws(Cb2Error) -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        do {
-            return try encoder.encode(claims)
-        } catch {
-            throw .argument
-        }
+        var out: [UInt8] = []
+        out.reserveCapacity(256)
+        try JSONText.writeObject(claims, into: &out)
+        return Data(out)
     }
 
     static func decode(_ json: String) throws(Cb2Error) -> Claims {
-        do {
-            return try JSONDecoder().decode(Claims.self, from: Data(json.utf8))
-        } catch {
-            throw .claimsMalformed
-        }
+        try JSONText.readClaims(json)
     }
 }

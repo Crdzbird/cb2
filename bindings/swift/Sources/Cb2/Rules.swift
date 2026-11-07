@@ -64,41 +64,32 @@ public struct Rules: Sendable {
     }
 
     func json() throws(Cb2Error) -> Data {
-        let wire = RulesJSON(
-            now: now, clockSkew: clockSkew, requireExp: requireExp, allowAnyAudience: allowAnyAudience,
-            allowAnyIssuer: allowAnyIssuer, issuer: issuer, audience: audience, subject: subject,
-            maxTokenBytes: maxTokenBytes, maxLifetime: maxLifetime, requireCnf: requireCnf, ignoreCnf: ignoreCnf,
-            proof: proof, request: request, proofLifetime: proofLifetime, seenJti: seenJti,
-            proofSeenJti: proofSeenJti, replay: replay == nil ? nil : true
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        encoder.keyEncodingStrategy = .convertToSnakeCase
-        do {
-            return try encoder.encode(wire)
-        } catch {
-            throw .argument
+        var members: [String: ClaimValue] = [:]
+        members["now"] = now.map { .integer($0) }
+        members["clock_skew"] = clockSkew.map { .integer($0) }
+        members["require_exp"] = requireExp.map { .bool($0) }
+        members["allow_any_audience"] = allowAnyAudience.map { .bool($0) }
+        members["allow_any_issuer"] = allowAnyIssuer.map { .bool($0) }
+        members["issuer"] = issuer.map { .string($0) }
+        members["audience"] = audience.map { .string($0) }
+        members["subject"] = subject.map { .string($0) }
+        members["max_token_bytes"] = maxTokenBytes.map { .integer(Int64($0)) }
+        members["max_lifetime"] = maxLifetime.map { .integer($0) }
+        members["require_cnf"] = requireCnf.map { .bool($0) }
+        members["ignore_cnf"] = ignoreCnf.map { .bool($0) }
+        members["proof"] = proof.map { .string($0) }
+        members["proof_lifetime"] = proofLifetime.map { .integer($0) }
+        members["seen_jti"] = seenJti.map { .array($0.map { .string($0) }) }
+        members["proof_seen_jti"] = proofSeenJti.map { .array($0.map { .string($0) }) }
+        members["replay"] = replay == nil ? nil : .bool(true)
+        members["request"] = request.map { request in
+            var object: [String: ClaimValue] = ["htm": .string(request.htm), "htu": .string(request.htu)]
+            object["nonce"] = request.nonce.map { .string($0) }
+            return .object(object)
         }
+        var out: [UInt8] = []
+        out.reserveCapacity(128)
+        try JSONText.writeObject(members, into: &out)
+        return Data(out)
     }
-}
-
-private struct RulesJSON: Encodable {
-    let now: Int64?
-    let clockSkew: Int64?
-    let requireExp: Bool?
-    let allowAnyAudience: Bool?
-    let allowAnyIssuer: Bool?
-    let issuer: String?
-    let audience: String?
-    let subject: String?
-    let maxTokenBytes: Int?
-    let maxLifetime: Int64?
-    let requireCnf: Bool?
-    let ignoreCnf: Bool?
-    let proof: String?
-    let request: HolderRequest?
-    let proofLifetime: Int64?
-    let seenJti: [String]?
-    let proofSeenJti: [String]?
-    let replay: Bool?
 }

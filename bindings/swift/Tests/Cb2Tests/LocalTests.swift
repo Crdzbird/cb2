@@ -80,6 +80,24 @@ import Testing
         #expect(throws: Cb2Error.replayed) { try Token.open(token, key: key, rules: failing) }
     }
 
+    @Test("every claim value kind survives a seal and an open") func everyClaimValueKindSurvives() throws {
+        let key = try LocalKey.generate()
+        var claims = Fixtures.claims
+        claims["text"] = "quote \" backslash \\ tab \t newline \n bell \u{07} accent \u{E9} kana \u{30AB}"
+        claims["count"] = 9_007_199_254_740_993
+        claims["negative"] = -42
+        claims["ratio"] = 0.25
+        claims["flag"] = false
+        claims["nothing"] = nil
+        claims["list"] = ["a", 1, true, nil, ["nested": 2.5]]
+        claims["object"] = ["inner": ["deep": "value"], "empty": [:], "none": []]
+        let opened = try Token.open(Token.seal(claims, key: key), key: key, rules: Fixtures.rules)
+        #expect(opened == claims)
+        #expect(throws: Cb2Error.argument) {
+            try Token.seal(["exp": "2099-01-01T00:00:00+00:00", "x": .number(.nan)], key: key)
+        }
+    }
+
     @Test("a typed catch matches the verdict") func typedCatchMatchesTheVerdict() throws {
         let key = try LocalKey.generate()
         let token = try Token.seal(Fixtures.claims, key: key)

@@ -5,6 +5,9 @@
 # (arm64, x86_64). The dependencies come from the hash-pinned release
 # tarballs web/build_deps.sh uses and are cached under the work directory.
 #
+# The headers sit in Headers/CCb2 so the module map never collides with the
+# one of another static XCFramework in the same app.
+#
 # usage: build-xcframework.sh [output] (default bindings/swift/Cb2C.xcframework)
 # environment: CB2_XCFRAMEWORK_WORK (default bindings/swift/.build-xcframework)
 set -euo pipefail
@@ -145,9 +148,9 @@ done
 
 HEADERS="$WORK/headers"
 rm -rf "$HEADERS"
-mkdir -p "$HEADERS"
-cp "$ROOT/bindings/c/include/cb2_c.h" "$HEADERS/"
-cat > "$HEADERS/module.modulemap" << 'EOF'
+mkdir -p "$HEADERS/CCb2"
+cp "$ROOT/bindings/c/include/cb2_c.h" "$HEADERS/CCb2/"
+cat > "$HEADERS/CCb2/module.modulemap" << 'EOF'
 module CCb2 {
     header "cb2_c.h"
     link "c++"

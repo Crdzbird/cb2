@@ -105,7 +105,8 @@ jobs:
         run: |
           swift --version
           swift format lint -r --strict Package.swift Sources Tests \
-            Examples/Cb2Walkthrough/Package.swift Examples/Cb2Walkthrough/Sources Examples/Cb2App/Cb2App
+            Examples/Cb2Walkthrough/Package.swift Examples/Cb2Walkthrough/Sources Examples/Cb2App/Cb2App \
+            Benchmarks/Package.swift Benchmarks/Sources Benchmarks/Benchmarks
           bash scripts/build-xcframework.sh
           swift test
           (cd Examples/Cb2Walkthrough && swift run cb2-walkthrough)
@@ -115,6 +116,14 @@ jobs:
             CODE_SIGNING_ALLOWED=NO -quiet build
           xcodebuild -scheme Cb2App -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedData \
             CODE_SIGNING_ALLOWED=NO -quiet build
+      - name: Swift benchmarks against jwt-kit and swift-paseto (release build only, not run)
+        working-directory: bindings/swift/Benchmarks
+        env:
+          BENCHMARK_DISABLE_JEMALLOC: "true"
+          CB2_SWIFT_SYSTEM_LIBRARY: "1"
+        run: |
+          swift build -c release \
+            -Xlinker -L"$GITHUB_WORKSPACE/build/bindings/c" -Xlinker -rpath -Xlinker "$GITHUB_WORKSPACE/build/bindings/c"
       - name: Fuzz targets (time-boxed)
         env:
           CC: /opt/homebrew/opt/llvm/bin/clang
