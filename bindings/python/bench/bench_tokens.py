@@ -34,7 +34,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519
 
 import cb2
-from cb2 import LocalKey, Rules, SecretKey, Token
+from cb2 import Compact, LocalKey, Rules, SecretKey, Token
 
 ISSUER = "https://issuer.example"
 AUDIENCE = "api"
@@ -118,13 +118,19 @@ def cases() -> list[Case]:
     paseto_local = pyseto.Key.new(version=4, purpose="local", key=secrets.token_bytes(32))
     found = [
         Case("cb2.local", lambda: Token.seal(local, text), lambda t: Token.open(t, local, rules)),
+        Case("cb3.local (compact)", lambda: Compact.seal(local, text), lambda t: Compact.open(t, local, rules)),
         _jwt_case("JWT HS256 (PyJWT)", "HS256", shared, shared, numeric),
         _paseto_case("PASETO v4.local (pyseto)", paseto_local, paseto_local, text),
     ]
     if cb2.has_public():
         secret = SecretKey.generate()
         public = secret.public_key()
-        found.append(Case("cb2.public", lambda: Token.sign(secret, text), lambda t: Token.verify(t, public, rules)))
+        found += [
+            Case("cb2.public", lambda: Token.sign(secret, text), lambda t: Token.verify(t, public, rules)),
+            Case(
+                "cb3.public (compact)", lambda: Compact.sign(secret, text), lambda t: Compact.verify(t, public, rules)
+            ),
+        ]
     edwards = ed25519.Ed25519PrivateKey.generate()
     nist = ec.generate_private_key(ec.SECP256R1())
     pem_secret, pem_public = _pem(ed25519.Ed25519PrivateKey.generate())
