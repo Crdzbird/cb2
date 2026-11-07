@@ -4,9 +4,10 @@ import 'package:cb2/cb2.dart';
 
 const _issuer = 'https://issuer.example';
 
-/// Issues a cb2.local and a cb2.public token, opens and verifies them, and
-/// shows the library refusing a replay, a tampered token and a token for
-/// another audience.
+/// Issues a cb2.local and a cb2.public token, opens and verifies them,
+/// does the same with the shorter compact cb3.local token, and shows the
+/// library refusing a replay, a tampered token and a token for another
+/// audience.
 ///
 /// Run it from bindings/dart against a build of the C library:
 /// CB2_C_LIBRARY=../../build/bindings/c/libcb2_c.dylib dart run example/cb2_example.dart
@@ -29,6 +30,10 @@ void _local() {
   final claims = Token.open(key, token, rules);
   stdout.writeln('opened: sub ${claims['sub']}, role ${claims['role']}');
   _refuse('the same token again', () => Token.open(key, token, rules));
+  final compact = CompactToken.seal(key, _claims('local-2'));
+  stdout.writeln('cb3.local token: ${_short(compact)}');
+  final opened = CompactToken.open(key, compact, rules);
+  stdout.writeln('opened compact: sub ${opened['sub']}, jti ${opened['jti']}');
   _refuse(
     'a tampered token',
     () => Token.open(key, _tamper(token), _fresh('api')),

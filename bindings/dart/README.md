@@ -80,6 +80,7 @@ sees the same `jti` again and the replay check refuses it.
 | --- | --- | --- |
 | cb2.local | one shared `LocalKey` (XChaCha20 with keyed BLAKE3) | the service that issues the token also checks it, or shares a key with the one that does; the claims are encrypted |
 | cb2.public | a `SecretKey` signs, its `PublicKey` verifies (Ed25519 and ML-DSA-65, both required) | others must check tokens without being able to issue them; the claims are readable |
+| cb3.local, cb3.public (experimental) | the same keys as cb2.local and cb2.public | the same as cb2.local and cb2.public with tokens about half the size; the format may still change |
 | holder proofs | a client key named in the token's `cnf` claim | a stolen token alone must not be enough: the client proves it holds its key on each request |
 | `KeyWrap`, `Seal` | a wrapping `LocalKey`, or a `RecipientKey` (X-Wing) | a local key has to be stored, or sent to another party |
 
@@ -90,6 +91,7 @@ sees the same `jti` again and the replay check refuses it.
 | `LocalKey`, `SecretKey`, `PublicKey` | Keys for cb2.local and cb2.public, from bytes, PASERK text, or fresh randomness; `keyId` names the key in token footers. |
 | `RecipientKey`, `RecipientPublicKey` | X-Wing pairs for kcb2.seal. |
 | `Token` | Claims tokens as `Map<String, Object?>`: `seal`, `open`, `sign`, `verify`, and `peekKeyId` to pick a key before checking. |
+| `CompactToken` | The same claims, rules and verdicts as `Token` as the experimental compact cb3.local and cb3.public tokens: `seal`, `open`, `sign`, `verify`, and `peekKeyDigest` with `keyDigest` to pick a key before checking. |
 | `Rules` | What a claims token is checked against: issuer, audience, subject, clock and skew, lifetime, replay, `cnf`. |
 | `HolderRules`, `ProofRequest` | The holder proof presented with a token and the request it must match. |
 | `Holder` | Makes holder proofs, public and local mode, and normalizes request targets. |
@@ -146,7 +148,8 @@ above kept as the fallback for local builds.
 ## Example
 
 `example/cb2_example.dart` issues, opens and verifies a cb2.local and a
-cb2.public token and shows three refusals:
+cb2.public token, opens a compact cb3.local token, and shows three
+refusals:
 
     dart run example/cb2_example.dart
 
@@ -155,6 +158,8 @@ cb2 0.1.0, public true, seal true
 cb2.local token: cb2.local.OIsZ972iGacKSe...(347 chars)
 opened: sub user-1, role reader
 the same token again: refused with replayed
+cb3.local token: cb3.local.uSEf1Ahb9aR6Ec...(205 chars)
+opened compact: sub user-1, jti local-2
 a tampered token: refused with invalid
 cb2.public token: cb2.public.eyJpc3MiOiJod...(4762 chars)
 verified: sub user-1, role reader
@@ -184,17 +189,19 @@ Apple M3 Max, macOS 26.6.2, Dart 3.13.7, compiled with
 `dart compile exe`, 2026-11-07. Each cell is the median of three runs;
 each run takes the median of 21 samples of 25 ms after 300 ms of
 warmup. Times are microseconds per token. Runs differed by up to about
-20 percent in the slow rows.
+5 percent.
 
 | Format | Library | Issue (us) | Check (us) | Bytes |
 | --- | --- | ---: | ---: | ---: |
-| cb2.local | cb2 0.1.0 (native, FFI) | 8.8 | 9.2 | 389 |
-| JWT HS256 | dart_jsonwebtoken 3.4.1 (pure Dart) | 32.7 | 31.1 | 244 |
-| PASETO v4.local | paseto_dart 2.1.0 (pure Dart) | 133 | 117 | 303 |
-| cb2.public | cb2 0.1.0 (native, FFI) | 184 | 149 | 4802 |
-| JWT EdDSA | dart_jsonwebtoken 3.4.1 (pure Dart) | 2417 | 2396 | 287 |
-| JWT ES256 | dart_jsonwebtoken 3.4.1 (pure Dart) | 5484 | 8053 | 287 |
-| PASETO v4.public | paseto_dart 2.1.0 (pure Dart) | 3378 | 2402 | 304 |
+| cb2.local | cb2 0.1.0 (native, FFI) | 8.2 | 8.6 | 389 |
+| cb3.local | cb2 0.1.0 (native, FFI) | 7.0 | 6.7 | 209 |
+| JWT HS256 | dart_jsonwebtoken 3.4.1 (pure Dart) | 31.3 | 29.8 | 244 |
+| PASETO v4.local | paseto_dart 2.1.0 (pure Dart) | 128 | 115 | 303 |
+| cb2.public | cb2 0.1.0 (native, FFI) | 181 | 146 | 4802 |
+| cb3.public | cb2 0.1.0 (native, FFI) | 179 | 142 | 4622 |
+| JWT EdDSA | dart_jsonwebtoken 3.4.1 (pure Dart) | 2294 | 2290 | 287 |
+| JWT ES256 | dart_jsonwebtoken 3.4.1 (pure Dart) | 5093 | 7554 | 287 |
+| PASETO v4.public | paseto_dart 2.1.0 (pure Dart) | 3221 | 2269 | 304 |
 
 Read it with two facts in mind. First, these are different kinds of
 implementation: cb2 runs native C++ through FFI, while both competitors
@@ -208,6 +215,11 @@ benchmark under "Benchmark in detail" in the root README), cb2.public is
 about ten times slower to sign and about twice as slow to verify.
 cb2.local tokens are larger than PASETO v4.local ones mainly because
 they carry the key id in the footer.
+The compact cb3.local token carries the same claims as CBOR and a
+16-byte digest of the key id instead of its text, which brings it to 209
+bytes, below PASETO v4.local, and makes it slightly quicker to issue and
+check. cb3.public saves the same 180 bytes, which matters little next to
+the signatures.
 
 Run it yourself:
 

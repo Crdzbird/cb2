@@ -24,13 +24,14 @@ void main() {
     expect(running, findsNothing);
     expect(find.byIcon(Icons.error), findsNothing);
     expect(find.text('Load the native library'), findsOneWidget);
-    for (final verdict in const [
+    for (final shown in const [
       'refused with replayed',
       'refused with invalid',
+      'Open the compact token',
       'refused with audience_mismatch',
     ]) {
-      await tester.scrollUntilVisible(find.text(verdict), 120);
-      expect(find.text(verdict), findsOneWidget);
+      await tester.scrollUntilVisible(find.text(shown), 120);
+      expect(find.text(shown), findsOneWidget);
     }
   });
 }

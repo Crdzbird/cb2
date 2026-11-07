@@ -70,6 +70,7 @@ millisecond, so run token work off the UI isolate as above.
 | --- | --- |
 | cb2.local | the service that issues the token also checks it, or shares a key with the one that does; the claims are encrypted |
 | cb2.public | others must check tokens without being able to issue them; Ed25519 and ML-DSA-65 both sign every token |
+| cb3.local, cb3.public (experimental) | the same as cb2.local and cb2.public with tokens about half the size; the format may still change |
 | holder proofs | a stolen token alone must not be enough: the client proves it holds the key the token names |
 | key wrapping and sealing | a local key has to be stored, or sent to another party |
 
@@ -77,8 +78,8 @@ millisecond, so run token work off the UI isolate as above.
 
 Everything in package `cb2` is available through
 `package:cb2_flutter/cb2_flutter.dart`: `LocalKey`, `SecretKey`,
-`PublicKey`, `Token`, `Rules`, `HolderRules`, `Holder`, `Local`,
-`Public`, `KeyWrap`, `Seal`, `Cb2Exception` and the rest; see the
+`PublicKey`, `Token`, `CompactToken`, `Rules`, `HolderRules`, `Holder`,
+`Local`, `Public`, `KeyWrap`, `Seal`, `Cb2Exception` and the rest; see the
 [package cb2 README](../../dart/README.md) for each. The plugin adds one
 class, `Cb2Flutter`, whose `ensureInitialized()` points the loader at
 the bundled library.
@@ -132,8 +133,8 @@ Build the dependencies as static libraries for a self-contained
 
 ## Example app
 
-`example/` seals and opens a cb2.local token, signs and verifies a
-cb2.public token, and shows the library refusing a replayed token, a
+`example/` seals and opens a cb2.local token and a compact cb3.local
+token, signs and verifies a cb2.public token, and shows the library refusing a replayed token, a
 tampered token and a token for another audience, off the UI isolate.
 It runs on iOS and macOS and has an integration test:
 
@@ -149,7 +150,9 @@ AOT-compiled Dart program on an Apple M3 Max and apply to Flutter apps
 too, since the plugin runs the same native library. In short, cb2.local
 issues and checks a token in about 9 microseconds; cb2.public in about
 150 to 190 microseconds, with tokens of about 4.8 KB because every token
-carries a post-quantum ML-DSA-65 signature next to Ed25519.
+carries a post-quantum ML-DSA-65 signature next to Ed25519. The
+experimental compact cb3.local token is about 7 microseconds and 209
+bytes against 389.
 
 ## Development
 

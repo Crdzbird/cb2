@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:cb2/cb2.dart';
 import 'package:cb2_benchmark/src/bench_settings.dart';
 import 'package:cb2_benchmark/src/cb2_cases.dart';
+import 'package:cb2_benchmark/src/compact_cases.dart';
 import 'package:cb2_benchmark/src/format_result.dart';
 import 'package:cb2_benchmark/src/jwt_cases.dart';
 import 'package:cb2_benchmark/src/paseto_cases.dart';
@@ -22,11 +23,14 @@ Future<void> main(List<String> args) async {
     ..writeln('cb2 ${version()}, public ${hasPublic()}');
   final results = <FormatResult>[
     benchCb2Local(settings),
+    benchCompactLocal(settings),
     benchJwtHs256(settings),
     await benchPasetoLocal(settings),
   ];
   if (hasPublic()) {
-    results.add(benchCb2Public(settings));
+    results
+      ..add(benchCb2Public(settings))
+      ..add(benchCompactPublic(settings));
   }
   results
     ..add(benchJwtEdDsa(settings))
