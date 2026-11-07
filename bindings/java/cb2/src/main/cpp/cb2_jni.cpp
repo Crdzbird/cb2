@@ -18,9 +18,10 @@
  * throw are the argument copies in read(), which turn std::bad_alloc into
  * a pending OutOfMemoryError, and every entry point returns before calling
  * the C ABI when an exception is pending. Argument copies are wiped when
- * they go out of scope. Handles are never 0 here: the Java side refuses a
- * closed key before it reaches the glue and frees a key only once no call
- * is using it.
+ * they go out of scope. Key handles are never 0 here: the Java side refuses
+ * a closed key before it reaches the glue and frees a key only once no call
+ * is using it. A claim table handle of 0 is the absent table, which the
+ * _with_table calls of the C ABI take as none.
  */
 
 #include "cb2_c.h"
@@ -312,6 +313,46 @@ jbyteArray check(JNIEnv* env, jlong key, jbyteArray token, jbyteArray rules, jby
     return take_text(env, out, len);
 }
 
+template <class K>
+jbyteArray issue_tabled(JNIEnv* env, jlong key, jlong table, jbyteArray claims, jbyteArray implicit,
+                        int (*fn)(const K*, const cb2_claim_table*, const char*, size_t, const uint8_t*, size_t,
+                                  char**, size_t*)) {
+    Bytes c = read(env, claims);
+    Bytes i = read(env, implicit);
+    if (pending(env)) return nullptr;
+    char* out = nullptr;
+    size_t len = 0;
+    int rc = fn(handle<K>(key), handle<cb2_claim_table>(table), c.chars(), c.size(), i.ptr(), i.size(), &out, &len);
+    if (rc != CB2_OK) {
+        throw_code(env, rc);
+        return nullptr;
+    }
+    return take_text(env, out, len);
+}
+
+template <class K>
+jbyteArray check_tabled(JNIEnv* env, jlong key, jlong table, jbyteArray token, jbyteArray rules,
+                        jbyteArray implicit, jobject replay, jobject proof,
+                        int (*fn)(const K*, const cb2_claim_table*, const char*, size_t, const char*, size_t,
+                                  const uint8_t*, size_t, cb2_replay_fn, cb2_replay_fn, void*, char**, size_t*)) {
+    Bytes t = read(env, token);
+    Bytes r = read(env, rules);
+    Bytes i = read(env, implicit);
+    if (pending(env)) return nullptr;
+    Checks checks{env, replay, proof};
+    cb2_replay_fn replay_fn = replay != nullptr ? replay_trampoline : nullptr;
+    cb2_replay_fn proof_fn = proof != nullptr ? proof_trampoline : nullptr;
+    char* out = nullptr;
+    size_t len = 0;
+    int rc = fn(handle<K>(key), handle<cb2_claim_table>(table), t.chars(), t.size(), r.chars(), r.size(), i.ptr(),
+                i.size(), replay_fn, proof_fn, &checks, &out, &len);
+    if (rc != CB2_OK) {
+        throw_code(env, rc);
+        return nullptr;
+    }
+    return take_text(env, out, len);
+}
+
 }
 
 #define CB2_JNI(ret, name) extern "C" JNIEXPORT ret JNICALL Java_com_cipherbird_cb2_Native_##name
@@ -589,22 +630,24 @@ CB2_JNI(jbyteArray, peekKeyId)(JNIEnv* env, jclass, jbyteArray token) {
 
 /* Compact claims tokens */
 
-CB2_JNI(jbyteArray, compactSeal)(JNIEnv* env, jclass, jlong key, jbyteArray claims, jbyteArray implicit) {
-    return issue(env, key, claims, implicit, cb2_compact_seal);
+CB2_JNI(jbyteArray, compactSeal)(JNIEnv* env, jclass, jlong key, jlong table, jbyteArray claims,
+                                 jbyteArray implicit) {
+    return issue_tabled(env, key, table, claims, implicit, cb2_compact_seal_with_table);
 }
 
-CB2_JNI(jbyteArray, compactSign)(JNIEnv* env, jclass, jlong key, jbyteArray claims, jbyteArray implicit) {
-    return issue(env, key, claims, implicit, cb2_compact_sign);
+CB2_JNI(jbyteArray, compactSign)(JNIEnv* env, jclass, jlong key, jlong table, jbyteArray claims,
+                                 jbyteArray implicit) {
+    return issue_tabled(env, key, table, claims, implicit, cb2_compact_sign_with_table);
 }
 
-CB2_JNI(jbyteArray, compactOpen)(JNIEnv* env, jclass, jlong key, jbyteArray token, jbyteArray rules,
+CB2_JNI(jbyteArray, compactOpen)(JNIEnv* env, jclass, jlong key, jlong table, jbyteArray token, jbyteArray rules,
                                  jbyteArray implicit, jobject replay, jobject proof) {
-    return check(env, key, token, rules, implicit, replay, proof, cb2_compact_open);
+    return check_tabled(env, key, table, token, rules, implicit, replay, proof, cb2_compact_open_with_table);
 }
 
-CB2_JNI(jbyteArray, compactVerify)(JNIEnv* env, jclass, jlong key, jbyteArray token, jbyteArray rules,
+CB2_JNI(jbyteArray, compactVerify)(JNIEnv* env, jclass, jlong key, jlong table, jbyteArray token, jbyteArray rules,
                                    jbyteArray implicit, jobject replay, jobject proof) {
-    return check(env, key, token, rules, implicit, replay, proof, cb2_compact_verify);
+    return check_tabled(env, key, table, token, rules, implicit, replay, proof, cb2_compact_verify_with_table);
 }
 
 CB2_JNI(jbyteArray, compactPeekKeyDigest)(JNIEnv* env, jclass, jbyteArray token) {
@@ -629,6 +672,26 @@ CB2_JNI(jbyteArray, compactKeyDigest)(JNIEnv* env, jclass, jbyteArray id) {
         return nullptr;
     }
     return take_bytes(env, out, CB2_KEY_DIGEST_BYTES);
+}
+
+/* Claim tables */
+
+CB2_JNI(jlong, claimTableFromJson)(JNIEnv* env, jclass, jbyteArray entries) {
+    return from_text(env, entries, cb2_claim_table_from_json);
+}
+
+CB2_JNI(jbyteArray, claimTableDigest)(JNIEnv* env, jclass, jlong table) {
+    uint8_t* out = nullptr;
+    int rc = cb2_claim_table_digest(handle<cb2_claim_table>(table), &out);
+    if (rc != CB2_OK) {
+        throw_code(env, rc);
+        return nullptr;
+    }
+    return take_bytes(env, out, CB2_CLAIM_TABLE_DIGEST_BYTES);
+}
+
+CB2_JNI(void, claimTableFree)(JNIEnv*, jclass, jlong table) {
+    cb2_claim_table_free(handle<cb2_claim_table>(table));
 }
 
 /* Holder proofs */

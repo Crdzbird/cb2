@@ -1,5 +1,7 @@
 package com.cipherbird.cb2;
 
+import java.util.function.LongFunction;
+
 /**
  * Compact claims tokens, the experimental cb3.local and cb3.public
  * formats of docs/PROTOCOL.md section 15. They take and return the same
@@ -14,6 +16,12 @@ package com.cipherbird.cb2;
  * or kcb2.public key. A cb2 token never opens here and a compact token
  * never opens through {@link Token}. Holder proofs bind a compact access
  * token exactly as they bind a cb2 one.
+ *
+ * <p>Every call has an overload that takes a {@link ClaimTable} after the
+ * key, which shortens iss and aud; a token made under a table opens only
+ * under the same table, and a null table means none. Without a table, an
+ * implicit assertion that starts with {@code kcb3.table.} is refused with
+ * {@link Code#ARGUMENT}.
  */
 public final class Compact {
     /** The size in bytes of the key digest a compact token's footer carries. */
@@ -47,8 +55,39 @@ public final class Compact {
      *     {@link Code#ARGUMENT} when the claims are refused
      */
     public static String seal(LocalKey key, String claimsJson, byte[] implicit) {
+        return seal(key, null, claimsJson, implicit);
+    }
+
+    /**
+     * Seals claimsJson under key and table as a compact local token.
+     *
+     * @param key the key
+     * @param table the claim table, or null for none
+     * @param claimsJson the claims as a JSON object
+     * @return the token
+     * @throws Cb2Exception with {@link Code#CLAIMS_MALFORMED} or
+     *     {@link Code#ARGUMENT} when the claims are refused
+     */
+    public static String seal(LocalKey key, ClaimTable table, String claimsJson) {
+        return seal(key, table, claimsJson, null);
+    }
+
+    /**
+     * Seals claimsJson under key and table with an implicit assertion as a
+     * compact local token.
+     *
+     * @param key the key
+     * @param table the claim table, or null for none
+     * @param claimsJson the claims as a JSON object
+     * @param implicit the implicit assertion, or null for none
+     * @return the token
+     * @throws Cb2Exception with {@link Code#CLAIMS_MALFORMED} or
+     *     {@link Code#ARGUMENT} when the claims are refused
+     */
+    public static String seal(LocalKey key, ClaimTable table, String claimsJson, byte[] implicit) {
         byte[] c = Text.utf8(Text.required(claimsJson, "claimsJson"));
-        return Text.string(Text.required(key, "key").handle.use(h -> Native.compactSeal(h, c, implicit)));
+        NativeHandle k = Text.required(key, "key").handle;
+        return Text.string(withTable(table, t -> k.use(h -> Native.compactSeal(h, t, c, implicit))));
     }
 
     /**
@@ -76,8 +115,39 @@ public final class Compact {
      *     {@link Code#ARGUMENT} when the claims are refused
      */
     public static String sign(SecretKey key, String claimsJson, byte[] implicit) {
+        return sign(key, null, claimsJson, implicit);
+    }
+
+    /**
+     * Signs claimsJson with key under table as a compact public token.
+     *
+     * @param key the signing pair
+     * @param table the claim table, or null for none
+     * @param claimsJson the claims as a JSON object
+     * @return the token
+     * @throws Cb2Exception with {@link Code#CLAIMS_MALFORMED} or
+     *     {@link Code#ARGUMENT} when the claims are refused
+     */
+    public static String sign(SecretKey key, ClaimTable table, String claimsJson) {
+        return sign(key, table, claimsJson, null);
+    }
+
+    /**
+     * Signs claimsJson with key under table and an implicit assertion as a
+     * compact public token.
+     *
+     * @param key the signing pair
+     * @param table the claim table, or null for none
+     * @param claimsJson the claims as a JSON object
+     * @param implicit the implicit assertion, or null for none
+     * @return the token
+     * @throws Cb2Exception with {@link Code#CLAIMS_MALFORMED} or
+     *     {@link Code#ARGUMENT} when the claims are refused
+     */
+    public static String sign(SecretKey key, ClaimTable table, String claimsJson, byte[] implicit) {
         byte[] c = Text.utf8(Text.required(claimsJson, "claimsJson"));
-        return Text.string(Text.required(key, "key").handle.use(h -> Native.compactSign(h, c, implicit)));
+        NativeHandle k = Text.required(key, "key").handle;
+        return Text.string(withTable(table, t -> k.use(h -> Native.compactSign(h, t, c, implicit))));
     }
 
     /**
@@ -105,12 +175,44 @@ public final class Compact {
      * @throws Cb2Exception carrying the verdict when the token is refused
      */
     public static String open(LocalKey key, String token, Rules rules, byte[] implicit) {
-        byte[] t = Text.utf8(Text.required(token, "token"));
+        return open(key, null, token, rules, implicit);
+    }
+
+    /**
+     * Opens a compact local token under key and table and checks it
+     * against rules.
+     *
+     * @param key the key
+     * @param table the claim table, or null for none
+     * @param token the token
+     * @param rules the rules
+     * @return the claims as JSON text
+     * @throws Cb2Exception carrying the verdict when the token is refused
+     */
+    public static String open(LocalKey key, ClaimTable table, String token, Rules rules) {
+        return open(key, table, token, rules, null);
+    }
+
+    /**
+     * Opens a compact local token under key and table with an implicit
+     * assertion and checks it against rules.
+     *
+     * @param key the key
+     * @param table the claim table, or null for none
+     * @param token the token
+     * @param rules the rules
+     * @param implicit the implicit assertion, or null for none
+     * @return the claims as JSON text
+     * @throws Cb2Exception carrying the verdict when the token is refused
+     */
+    public static String open(LocalKey key, ClaimTable table, String token, Rules rules, byte[] implicit) {
+        byte[] tk = Text.utf8(Text.required(token, "token"));
         byte[] r = Text.utf8(Text.required(rules, "rules").toJson());
         ReplayCheck replay = rules.replayCheck();
         ReplayCheck proofReplay = rules.proofReplayCheck();
-        return Text.string(Text.required(key, "key").handle.use(
-                h -> Native.compactOpen(h, t, r, implicit, replay, proofReplay)));
+        NativeHandle k = Text.required(key, "key").handle;
+        return Text.string(withTable(table, t -> k.use(
+                h -> Native.compactOpen(h, t, tk, r, implicit, replay, proofReplay))));
     }
 
     /**
@@ -139,12 +241,44 @@ public final class Compact {
      * @throws Cb2Exception carrying the verdict when the token is refused
      */
     public static String verify(PublicKey key, String token, Rules rules, byte[] implicit) {
-        byte[] t = Text.utf8(Text.required(token, "token"));
+        return verify(key, null, token, rules, implicit);
+    }
+
+    /**
+     * Verifies a compact public token with key under table and checks it
+     * against rules.
+     *
+     * @param key the public key
+     * @param table the claim table, or null for none
+     * @param token the token
+     * @param rules the rules
+     * @return the claims as JSON text
+     * @throws Cb2Exception carrying the verdict when the token is refused
+     */
+    public static String verify(PublicKey key, ClaimTable table, String token, Rules rules) {
+        return verify(key, table, token, rules, null);
+    }
+
+    /**
+     * Verifies a compact public token with key under table and an implicit
+     * assertion and checks it against rules.
+     *
+     * @param key the public key
+     * @param table the claim table, or null for none
+     * @param token the token
+     * @param rules the rules
+     * @param implicit the implicit assertion, or null for none
+     * @return the claims as JSON text
+     * @throws Cb2Exception carrying the verdict when the token is refused
+     */
+    public static String verify(PublicKey key, ClaimTable table, String token, Rules rules, byte[] implicit) {
+        byte[] tk = Text.utf8(Text.required(token, "token"));
         byte[] r = Text.utf8(Text.required(rules, "rules").toJson());
         ReplayCheck replay = rules.replayCheck();
         ReplayCheck proofReplay = rules.proofReplayCheck();
-        return Text.string(Text.required(key, "key").handle.use(
-                h -> Native.compactVerify(h, t, r, implicit, replay, proofReplay)));
+        NativeHandle k = Text.required(key, "key").handle;
+        return Text.string(withTable(table, t -> k.use(
+                h -> Native.compactVerify(h, t, tk, r, implicit, replay, proofReplay))));
     }
 
     /**
@@ -174,5 +308,12 @@ public final class Compact {
      */
     public static byte[] keyDigest(String keyId) {
         return Native.compactKeyDigest(Text.utf8(Text.required(keyId, "keyId")));
+    }
+
+    private static <T> T withTable(ClaimTable table, LongFunction<T> call) {
+        if (table == null) {
+            return call.apply(0);
+        }
+        return table.handle.use(call);
     }
 }

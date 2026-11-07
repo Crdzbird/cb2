@@ -1,5 +1,6 @@
 package com.cipherbird.cb2.bench;
 
+import com.cipherbird.cb2.ClaimTable;
 import com.cipherbird.cb2.Compact;
 import com.cipherbird.cb2.LocalKey;
 import com.cipherbird.cb2.PublicKey;
@@ -21,8 +22,8 @@ import org.openjdk.jmh.annotations.Warmup;
 
 /**
  * cb2.local and cb2.public, and their compact cb3.local and cb3.public
- * forms, through the Java bridge, claims checked against issuer, audience
- * and exp.
+ * forms with and without a claim table, through the Java bridge, claims
+ * checked against issuer, audience and exp.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -39,6 +40,9 @@ public class Cb2Bench {
     private String publicToken;
     private String compactLocalToken;
     private String compactPublicToken;
+    private ClaimTable table;
+    private String tabledLocalToken;
+    private String tabledPublicToken;
 
     /** Makes the keys and one token of each kind. */
     @Setup
@@ -51,11 +55,15 @@ public class Cb2Bench {
         publicToken = Token.sign(secretKey, claims);
         compactLocalToken = Compact.seal(localKey, claims);
         compactPublicToken = Compact.sign(secretKey, claims);
+        table = ClaimTable.of(Claims.ISSUER, Claims.AUDIENCE);
+        tabledLocalToken = Compact.seal(localKey, table, claims);
+        tabledPublicToken = Compact.sign(secretKey, table, claims);
     }
 
-    /** Releases the keys. */
+    /** Releases the keys and the claim table. */
     @TearDown
     public void tearDown() {
+        table.close();
         localKey.close();
         publicKey.close();
         secretKey.close();
@@ -143,5 +151,47 @@ public class Cb2Bench {
     @Benchmark
     public String compactPublicVerify() {
         return Compact.verify(publicKey, compactPublicToken, rules());
+    }
+
+    /**
+     * Seals the claims as a cb3.local token under a claim table of the
+     * issuer and the audience.
+     *
+     * @return the token
+     */
+    @Benchmark
+    public String tabledLocalSeal() {
+        return Compact.seal(localKey, table, claims);
+    }
+
+    /**
+     * Opens a cb3.local token under the claim table and checks its claims.
+     *
+     * @return the claims JSON
+     */
+    @Benchmark
+    public String tabledLocalOpen() {
+        return Compact.open(localKey, table, tabledLocalToken, rules());
+    }
+
+    /**
+     * Signs the claims as a cb3.public token under the claim table.
+     *
+     * @return the token
+     */
+    @Benchmark
+    public String tabledPublicSign() {
+        return Compact.sign(secretKey, table, claims);
+    }
+
+    /**
+     * Verifies a cb3.public token under the claim table and checks its
+     * claims.
+     *
+     * @return the claims JSON
+     */
+    @Benchmark
+    public String tabledPublicVerify() {
+        return Compact.verify(publicKey, table, tabledPublicToken, rules());
     }
 }
