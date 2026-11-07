@@ -46,15 +46,18 @@ public struct FormatEntry: Sendable {
 }
 
 /// Every format of the comparison: the symmetric ones, then the signature
-/// ones, cb2 first in each. ML-DSA-65 in jwt-kit needs macOS 26 and its SDK.
+/// ones, cb2 and its compact form first in each. ML-DSA-65 in jwt-kit needs
+/// macOS 26 and its SDK.
 public enum Formats {
     /// The formats in table order.
     public static var all: [FormatEntry] {
         var entries = [
             FormatEntry(name: "cb2.local") { try Cb2Local() },
+            FormatEntry(name: "cb3.local (compact)") { try CompactLocal() },
             FormatEntry(name: "JWT HS256 (jwt-kit)") { await JWTFormat.hs256() },
             FormatEntry(name: "PASETO v4.local (swift-paseto)") { PasetoLocal() },
             FormatEntry(name: "cb2.public") { try Cb2Public() },
+            FormatEntry(name: "cb3.public (compact)") { try CompactPublic() },
             FormatEntry(name: "JWT EdDSA (jwt-kit)") { try await JWTFormat.eddsa() },
             FormatEntry(name: "JWT ES256 (jwt-kit)") { await JWTFormat.es256() },
         ]

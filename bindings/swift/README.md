@@ -80,6 +80,7 @@ swift run cb2-walkthrough
 |---|---|---|---|
 | `cb2.local` | sessions and calls inside one system; the claims are encrypted | one 32-byte key shared by issuer and verifier | `LocalKey`, `Token.seal`, `Token.open` |
 | `cb2.public` | tokens many parties verify but only one issues; signed with Ed25519 and ML-DSA-65 together, both required | a signing pair; verifiers hold the public half | `SecretKey`, `PublicKey`, `Token.sign`, `Token.verify` |
+| `cb3.local`, `cb3.public` (experimental) | the same tokens, about half the size for a local one: the claims as CBOR and a 16-byte digest of the key id | the same keys | `Compact.seal`, `Compact.open`, `Compact.sign`, `Compact.verify` |
 | `cb2.holder-local`, `cb2.holder-public` | a proof the client makes for each request, so a stolen token is useless without the client's key | the proof key the issuer put in `cnf`, or the client's signing pair | `Holder.proveLocal`, `Holder.prove`, `Rules.proof` |
 | `kcb2.local-wrap` | storing a local key under another local key | a local key | `KeyWrap` |
 | `kcb2.seal` | delivering a local key to a recipient, safe against a future quantum computer | the recipient's X-Wing pair | `RecipientKey`, `RecipientPublicKey`, `Seal` |
@@ -89,6 +90,43 @@ service or share a secret. Use `cb2.public` when verifiers must not be
 able to issue. Add a holder proof when a leaked token must not be
 replayable from another client. `Local` and `Public` seal and sign raw
 bytes when you need the envelope without the claims layer.
+
+## Compact claims tokens
+
+`Compact` issues and checks the experimental `cb3.local.` and
+`cb3.public.` formats of
+[docs/PROTOCOL.md section 15](../../docs/PROTOCOL.md). They have the
+cryptography of cb2.local and cb2.public, take the same `Claims` and
+`Rules`, run the same replay closures and give the same verdicts, but
+carry the claims as strict canonical CBOR and bind a 16-byte digest of
+the key id instead of its text. The `cb3` header is a placeholder while
+the format is experimental, which is why the API says "compact".
+
+```swift
+let key = try LocalKey.generate()
+let token = try Compact.seal(
+    ["iss": "https://issuer.example", "aud": "api", "sub": "user-1", "exp": "2099-01-01T00:00:00+00:00"],
+    key: key)
+let claims = try Compact.open(token, key: key, rules: Rules(issuer: "https://issuer.example", audience: "api"))
+
+let digest = try Compact.peekKeyDigest(token)
+let matches = try digest == Compact.keyDigest(key.keyId ?? "")
+```
+
+The token above is a `cb3.local.` token of 177 bytes, against 305 for
+the same claims as `cb2.local`. `peekKeyDigest(_:)` reads the digest in
+the footer without trusting the token (nil when the key had no id), and
+`keyDigest(_:)` computes it for a key id, so a verifier holding several
+keys picks the one whose digest matches. A cb2 token
+never opens through `Compact` and a compact token never opens through
+`Token`; both are refused as `invalid`. Holder proofs bind a compact
+access token as they bind a cb2 one.
+
+The compact issuer refuses as `argument` what the profile cannot carry,
+where `Token` accepts it: a custom number that is not an integer in
+`Int64` (`1.5`, `1e3`, `-0`), a time outside years 0000 to 9999, and a
+`cnf` that is not a `kcb2.local` or `kcb2.public` key. As with
+`Token.sign`, a `kcb2.local` cnf in a cb3.public token is refused too.
 
 ## API overview
 
@@ -110,6 +148,9 @@ bytes when you need the envelope without the claims layer.
 - **Tokens.** `Token.seal`, `Token.sign`, `Token.open`, `Token.verify`
   and `Token.peekKeyId`, which reads the key id of a footer without
   trusting it, to pick the key.
+- **Compact tokens.** `Compact.seal`, `Compact.sign`, `Compact.open`,
+  `Compact.verify`, `Compact.peekKeyDigest`, `Compact.keyDigest` and
+  `Compact.keyDigestBytes`, the experimental cb3 formats.
 - **Holder proofs.** `Holder.prove(client:request:accessToken:jti:)`,
   `Holder.proveLocal(proofKey:request:accessToken:jti:)` and
   `Holder.normalizeTarget(_:)`; a `HolderRequest` is the method, the
@@ -217,9 +258,10 @@ a dependency.
 `Examples/Cb2Walkthrough` is a package that depends on this one by path.
 Its library issues, opens and verifies cb2.local and cb2.public tokens,
 shows the refusals a verifier gives (replay, wrong audience, expiry,
-tampering, wrong key), checks holder proofs of both modes and seals a
-key; its `cb2-walkthrough` executable prints the twenty steps and exits
-non-zero if any step is answered differently than it should be.
+tampering, wrong key), issues and checks the compact cb3 forms, checks
+holder proofs of both modes and seals a key; its `cb2-walkthrough`
+executable prints the twenty-seven steps and exits non-zero if any step
+is answered differently than it should be.
 
 `Examples/Cb2App` is a SwiftUI app for macOS 14 and iOS 17 with one
 multiplatform target. It shows the library build, lets you issue a
@@ -262,9 +304,11 @@ BLAKE3 1.8.7, liboqs 0.16.0 and OpenSSL 3.6.4:
 | format | issue (us) | verify (us) | token bytes |
 |---|---:|---:|---:|
 | cb2.local | 8 | 12 | 430 |
+| cb3.local (compact) | 6 | 11 | 224 |
 | JWT HS256 (jwt-kit) | 21 | 14 | 288 |
 | PASETO v4.local (swift-paseto) | 14 | 147 | 333 |
 | cb2.public (Ed25519 + ML-DSA-65) | 180 | 127 | 4,843 |
+| cb3.public (compact) | 175 | 125 | 4,637 |
 | JWT EdDSA (jwt-kit) | 125 | 61 | 331 |
 | JWT ES256 (jwt-kit) | 152 | 145 | 331 |
 | JWT ML-DSA-65 (jwt-kit) | 1,283 | 111 | 4,663 |
@@ -286,6 +330,10 @@ What the numbers say, plainly:
 - cb2.local tokens are larger than the other symmetric tokens because
   the footer binds the key id (85 bytes here); a key with
   `withoutKeyId()` writes none.
+- The compact cb3.local token is the smallest symmetric token here,
+  224 bytes against 288 for JWT HS256, and slightly faster than
+  cb2.local, since CBOR is shorter to write and read than JSON. The
+  compact cb3.public saves about 200 bytes; the signatures dominate it.
 - About 9 of the 12 us of a cb2.local verify are the Swift layer (the
   rules and claims as JSON, and the copies across the C boundary); the
   C++ library opens a typical token in about 3 us (docs/VERIFICATION.md).
@@ -320,7 +368,11 @@ round trip, the verdicts (`rulesIncomplete`, `audienceMismatch`,
 as `missingProof`, a public holder proof accepted and then
 `proofMismatch`, `proofReplayed` and `proofExpired`, a local-mode proof
 accepted and then `proofReplayed`, `proofMismatch` and `proofInvalid`,
-and sealing. On top of that: the code and name of every verdict, every
+sealing, and the compact tokens (`test_compact`): shorter than cb2 and
+opening to the same claims, neither format opening as the other, the
+verdicts, the peeked key digest against the computed one, a key without
+an id, the fraction refusal, a compact access token with a local holder
+proof, and cb3.public sign and verify. On top of that: the code and name of every verdict, every
 claim value kind and the string escapes through a seal and an open, key
 ids on copies, a typed `catch`, and one key used by 16 concurrent tasks.
 The public and seal suites are disabled on a build of the library
