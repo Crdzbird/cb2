@@ -12,7 +12,7 @@ from ._lib import loaded
 from .errors import Cb2Error, Code, LibraryNotFound, error_name
 from .keys import LocalKey, PublicKey, RecipientKey, RecipientPublicKey, SecretKey
 from .rules import ReplayCheck, Rules, RulesLike
-from .tokens import Claims, Holder, KeyWrap, Local, Public, Seal, Token
+from .tokens import Claims, Compact, Holder, KeyWrap, Local, Public, Seal, Token
 
 __version__ = "0.1.0"
 
@@ -20,6 +20,7 @@ __all__ = [
     "Cb2Error",
     "Claims",
     "Code",
+    "Compact",
     "Holder",
     "KeyWrap",
     "LibraryNotFound",
