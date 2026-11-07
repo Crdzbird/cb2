@@ -149,6 +149,7 @@ full.
 | recipient pairs for `kcb2.seal` | `cb2_recipient_key_*` and `cb2_recipient_public_key_*`: generate, from and to bytes and PASERK text, `_public_key`, `_paserk_id`, `_free` |
 | claims tokens | `cb2_token_seal`, `cb2_token_open`, `cb2_token_sign`, `cb2_token_verify`, `cb2_peek_key_id` |
 | compact claims tokens | `cb2_compact_seal`, `cb2_compact_open`, `cb2_compact_sign`, `cb2_compact_verify`, `cb2_compact_peek_key_digest`, `cb2_compact_key_digest` |
+| claim tables (`cb2_claim_table`) | `cb2_claim_table_from_json`, `cb2_claim_table_digest`, `cb2_claim_table_free`, `cb2_compact_seal_with_table`, `cb2_compact_open_with_table`, `cb2_compact_sign_with_table`, `cb2_compact_verify_with_table` |
 | raw tokens | `cb2_local_seal`, `cb2_local_open`, `cb2_public_sign`, `cb2_public_verify` |
 | holder proofs | `cb2_holder_prove_local`, `cb2_holder_prove`, `cb2_holder_normalize_target` |
 | key wrapping and sealing | `cb2_wrap`, `cb2_unwrap`, `cb2_seal`, `cb2_unseal` |
@@ -164,6 +165,16 @@ instead of the key id text. `cb2_compact_peek_key_digest` reads it from a
 token without verifying anything, and `cb2_compact_key_digest` computes
 it for a key id, so a verifier holding several keys can choose the one to
 try.
+
+An issuer and its verifiers can also agree on a claim table, the issuer's
+name and the audiences it serves as a JSON array such as
+`["https://auth.example.com","api","billing"]`. Under the table those
+claims travel as one-byte indexes, which brings a typical `cb3.local`
+token to about 217 characters. The table is part of what the token
+authenticates without being sent, so it must be the same on both sides:
+a verifier with another table, or none, gets `CB2_INVALID`. Compare
+`cb2_claim_table_digest` on both sides to check that they agree, and
+change the table only together with the key id.
 
 Claims go in as a JSON object with the registered claims as strings and
 times in RFC 3339 (`"exp":"2099-01-01T00:00:00+00:00"`), plus any claims

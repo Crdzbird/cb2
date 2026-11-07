@@ -1,8 +1,9 @@
 /*
  * The C ABI exercised from C: keys, raw tokens, claims tokens with
  * rules and both replay callbacks, holder proofs of both modes, the
- * compact claims tokens, key wrapping and sealing, the boundary contract
- * of the header, and every verdict the bridges rely on. Exits non-zero on the first failed check.
+ * compact claims tokens and claim tables, key wrapping and sealing, the
+ * boundary contract of the header, and every verdict the bridges rely
+ * on. Exits non-zero on the first failed check.
  */
 
 #include "cb2_c.h"
@@ -472,6 +473,113 @@ static void test_compact(void) {
     cb2_local_key_free(k);
 }
 
+/* Claim tables: built from JSON, the digest of the shared vectors, a
+ * shorter token that opens only under the same table, the verdicts kept,
+ * the reserved implicit assertion, NULL meaning no table, and cb3.public. */
+static void test_claim_table(void) {
+    const char* entries = "[\"https://issuer.example\",\"api\",\"billing\"]";
+    const char* reordered = "[\"api\",\"https://issuer.example\",\"billing\"]";
+    cb2_claim_table* t = NULL;
+    cb2_claim_table* same = NULL;
+    cb2_claim_table* other = NULL;
+    CHECK(cb2_claim_table_from_json(entries, strlen(entries), &t) == CB2_OK && t != NULL);
+    CHECK(cb2_claim_table_from_json(entries, strlen(entries), &same) == CB2_OK);
+    CHECK(cb2_claim_table_from_json(reordered, strlen(reordered), &other) == CB2_OK);
+    cb2_claim_table* bad = NULL;
+    const char* refused[] = {"not json", "{}", "[1]", "[]", "[\"a\",\"a\"]", "[\"a\",\"\"]", "[\"a\\nb\"]"};
+    for (size_t i = 0; i < sizeof refused / sizeof refused[0]; i++)
+        CHECK(cb2_claim_table_from_json(refused[i], strlen(refused[i]), &bad) == CB2_ARGUMENT && bad == NULL);
+    CHECK(cb2_claim_table_from_json(entries, strlen(entries), NULL) == CB2_ARGUMENT);
+
+    uint8_t* d1 = NULL;
+    uint8_t* d2 = NULL;
+    uint8_t* d3 = NULL;
+    CHECK(cb2_claim_table_digest(t, &d1) == CB2_OK && cb2_claim_table_digest(same, &d2) == CB2_OK);
+    CHECK(cb2_claim_table_digest(other, &d3) == CB2_OK);
+    CHECK(memcmp(d1, d2, CB2_CLAIM_TABLE_DIGEST_BYTES) == 0 && memcmp(d1, d3, CB2_CLAIM_TABLE_DIGEST_BYTES) != 0);
+    char hex[2 * CB2_CLAIM_TABLE_DIGEST_BYTES + 1];
+    for (size_t i = 0; i < CB2_CLAIM_TABLE_DIGEST_BYTES; i++) snprintf(hex + 2 * i, 3, "%02x", d1[i]);
+    CHECK(strcmp(hex, "767715f4054718828339b957f45d7bfd52b59bfca9188d0eb68d0389090fef4d") == 0);
+    cb2_free(d1);
+    cb2_free(d2);
+    cb2_free(d3);
+    CHECK(cb2_claim_table_digest(NULL, &d1) == CB2_ARGUMENT);
+    CHECK(cb2_claim_table_digest(t, NULL) == CB2_ARGUMENT);
+
+    cb2_local_key* k = NULL;
+    CHECK(cb2_local_key_generate(&k) == CB2_OK);
+    char* tabled = NULL;
+    size_t tlen = 0;
+    char* plain = NULL;
+    size_t plen = 0;
+    CHECK(cb2_compact_seal_with_table(k, t, CLAIMS, strlen(CLAIMS), NULL, 0, &tabled, &tlen) == CB2_OK);
+    CHECK(cb2_compact_seal(k, CLAIMS, strlen(CLAIMS), NULL, 0, &plain, &plen) == CB2_OK);
+    CHECK(strncmp(tabled, "cb3.local.", 10) == 0 && tlen + 30 < plen);
+    char* a = NULL;
+    char* b = NULL;
+    size_t alen = 0;
+    size_t blen = 0;
+    CHECK(cb2_compact_open_with_table(k, same, tabled, tlen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_OK);
+    CHECK(cb2_compact_open(k, plain, plen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &b, &blen) == CB2_OK);
+    CHECK(a != NULL && b != NULL && strcmp(a, b) == 0);
+    cb2_free(a);
+    cb2_free(b);
+    CHECK(cb2_compact_open(k, tabled, tlen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_INVALID);
+    CHECK(cb2_compact_open_with_table(k, NULL, tabled, tlen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_INVALID);
+    CHECK(cb2_compact_open_with_table(k, other, tabled, tlen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_INVALID);
+    CHECK(cb2_compact_open_with_table(k, t, plain, plen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_INVALID);
+    CHECK(cb2_compact_open_with_table(k, NULL, plain, plen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_OK);
+    cb2_free(a);
+    const char* other_aud = "{\"issuer\":\"https://issuer.example\",\"audience\":\"billing\",\"now\":1700000000}";
+    CHECK(cb2_compact_open_with_table(k, t, tabled, tlen, other_aud, strlen(other_aud), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_AUDIENCE_MISMATCH);
+    const char* other_iss = "{\"issuer\":\"https://other.example\",\"audience\":\"api\",\"now\":1700000000}";
+    CHECK(cb2_compact_open_with_table(k, t, tabled, tlen, other_iss, strlen(other_iss), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_ISSUER_MISMATCH);
+    const char* any = "{\"allow_any_issuer\":true,\"allow_any_audience\":true,\"now\":1700000000}";
+    CHECK(cb2_compact_open_with_table(k, t, tabled, tlen, any, strlen(any), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_OK);
+    cb2_free(a);
+
+    const uint8_t* reserved = (const uint8_t*)"kcb3.table.";
+    char* refused_token = NULL;
+    CHECK(cb2_compact_seal(k, CLAIMS, strlen(CLAIMS), reserved, 11, &refused_token, NULL) == CB2_ARGUMENT);
+    CHECK(cb2_compact_seal_with_table(k, NULL, CLAIMS, strlen(CLAIMS), reserved, 11, &refused_token, NULL) == CB2_ARGUMENT);
+    CHECK(cb2_compact_open(k, plain, plen, RULES, strlen(RULES), reserved, 11, NULL, NULL, NULL, &a, &alen) == CB2_ARGUMENT);
+    CHECK(refused_token == NULL);
+    char* with_ctx = NULL;
+    size_t clen = 0;
+    CHECK(cb2_compact_seal_with_table(k, t, CLAIMS, strlen(CLAIMS), reserved, 11, &with_ctx, &clen) == CB2_OK);
+    CHECK(cb2_compact_open_with_table(k, t, with_ctx, clen, RULES, strlen(RULES), reserved, 11, NULL, NULL, NULL, &a, &alen) == CB2_OK);
+    cb2_free(a);
+    cb2_free(with_ctx);
+    CHECK(cb2_compact_seal_with_table(NULL, t, CLAIMS, strlen(CLAIMS), NULL, 0, &refused_token, NULL) == CB2_ARGUMENT);
+
+    if (cb2_has_public()) {
+        cb2_secret_key* sk = NULL;
+        cb2_public_key* pk = NULL;
+        CHECK(cb2_secret_key_generate(&sk) == CB2_OK && cb2_secret_key_public_key(sk, &pk) == CB2_OK);
+        char* signed_token = NULL;
+        size_t slen = 0;
+        CHECK(cb2_compact_sign_with_table(sk, t, CLAIMS, strlen(CLAIMS), NULL, 0, &signed_token, &slen) == CB2_OK);
+        CHECK(cb2_compact_verify_with_table(pk, same, signed_token, slen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_OK);
+        cb2_free(a);
+        CHECK(cb2_compact_verify(pk, signed_token, slen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_INVALID);
+        CHECK(cb2_compact_verify_with_table(pk, other, signed_token, slen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_INVALID);
+        cb2_free(signed_token);
+        cb2_public_key_free(pk);
+        cb2_secret_key_free(sk);
+    }
+    if (!cb2_has_public()) {
+        CHECK(cb2_compact_sign_with_table(NULL, t, CLAIMS, strlen(CLAIMS), NULL, 0, &refused_token, NULL) == CB2_UNAVAILABLE);
+        CHECK(cb2_compact_verify_with_table(NULL, t, plain, plen, RULES, strlen(RULES), NULL, 0, NULL, NULL, NULL, &a, &alen) == CB2_UNAVAILABLE);
+    }
+    cb2_free(plain);
+    cb2_free(tabled);
+    cb2_local_key_free(k);
+    cb2_claim_table_free(NULL);
+    cb2_claim_table_free(other);
+    cb2_claim_table_free(same);
+    cb2_claim_table_free(t);
+}
+
 int main(void) {
     printf("cb2_c %s, public %d, seal %d\n", cb2_version(), cb2_has_public(), cb2_has_seal());
     test_boundary();
@@ -480,6 +588,7 @@ int main(void) {
     test_public();
     test_seal();
     test_compact();
+    test_claim_table();
     if (failures != 0) {
         printf("%d failure(s)\n", failures);
         return 1;

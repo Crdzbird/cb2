@@ -156,7 +156,7 @@ The claim table is in the C++ library (include/cb2/claim_table.hpp and the table
 | public | 4,883.2 | 4,673.2 | 4,630.5 | -5.2% |
 | public bound to a client key pair | 8,439.2 | 7,325.2 | 7,282.5 | -13.7% |
 
-The exit criteria hold: a token checked against a different table, a reordered one, a longer one or none is refused as invalid, and issuer_mismatch and audience_mismatch are still reported, since the indexes are turned back into text before the rules run. Sealing and opening are slightly faster than cb3 without a table (3.76 and 2.44 us against 3.88 and 2.58 on the same run). The C ABI and the bindings do not expose the table yet.
+The exit criteria hold: a token checked against a different table, a reordered one, a longer one or none is refused as invalid, and issuer_mismatch and audience_mismatch are still reported, since the indexes are turned back into text before the rules run. Sealing and opening are slightly faster than cb3 without a table (3.76 and 2.44 us against 3.88 and 2.58 on the same run). The C ABI exposes the table through the cb2_claim_table handle (cb2_claim_table_from_json, cb2_claim_table_digest, cb2_claim_table_free) and the cb2_compact_*_with_table functions, where a NULL table means none. The seven language bindings build on it.
 
 ### Protocol and test-vector changes
 

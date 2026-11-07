@@ -4,6 +4,27 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, Phase 2 of the compact-tokens branch: the claim table in the C ABI
+
+bindings/c exposes the claim table: the cb2_claim_table handle built by
+cb2_claim_table_from_json from a JSON array of strings, its 32-byte
+digest through cb2_claim_table_digest, and cb2_compact_seal_with_table,
+cb2_compact_open_with_table, cb2_compact_sign_with_table and
+cb2_compact_verify_with_table, where a NULL table means none. The
+existing functions are unchanged.
+
+Tests: test_claim_table in bindings/c/test/test_c.c checks seven refused
+inputs, the digest against the one tests/vectors/cb3.json records, a
+token at least 30 characters shorter that opens to the same claims JSON
+as one without a table, invalid without the table, with a reordered one
+and for a tableless token under the table, issuer_mismatch,
+audience_mismatch and allow_any under the table, the reserved implicit
+assertion refused without a table and accepted with one, NULL as no
+table, and cb3.public under a table. cb2_c_test passed in the release,
+ASan/UBSan and no-liboqs builds, CTest 11 of 11, and cb2_c.cpp compiles
+without warnings under GCC 16 with -Wall -Wextra -Wpedantic -Wshadow
+-Wconversion, with and without liboqs.
+
 ## 2026-11-07, Phase 2 of the compact-tokens branch: the claim table
 
 include/cb2/claim_table.hpp adds ClaimTable, and CompactToken gains

@@ -133,6 +133,7 @@ typedef struct cb2_secret_key cb2_secret_key;
 typedef struct cb2_public_key cb2_public_key;
 typedef struct cb2_recipient_key cb2_recipient_key;
 typedef struct cb2_recipient_public_key cb2_recipient_public_key;
+typedef struct cb2_claim_table cb2_claim_table;
 
 /* A replay check: returns 1 to accept the id, 0 to refuse it. jti is
  * borrowed for the duration of the callback and is not NUL-terminated. */
@@ -311,6 +312,49 @@ CB2_API int cb2_compact_verify(const cb2_public_key* key, const char* token, siz
  * one whose digest matches. */
 CB2_API int cb2_compact_peek_key_digest(const char* token, size_t token_len, uint8_t** out_digest);
 CB2_API int cb2_compact_key_digest(const char* id, size_t len, uint8_t** out_digest);
+
+/* Claim tables (docs/PROTOCOL.md section 15.5). An issuer and its
+ * verifiers configure the same ordered list of 1 to 256 distinct, non-empty
+ * strings, typically the issuer's name and its audiences; under a table an
+ * iss or aud equal to an entry travels as its index. The table's digest is
+ * bound into the authenticated implicit assertion and never sent, so a
+ * token opens only under the same table: under another one, or none, the
+ * verdict is CB2_INVALID. Without a table, an implicit assertion that
+ * starts with "kcb3.table." is CB2_ARGUMENT.
+ *
+ * cb2_claim_table_from_json takes the entries as a JSON array of strings
+ * and returns CB2_ARGUMENT for anything else or for entries the rules
+ * refuse. A table handle is immutable and may be shared between threads.
+ * cb2_claim_table_digest returns the CB2_CLAIM_TABLE_DIGEST_BYTES digest as
+ * malloc'd bytes, so two parties can compare their tables. The
+ * _with_table token functions are the compact ones with a table; a NULL
+ * table makes each the same as its counterpart without one. */
+#define CB2_CLAIM_TABLE_DIGEST_BYTES 32
+
+CB2_API int cb2_claim_table_from_json(const char* entries_json, size_t len, cb2_claim_table** out);
+CB2_API int cb2_claim_table_digest(const cb2_claim_table* table, uint8_t** out_digest);
+CB2_API void cb2_claim_table_free(cb2_claim_table* table);
+
+CB2_API int cb2_compact_seal_with_table(const cb2_local_key* key, const cb2_claim_table* table,
+                                        const char* claims_json, size_t claims_len,
+                                        const uint8_t* implicit, size_t implicit_len,
+                                        char** out_token, size_t* out_len);
+CB2_API int cb2_compact_sign_with_table(const cb2_secret_key* key, const cb2_claim_table* table,
+                                        const char* claims_json, size_t claims_len,
+                                        const uint8_t* implicit, size_t implicit_len,
+                                        char** out_token, size_t* out_len);
+CB2_API int cb2_compact_open_with_table(const cb2_local_key* key, const cb2_claim_table* table,
+                                        const char* token, size_t token_len,
+                                        const char* rules_json, size_t rules_len,
+                                        const uint8_t* implicit, size_t implicit_len,
+                                        cb2_replay_fn replay, cb2_replay_fn proof_replay, void* user,
+                                        char** out_claims, size_t* out_len);
+CB2_API int cb2_compact_verify_with_table(const cb2_public_key* key, const cb2_claim_table* table,
+                                          const char* token, size_t token_len,
+                                          const char* rules_json, size_t rules_len,
+                                          const uint8_t* implicit, size_t implicit_len,
+                                          cb2_replay_fn replay, cb2_replay_fn proof_replay, void* user,
+                                          char** out_claims, size_t* out_len);
 
 /* Holder proofs (sender constraint) for one request and one access token;
  * nonce may be NULL. cb2_holder_prove is the public mode, a proof by the
