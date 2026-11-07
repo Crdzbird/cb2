@@ -103,3 +103,10 @@ must accept both headers for as long as cb2 tokens it issued are alive.
 Claims carry over unchanged with two exceptions the cb3 issuer refuses
 with argument: a custom claim holding a number that is not an integer
 in int64 (1.5, 1e3, -0), and a cnf that is not a kcb2 key string.
+
+An issuer and its verifiers that agree on a claim table, the list of the
+issuer's name and the audiences it serves, can shorten a typical local
+token further to about 217 characters. The table must be identical on
+both sides: a verifier with another table, or none, refuses the token as
+invalid. Treat it like a key: give it to verifiers before the issuer
+uses it, and change it only together with the key id.

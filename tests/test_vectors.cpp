@@ -634,6 +634,74 @@ TEST_CASE("vectors/cb3 opens, profile, refused and tamper vectors yield their ve
     CHECK(Local::open(tu::str(*relabelled, "token"), key, cb2::bytes(tu::str(*relabelled, "footer"))).error() == Error::invalid);
 }
 
+namespace {
+
+std::vector<std::string> entries_in(const Value& list) {
+    std::vector<std::string> out;
+    for (const Value& e : list.items) out.push_back(e.text);
+    return out;
+}
+
+}
+
+TEST_CASE("vectors/cb3 claim table vectors reproduce and yield their verdicts") {
+    Value root;
+    REQUIRE(load("cb3.json", root));
+    const Value* t = root.get("table");
+    REQUIRE(t != nullptr);
+    const cb2::ClaimTable table = cb2::ClaimTable::make(entries_in(*t->get("entries"))).value();
+    CHECK(tu::hex(table.digest()) == tu::str(*t, "digest"));
+    for (const Value& v : t->get("digests")->items)
+        CHECK(tu::hex(cb2::ClaimTable::make(entries_in(*v.get("entries"))).value().digest()) == tu::str(v, "digest"));
+    for (const Value& v : t->get("local")->items) {
+        const LocalKey k = cb3_key(v);
+        const Claims c = Claims::from_json(tu::str(v, "claims")).value();
+        const std::string payload = cb2::CompactClaims::encode(c, &table).value();
+        CHECK(tu::hex(text_bytes(payload)) == tu::str(v, "payload"));
+        const std::string footer = cb2::CompactToken::footer_for(k.key_id());
+        const std::string implicit = tu::str(v, "implicit-assertion");
+        const std::string bound = table.bind(implicit);
+        CHECK(tu::hex(text_bytes(bound)) == tu::str(v, "authenticated-implicit-assertion"));
+        const auto tok = cb2::CompactToken::seal_with_nonce_for_testing(k, c, table, tu::unhex(tu::str(v, "nonce")), implicit);
+        REQUIRE(tok.is_ok());
+        CHECK(tok.value() == tu::str(v, "token"));
+        const auto opened = cb2::CompactToken::open(tok.value(), k, ValidationRules().allow_any_audience().allow_any_issuer().allow_missing_exp().at(1700000000), table, implicit);
+        REQUIRE(opened.is_ok());
+        CHECK(opened.value().to_json() == tu::str(v, "claims"));
+        check_local_intermediates(v, tu::unhex(tu::str(v, "key")), tu::unhex(tu::str(v, "nonce")), text_bytes(payload),
+                                  text_bytes(footer), text_bytes(bound), tok.value(), cb2::CompactToken::LOCAL_HEADER);
+    }
+    const LocalKey key = LocalKey::from_bytes(tu::unhex(tu::str(root, "open-key"))).value();
+    for (const Value& v : t->get("opens")->items) {
+        const Value* list = v.get("table");
+        const std::string implicit = tu::str(v, "implicit-assertion");
+        const auto r = list->kind == Value::Kind::null
+                           ? cb2::CompactToken::open(tu::str(v, "token"), key, rules_of(v), implicit)
+                           : cb2::CompactToken::open(tu::str(v, "token"), key, rules_of(v),
+                                                     cb2::ClaimTable::make(entries_in(*list)).value(), implicit);
+        CHECK(verdict_name(r.is_ok(), r.is_ok() ? Error::internal : r.error()) == tu::str(v, "expect"));
+    }
+    for (const Value& v : t->get("profile")->items) {
+        const bool with = v.get("with-table")->b;
+        const auto r = cb2::CompactClaims::decode(tu::unhex(tu::str(v, "payload")), with ? &table : nullptr);
+        CHECK(verdict_name(r.is_ok(), r.is_ok() ? Error::internal : r.error()) == tu::str(v, "expect"));
+        if (r.is_ok()) CHECK(r.value().to_json() == tu::str(v, "claims"));
+    }
+    for (const Value& v : t->get("refused")->items)
+        CHECK(cb2::ClaimTable::make(entries_in(*v.get("entries"))).error() == Error::argument);
+#ifdef CB2_HAS_PQ
+    const Value* pub = t->get("public");
+    REQUIRE(pub != nullptr);
+    const auto pk = cb2::PublicKey::from_bytes(tu::unhex(tu::str(*pub, "public-key"))).value();
+    const ValidationRules any = ValidationRules().allow_any_audience().allow_any_issuer().allow_missing_exp().at(1700000000);
+    const auto r = cb2::CompactToken::verify(tu::str(*pub, "token"), pk, any, table);
+    REQUIRE(r.is_ok());
+    CHECK(r.value().to_json() == tu::str(*pub, "claims"));
+    CHECK(tu::hex(text_bytes(cb2::CompactClaims::encode(r.value(), &table).value())) == tu::str(*pub, "payload"));
+    CHECK(cb2::CompactToken::verify(tu::str(*pub, "token"), pk, any).error() == Error::invalid);
+#endif
+}
+
 #ifdef CB2_HAS_PQ
 TEST_CASE("vectors/cb3.public vectors verify to their claims") {
     Value root;

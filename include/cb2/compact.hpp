@@ -14,6 +14,10 @@
  * bytes and cnf as the key bytes. The footer is the 16-byte key digest
  * BLAKE3("kcb3.kid." || key id), authenticated like any footer.
  *
+ * With a ClaimTable (section 15.5), an iss or aud found in the table is
+ * written as its index and the table's digest is bound into the
+ * implicit assertion, so the token opens only under the same table.
+ *
  * Validation is the cb2 order: rules, size limit, authentication, then
  * parsing, then the claims rules and the holder proof, with the same
  * verdicts. A cb3 token never opens under a cb2 header nor the reverse:
@@ -21,6 +25,7 @@
  */
 
 #include "cbor.hpp"
+#include "claim_table.hpp"
 #include "claims.hpp"
 #include "detail/blake3.hpp"
 #include "detail/local_core.hpp"
@@ -67,8 +72,9 @@ public:
     /// The payload of a cb3 token. argument when an identifier breaks the
     /// policy, a time lies outside MIN_TIME..MAX_TIME, cnf is not a
     /// kcb2.local or kcb2.public key string, or a custom claim holds a
-    /// number that is not an int64 integer in canonical form.
-    [[nodiscard]] static Result<std::string> encode(const Claims& c) {
+    /// number that is not an int64 integer in canonical form. With a
+    /// table, an iss or aud equal to an entry is written as its index.
+    [[nodiscard]] static Result<std::string> encode(const Claims& c, const ClaimTable* table = nullptr) {
         if (!c.text_ok()) return Result<std::string>::err(Error::argument);
         for (const auto& t : {&c.exp, &c.nbf, &c.iat}) {
             if (*t && (**t < MIN_TIME || **t > MAX_TIME)) return Result<std::string>::err(Error::argument);
@@ -80,9 +86,9 @@ public:
             count += present ? 1 : 0;
         cbor::Writer::head(out, cbor::MAJOR_MAP, count);
         auto key = [&out](uint64_t k) { cbor::Writer::head(out, cbor::MAJOR_UINT, k); };
-        if (c.iss) { key(KEY_ISS); cbor::Writer::text(out, *c.iss); }
+        if (c.iss) { key(KEY_ISS); named(out, *c.iss, table); }
         if (c.sub) { key(KEY_SUB); cbor::Writer::text(out, *c.sub); }
-        if (c.aud) { key(KEY_AUD); cbor::Writer::text(out, *c.aud); }
+        if (c.aud) { key(KEY_AUD); named(out, *c.aud, table); }
         if (c.exp) { key(KEY_EXP); cbor::Writer::integer(out, *c.exp); }
         if (c.nbf) { key(KEY_NBF); cbor::Writer::integer(out, *c.nbf); }
         if (c.iat) { key(KEY_IAT); cbor::Writer::integer(out, *c.iat); }
@@ -113,9 +119,10 @@ public:
     }
 
     /// Claims from an authenticated cb3 payload; claims_malformed for
-    /// anything outside the profile (PROTOCOL.md 15.3) or an identifier
-    /// that breaks the policy.
-    [[nodiscard]] static Result<Claims> decode(std::span<const uint8_t> payload) {
+    /// anything outside the profile (PROTOCOL.md 15.3 and 15.5) or an
+    /// identifier that breaks the policy. table is the one the token was
+    /// authenticated under, or nullptr.
+    [[nodiscard]] static Result<Claims> decode(std::span<const uint8_t> payload, const ClaimTable* table = nullptr) {
         cbor::Reader r(payload);
         cbor::Head h;
         if (!r.head(h) || h.major != cbor::MAJOR_MAP || h.arg > r.left() / 2) return malformed();
@@ -126,7 +133,7 @@ public:
             cbor::Head kh;
             if (!r.head(kh)) return malformed();
             if (kh.major == cbor::MAJOR_UINT) {
-                if (custom || kh.arg <= last || kh.arg > KEY_CNF || !registered(r, kh.arg, c)) return malformed();
+                if (custom || kh.arg <= last || kh.arg > KEY_CNF || !registered(r, kh.arg, c, table)) return malformed();
                 last = kh.arg;
                 continue;
             }
@@ -201,13 +208,34 @@ private:
         return true;
     }
 
-    [[nodiscard]] static bool registered(cbor::Reader& r, uint64_t key, Claims& c) {
+    static void named(std::string& out, const std::string& value, const ClaimTable* table) {
+        const auto index = table != nullptr ? table->index_of(value) : std::nullopt;
+        if (index) {
+            cbor::Writer::head(out, cbor::MAJOR_UINT, *index);
+            return;
+        }
+        cbor::Writer::text(out, value);
+    }
+
+    /// An iss or aud: a text not in the table, or the index of an entry.
+    [[nodiscard]] static bool read_named(cbor::Reader& r, const cbor::Head& h, const ClaimTable* table,
+                                         std::optional<std::string>& out) {
+        if (h.major == cbor::MAJOR_UINT) {
+            const std::string* entry = table != nullptr ? table->at(h.arg) : nullptr;
+            if (entry == nullptr) return false;
+            out = *entry;
+            return true;
+        }
+        return r.text_after(h, out.emplace()) && (table == nullptr || !table->index_of(*out));
+    }
+
+    [[nodiscard]] static bool registered(cbor::Reader& r, uint64_t key, Claims& c, const ClaimTable* table) {
         cbor::Head h;
         if (!r.head(h)) return false;
         switch (key) {
-            case KEY_ISS: return r.text_after(h, c.iss.emplace());
+            case KEY_ISS: return read_named(r, h, table, c.iss);
             case KEY_SUB: return r.text_after(h, c.sub.emplace());
-            case KEY_AUD: return r.text_after(h, c.aud.emplace());
+            case KEY_AUD: return read_named(r, h, table, c.aud);
             case KEY_EXP: return time(h, c.exp);
             case KEY_NBF: return time(h, c.nbf);
             case KEY_IAT: return time(h, c.iat);
@@ -293,13 +321,17 @@ public:
         return d;
     }
 
-    /// Seals claims as a cb3.local token.
+    /// Seals claims as a cb3.local token. An implicit assertion that
+    /// starts with ClaimTable::TABLE_DOMAIN is argument.
     [[nodiscard]] static Result<std::string>
     seal(const LocalKey& key, const Claims& claims, std::string_view implicit = {}) {
-        uint8_t n[NONCE_BYTES];
-        if (!detail::ensure_sodium()) return Result<std::string>::err(Error::internal);
-        detail::fresh_nonce(n, NONCE_BYTES);
-        return seal_with(key, claims, implicit, n);
+        return seal_fresh(key, claims, nullptr, implicit);
+    }
+
+    /// Seals claims as a cb3.local token under a claim table.
+    [[nodiscard]] static Result<std::string>
+    seal(const LocalKey& key, const Claims& claims, const ClaimTable& table, std::string_view implicit = {}) {
+        return seal_fresh(key, claims, &table, implicit);
     }
 
 #ifdef CB2_TEST_NONCE
@@ -309,7 +341,15 @@ public:
     seal_with_nonce_for_testing(const LocalKey& key, const Claims& claims, std::span<const uint8_t> nonce,
                                 std::string_view implicit = {}) {
         if (nonce.size() != NONCE_BYTES) return Result<std::string>::err(Error::argument);
-        return seal_with(key, claims, implicit, nonce.data());
+        return seal_with(key, claims, nullptr, implicit, nonce.data());
+    }
+
+    /// Test builds only: the same under a claim table.
+    [[nodiscard]] static Result<std::string>
+    seal_with_nonce_for_testing(const LocalKey& key, const Claims& claims, const ClaimTable& table,
+                                std::span<const uint8_t> nonce, std::string_view implicit = {}) {
+        if (nonce.size() != NONCE_BYTES) return Result<std::string>::err(Error::argument);
+        return seal_with(key, claims, &table, implicit, nonce.data());
     }
 #endif
 
@@ -317,23 +357,15 @@ public:
     /// authentication, parsing, validation, in that order.
     [[nodiscard]] static Result<Claims>
     open(std::string_view token, const LocalKey& key, const ValidationRules& rules, std::string_view implicit = {}) {
-        const auto pre = precheck(token, key.key_id(), rules);
-        if (pre.is_err()) return Result<Claims>::err(pre.error());
-        try {
-            const std::string footer = footer_for(key.key_id());
-            const std::size_t cap = detail::LocalCore::open_capacity(LOCAL_HEADER, token.size());
-            if (cap == 0) return Result<Claims>::err(Error::invalid);
-            SecureBytes buf(cap);
-            std::size_t n = 0;
-            const Status s = detail::LocalCore::open(LOCAL_HEADER, buf, n, token, detail::KeyAccess::local(key),
-                                                     bytes(footer), bytes(implicit));
-            if (s != Status::ok) return Result<Claims>::err(to_error(s));
-            auto claims = CompactClaims::decode({buf.data(), n});
-            if (claims.is_err()) return claims;
-            return Token::finish_parsed(std::move(claims.value()), rules, token, false);
-        } catch (...) {
-            return Result<Claims>::err(Error::internal);
-        }
+        return open_with(token, key, rules, nullptr, implicit);
+    }
+
+    /// Opens a cb3.local token sealed under the same claim table; any
+    /// other table, or none, is invalid.
+    [[nodiscard]] static Result<Claims>
+    open(std::string_view token, const LocalKey& key, const ValidationRules& rules, const ClaimTable& table,
+         std::string_view implicit = {}) {
+        return open_with(token, key, rules, &table, implicit);
     }
 
 #ifdef CB2_HAS_PQ
@@ -341,18 +373,13 @@ public:
     /// as in cb2.public.
     [[nodiscard]] static Result<std::string>
     sign(const SecretKey& key, const Claims& claims, std::string_view implicit = {}) {
-        if (!Token::key_id_ok(key.key_id())) return Result<std::string>::err(Error::argument);
-        if (claims.cnf && claims.cnf->starts_with(Holder::CNF_LOCAL_PREFIX))
-            return Result<std::string>::err(Error::argument);
-        try {
-            auto payload = CompactClaims::encode(claims);
-            if (payload.is_err()) return payload;
-            const std::string footer = footer_for(key.key_id());
-            return detail::PublicCore::sign(PUBLIC_HEADER, key, bytes(payload.value()), bytes(footer),
-                                            bytes(implicit));
-        } catch (...) {
-            return Result<std::string>::err(Error::internal);
-        }
+        return sign_with(key, claims, nullptr, implicit);
+    }
+
+    /// Signs claims as a cb3.public token under a claim table.
+    [[nodiscard]] static Result<std::string>
+    sign(const SecretKey& key, const Claims& claims, const ClaimTable& table, std::string_view implicit = {}) {
+        return sign_with(key, claims, &table, implicit);
     }
 
     /// Verifies a cb3.public token: rules and key checks, size limit,
@@ -360,23 +387,27 @@ public:
     [[nodiscard]] static Result<Claims>
     verify(std::string_view token, const PublicKey& key, const ValidationRules& rules,
            std::string_view implicit = {}) {
-        const auto pre = precheck(token, key.key_id(), rules);
-        if (pre.is_err()) return Result<Claims>::err(pre.error());
-        try {
-            const std::string footer = footer_for(key.key_id());
-            auto msg = detail::PublicCore::verify(PUBLIC_HEADER, token, key, bytes(footer), bytes(implicit),
-                                                  rules.max_token_bytes());
-            if (msg.is_err()) return Result<Claims>::err(msg.error());
-            auto claims = CompactClaims::decode(msg.value());
-            if (claims.is_err()) return claims;
-            return Token::finish_parsed(std::move(claims.value()), rules, token, true);
-        } catch (...) {
-            return Result<Claims>::err(Error::internal);
-        }
+        return verify_with(token, key, rules, nullptr, implicit);
+    }
+
+    /// Verifies a cb3.public token signed under the same claim table;
+    /// any other table, or none, is invalid.
+    [[nodiscard]] static Result<Claims>
+    verify(std::string_view token, const PublicKey& key, const ValidationRules& rules, const ClaimTable& table,
+           std::string_view implicit = {}) {
+        return verify_with(token, key, rules, &table, implicit);
     }
 #endif
 
 private:
+    /// The implicit assertion that is authenticated: bound to the table
+    /// when there is one; without one, nullopt for a reserved assertion.
+    [[nodiscard]] static std::optional<std::string> authenticated(const ClaimTable* table, std::string_view implicit) {
+        if (table != nullptr) return table->bind(implicit);
+        if (ClaimTable::reserved(implicit)) return std::nullopt;
+        return std::string(implicit);
+    }
+
     [[nodiscard]] static Result<void>
     precheck(std::string_view token, const std::optional<std::string>& kid, const ValidationRules& rules) {
         if (!rules.complete()) return Result<void>::err(Error::rules_incomplete);
@@ -386,10 +417,21 @@ private:
     }
 
     [[nodiscard]] static Result<std::string>
-    seal_with(const LocalKey& key, const Claims& claims, std::string_view implicit, const uint8_t* nonce) {
+    seal_fresh(const LocalKey& key, const Claims& claims, const ClaimTable* table, std::string_view implicit) {
+        uint8_t n[NONCE_BYTES];
+        if (!detail::ensure_sodium()) return Result<std::string>::err(Error::internal);
+        detail::fresh_nonce(n, NONCE_BYTES);
+        return seal_with(key, claims, table, implicit, n);
+    }
+
+    [[nodiscard]] static Result<std::string>
+    seal_with(const LocalKey& key, const Claims& claims, const ClaimTable* table, std::string_view implicit,
+              const uint8_t* nonce) {
         if (!Token::key_id_ok(key.key_id())) return Result<std::string>::err(Error::argument);
         try {
-            auto payload = CompactClaims::encode(claims);
+            const auto assertion = authenticated(table, implicit);
+            if (!assertion) return Result<std::string>::err(Error::argument);
+            auto payload = CompactClaims::encode(claims, table);
             if (payload.is_err()) return payload;
             std::string& msg = payload.value();
             const std::string footer = footer_for(key.key_id());
@@ -402,7 +444,7 @@ private:
             std::size_t n = 0;
             const Status s = detail::LocalCore::seal(LOCAL_HEADER, {reinterpret_cast<uint8_t*>(tok.data()), tok.size()},
                                                      n, detail::KeyAccess::local(key), bytes(msg), bytes(footer),
-                                                     bytes(implicit), nonce);
+                                                     bytes(*assertion), nonce);
             detail::wipe(msg.data(), msg.size());
             if (s != Status::ok) return Result<std::string>::err(to_error(s));
             return Result<std::string>::ok(std::move(tok));
@@ -410,6 +452,70 @@ private:
             return Result<std::string>::err(Error::internal);
         }
     }
+
+    [[nodiscard]] static Result<Claims>
+    open_with(std::string_view token, const LocalKey& key, const ValidationRules& rules, const ClaimTable* table,
+              std::string_view implicit) {
+        const auto pre = precheck(token, key.key_id(), rules);
+        if (pre.is_err()) return Result<Claims>::err(pre.error());
+        try {
+            const auto assertion = authenticated(table, implicit);
+            if (!assertion) return Result<Claims>::err(Error::argument);
+            const std::string footer = footer_for(key.key_id());
+            const std::size_t cap = detail::LocalCore::open_capacity(LOCAL_HEADER, token.size());
+            if (cap == 0) return Result<Claims>::err(Error::invalid);
+            SecureBytes buf(cap);
+            std::size_t n = 0;
+            const Status s = detail::LocalCore::open(LOCAL_HEADER, buf, n, token, detail::KeyAccess::local(key),
+                                                     bytes(footer), bytes(*assertion));
+            if (s != Status::ok) return Result<Claims>::err(to_error(s));
+            auto claims = CompactClaims::decode({buf.data(), n}, table);
+            if (claims.is_err()) return claims;
+            return Token::finish_parsed(std::move(claims.value()), rules, token, false);
+        } catch (...) {
+            return Result<Claims>::err(Error::internal);
+        }
+    }
+
+#ifdef CB2_HAS_PQ
+    [[nodiscard]] static Result<std::string>
+    sign_with(const SecretKey& key, const Claims& claims, const ClaimTable* table, std::string_view implicit) {
+        if (!Token::key_id_ok(key.key_id())) return Result<std::string>::err(Error::argument);
+        if (claims.cnf && claims.cnf->starts_with(Holder::CNF_LOCAL_PREFIX))
+            return Result<std::string>::err(Error::argument);
+        try {
+            const auto assertion = authenticated(table, implicit);
+            if (!assertion) return Result<std::string>::err(Error::argument);
+            auto payload = CompactClaims::encode(claims, table);
+            if (payload.is_err()) return payload;
+            const std::string footer = footer_for(key.key_id());
+            return detail::PublicCore::sign(PUBLIC_HEADER, key, bytes(payload.value()), bytes(footer),
+                                            bytes(*assertion));
+        } catch (...) {
+            return Result<std::string>::err(Error::internal);
+        }
+    }
+
+    [[nodiscard]] static Result<Claims>
+    verify_with(std::string_view token, const PublicKey& key, const ValidationRules& rules, const ClaimTable* table,
+                std::string_view implicit) {
+        const auto pre = precheck(token, key.key_id(), rules);
+        if (pre.is_err()) return Result<Claims>::err(pre.error());
+        try {
+            const auto assertion = authenticated(table, implicit);
+            if (!assertion) return Result<Claims>::err(Error::argument);
+            const std::string footer = footer_for(key.key_id());
+            auto msg = detail::PublicCore::verify(PUBLIC_HEADER, token, key, bytes(footer), bytes(*assertion),
+                                                  rules.max_token_bytes());
+            if (msg.is_err()) return Result<Claims>::err(msg.error());
+            auto claims = CompactClaims::decode(msg.value(), table);
+            if (claims.is_err()) return claims;
+            return Token::finish_parsed(std::move(claims.value()), rules, token, true);
+        } catch (...) {
+            return Result<Claims>::err(Error::internal);
+        }
+    }
+#endif
 };
 
 }

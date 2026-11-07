@@ -13,7 +13,8 @@
  * key with its cb2.holder-local proof, and with cb2.public, cb2.public
  * itself, tokens of both purposes bound to a client key pair and the
  * cb2.holder-public proof, and the same tokens under the cb3 headers
- * (compact.hpp). Each row gives the minimum, mean and maximum
+ * (compact.hpp), plus cb3 tokens under the claim table that holds the
+ * issuer and the four audiences (claim_table.hpp, Phase 2). Each row gives the minimum, mean and maximum
  * length in characters (bytes for the claims) and whether the longest
  * fits a 4,096-byte cookie and one 8 KB header field.
  *
@@ -106,6 +107,12 @@ struct Row {
     }
 };
 
+const cb2::ClaimTable& claim_table() {
+    static const cb2::ClaimTable t =
+        cb2::ClaimTable::make({ISSUER, "api", "billing", "admin-console", "mobile"}).value();
+    return t;
+}
+
 cb2::ValidationRules rules_for(const cb2::Claims& c) {
     return cb2::ValidationRules().at(CORPUS_NOW).expect_issuer(ISSUER).expect_audience(*c.aud);
 }
@@ -149,6 +156,7 @@ Run measure() {
     static std::vector<std::string> local_tokens;
     static std::vector<cb2::ValidationRules> rules;
     static std::vector<std::string> cb3_local_tokens;
+    static std::vector<std::string> cb3_table_tokens;
     for (const Item& it : items) {
         run.add("claims.json", it.claims.to_json().size());
         local_tokens.push_back(must(cb2::Token::seal(key, it.claims), "seal"));
@@ -169,6 +177,9 @@ Run measure() {
         const std::string cb3_proof = must(cb2::HolderProof::make_local(proof_key, get, cb3_token, it.proof_id, CORPUS_NOW, 60), "make_local");
         check(cb2::CompactToken::open(cb3_token, key, rules_with_proof(bound, cb3_proof)).is_ok(), "bound cb3.local");
         run.add("cb3.local.bound-local", cb3_token.size());
+        cb3_table_tokens.push_back(must(cb2::CompactToken::seal(key, it.claims, claim_table()), "cb3 seal table"));
+        run.add("cb3.local.table", cb3_table_tokens.back().size());
+        check(cb2::CompactToken::open(cb3_table_tokens.back(), key, rules.back(), claim_table()).is_ok(), "cb3.local table");
     }
     run.timed.push_back({"cb2.local seal", [] {
         for (const Item& it : items) (void)cb2::Token::seal(key, it.claims);
@@ -181,6 +192,13 @@ Run measure() {
     }});
     run.timed.push_back({"cb3.local open", [] {
         for (std::size_t i = 0; i < cb3_local_tokens.size(); ++i) (void)cb2::CompactToken::open(cb3_local_tokens[i], key, rules[i]);
+    }});
+    run.timed.push_back({"cb3.local table seal", [] {
+        for (const Item& it : items) (void)cb2::CompactToken::seal(key, it.claims, claim_table());
+    }});
+    run.timed.push_back({"cb3.local table open", [] {
+        for (std::size_t i = 0; i < cb3_table_tokens.size(); ++i)
+            (void)cb2::CompactToken::open(cb3_table_tokens[i], key, rules[i], claim_table());
     }});
 #ifdef CB2_HAS_PQ
     static const cb2::SecretKey issuer = must(cb2::SecretKey::generate(), "issuer key");
@@ -223,6 +241,14 @@ Run measure() {
         run.add("cb3.public.bound-public", cb3_pub.size());
         cb3_bound_tokens.push_back(cb3_pub);
         cb3_bound_rules.push_back(rules_with_proof(bound, cb3_pub_proof));
+        const std::string table_pub = must(cb2::CompactToken::sign(issuer, it.claims, claim_table()), "cb3 sign table");
+        check(cb2::CompactToken::verify(table_pub, issuer_public, rules[i], claim_table()).is_ok(), "cb3.public table");
+        run.add("cb3.public.table", table_pub.size());
+        const std::string table_bound = must(cb2::CompactToken::sign(issuer, bound, claim_table()), "cb3 sign bound table");
+        const std::string table_proof = must(cb2::HolderProof::make(client, get, table_bound, it.proof_id, CORPUS_NOW, 60), "make");
+        check(cb2::CompactToken::verify(table_bound, issuer_public, rules_with_proof(bound, table_proof), claim_table()).is_ok(),
+              "bound cb3.public table");
+        run.add("cb3.public.bound-public.table", table_bound.size());
     }
     run.timed.push_back({"cb2.public sign", [] {
         for (const Item& it : items) (void)cb2::Token::sign(issuer, it.claims);
@@ -301,12 +327,12 @@ double median_us(const std::function<void()>& pass) {
 }
 
 void print_table(const Run& run) {
-    std::printf("%-24s %6s %10s %6s  %-6s %-6s\n", "row", "min", "mean", "max", "cookie", "8 KB");
+    std::printf("%-30s %6s %10s %6s  %-6s %-6s\n", "row", "min", "mean", "max", "cookie", "8 KB");
     for (const std::string& name : run.order) {
         const Row& row = run.rows.at(name);
         const bool cookie = row.max <= COOKIE_LIMIT;
         const bool header = row.max <= HEADER_LIMIT;
-        std::printf("%-24s %6zu %10s %6zu  %-6s %-6s\n", name.c_str(), row.min, row.mean().c_str(), row.max,
+        std::printf("%-30s %6zu %10s %6zu  %-6s %-6s\n", name.c_str(), row.min, row.mean().c_str(), row.max,
                     cookie ? "fits" : "no", header ? "fits" : "no");
     }
 }

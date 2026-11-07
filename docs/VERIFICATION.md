@@ -4,6 +4,39 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, Phase 2 of the compact-tokens branch: the claim table
+
+include/cb2/claim_table.hpp adds ClaimTable, and CompactToken gains
+seal, open, sign and verify overloads that take one (PROTOCOL.md 15.5).
+An iss or aud found in the table travels as its index; the table's
+32-byte BLAKE3 digest is bound into the authenticated implicit assertion
+and never sent; a call without a table refuses an implicit assertion
+that starts with `kcb3.table.`. Tokens without a table are byte for byte
+those of Phase 1: every Phase 1 vector still reproduces.
+
+Tests: tests/test_claim_table.cpp (8 cases) covers the table rules
+(1 to 256 distinct identifiers), the digest over every entry and their
+order, the index encoding and every refusal of the reader, a token that
+opens only under the same table (refused without one, reordered, longer
+or with another implicit assertion), issuer_mismatch, audience_mismatch,
+expired and allow_any under a table, the reserved implicit assertion,
+and cb3.public under a table. The `table` member of tests/vectors/cb3.json
+(4 digests, 3 reproduced tokens with their authenticated implicit
+assertion and intermediates, 10 opens, 12 payloads, 5 refused tables, 1
+public token) is checked by the C++ suite and by tools/check_vectors.py,
+which implements 15.5 from the document: 81 new checks, and the whole
+checker 1,130 passed, 0 failed, 0 skipped. Release and ASan/UBSan: 126
+of 126 cases; without liboqs: 98 of 98; CTest 11 of 11. The new and
+changed files compile without warnings under GCC 16 with -Wall -Wextra
+-Wpedantic -Wshadow -Wconversion. fuzz_compact, which now also requires
+every payload accepted under a table to encode back to the same bytes
+and its token to be invalid without the table, ran 7,617,832 inputs in
+301 seconds with no failure (coverage 2065, 734 corpus entries).
+cb2_size has three new rows and its check passes in the release, ASan,
+no-liboqs and full builds: cb3.local under the table is 215 to 219
+characters (mean 217.458), cb3.public 4,628 to 4,632 and the bound
+cb3.public 7,280 to 7,284.
+
 ## 2026-11-07, Phase 1 of the compact-tokens branch: cb3 in the C ABI
 
 bindings/c exposes the compact tokens: cb2_compact_seal, cb2_compact_open,

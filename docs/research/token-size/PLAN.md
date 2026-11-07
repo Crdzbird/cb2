@@ -146,6 +146,18 @@ The bound public token now fits one 8 KB header field (7,317 to 7,334 characters
 
 The C ABI exposes cb3 through cb2_compact_seal, cb2_compact_open, cb2_compact_sign and cb2_compact_verify, which take the same claims JSON and rules JSON as the cb2_token functions, plus cb2_compact_peek_key_digest and cb2_compact_key_digest for choosing a key. The seven language bindings build on it, one at a time.
 
+### Phase 2 result
+
+The claim table is in the C++ library (include/cb2/claim_table.hpp and the table overloads of CompactToken), section 15.5 of PROTOCOL.md, the `table` member of tests/vectors/cb3.json, test_claim_table.cpp, the table checks of tools/check_vectors.py, fuzz_compact and three new cb2_size rows. The table's 32-byte BLAKE3 digest is bound into the authenticated implicit assertion, never sent, and a call without a table refuses an implicit assertion that could pass for a bound one. With the issuer and the four audiences of the corpus in the table, mean characters:
+
+| token | cb2 | cb3 | cb3 with table | change from cb2 |
+|---|---:|---:|---:|---:|
+| local | 470.2 | 260.2 | 217.5 | -53.7% |
+| public | 4,883.2 | 4,673.2 | 4,630.5 | -5.2% |
+| public bound to a client key pair | 8,439.2 | 7,325.2 | 7,282.5 | -13.7% |
+
+The exit criteria hold: a token checked against a different table, a reordered one, a longer one or none is refused as invalid, and issuer_mismatch and audience_mismatch are still reported, since the indexes are turned back into text before the rules run. Sealing and opening are slightly faster than cb3 without a table (3.76 and 2.44 us against 3.88 and 2.58 on the same run). The C ABI and the bindings do not expose the table yet.
+
 ### Protocol and test-vector changes
 
 PROTOCOL.md needs a new chapter for each cb3 header. Each states the body layout by offset, the PAE, and a CBOR profile section that lists every rejection rule and its error: `invalid` before authentication and `claims_malformed` after. The validation order stays the same: length limit first, authentication second, CBOR parsing only after authentication. SECURITY.md restates that the nonce, tag and signature parameters are unchanged from cb2 and gives the key-id collision rule. MIGRATION.md says that cb2 and cb3 are separate headers and that neither verifier accepts the other's tokens. Under tests/vectors, new files cb3_local.json and cb3_public.json mirror Appendix A and record intermediate values (CBOR claims hex, key id, nonce, ek, n2, ak, PAE, tag) so a divergence can be located. A claims file holds acceptance and rejection cases for duplicate keys, non-shortest integers, indefinite lengths, tags, floats, negative times, trailing bytes, reserved integer keys and, in Phase 2, unknown table indexes and a wrong table digest. Cross-header vectors cover a cb2 token given to a cb3 verifier and the reverse. The tamper sweep covers every position of a cb3 token. tools/check_vectors.py gets its own CBOR decoder, written from the document alone, so that the independent second implementation still exists.

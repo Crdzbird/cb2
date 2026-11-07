@@ -301,6 +301,22 @@ between cb2 and cb3, and each item is checked:
 - nothing is compressed, so the token length leaks no more than the
   JSON of cb2 does: the length of each value, not its content.
 
+An optional claim table (PROTOCOL.md 15.5) shortens iss and aud to
+indexes without weakening any item above. Its 32-byte BLAKE3 digest is
+prepended, with a domain string, to the implicit assertion that the tag
+or both signatures cover, so a token opens only under the exact table it
+was made under; a missing, reordered or extended table gives invalid at
+authentication, before any claim is read. A call without a table refuses
+an implicit assertion that starts with that domain string, so a token
+made without a table can never authenticate as one made with a table, or
+the reverse. The indexes are turned back into text before the rules run,
+so issuer_mismatch, audience_mismatch and the rules that accept any
+issuer or audience behave as without a table. The table is configuration
+on both sides, like a key: changing it invalidates every token made under
+the old one, so a deployment changes it together with the key id. It is
+not a secret and hides nothing; the only change a reader without the
+table sees is an index where the text was.
+
 The CBOR reader is new code on the authenticated side. It accepts one
 canonical encoding of each set of claims (cbor.hpp, compact.hpp), every
 length is checked against the bytes left before anything is allocated,
@@ -318,6 +334,7 @@ that every payload it accepts encodes back to the same bytes.
 | JSON nesting | 16 levels |
 | cb3 CBOR nesting | 16 levels, the payload map included |
 | cb3 key digest | exactly 16 bytes |
+| cb3 claim table | 1 to 256 distinct entries; digest exactly 32 bytes |
 | local key | exactly 32 bytes |
 | public key | exactly 1,984 bytes |
 | secret key | exactly 6,048 bytes |

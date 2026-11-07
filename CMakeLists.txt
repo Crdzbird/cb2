@@ -86,6 +86,7 @@ if(CB2_BUILD_TESTS)
         tests/test_public.cpp
         tests/test_claims.cpp
         tests/test_compact.cpp
+        tests/test_claim_table.cpp
         tests/test_keys.cpp
         tests/test_vectors.cpp
         tests/test_v4_crosscheck.cpp

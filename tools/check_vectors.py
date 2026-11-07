@@ -1562,6 +1562,9 @@ CB3_KEYS = ((1, "iss"), (2, "sub"), (3, "aud"), (4, "exp"), (5, "nbf"), (6, "iat
 CB3_MIN_TIME = -62167219200
 CB3_MAX_TIME = 253402300799
 CB3_MAX_DEPTH = 16
+CB3_TABLE_DOMAIN = b"kcb3.table."
+CB3_TABLE_MAX = 256
+CB3_TABLE_CLAIMS = ("iss", "aud")
 INT64_MAX = 2**63 - 1
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 CANONICAL_INT_RE = re.compile(r"-?(0|[1-9][0-9]*)")
@@ -1620,8 +1623,32 @@ def cb3_encode_value(value):
     return cb3_head(4, len(value)) + b"".join(cb3_encode_value(v) for v in value)
 
 
-def cb3_encode(claims):
-    """Section 15.3, the issuer's side: the payload of a set of claims."""
+def cb3_table(entries):
+    """Section 15.5: the entries of a claim table, refused with argument unless valid."""
+    if not 1 <= len(entries) <= CB3_TABLE_MAX or len(set(entries)) != len(entries):
+        raise Verdict("argument")
+    if any(entry == "" or not identifier_ok(entry) for entry in entries):
+        raise Verdict("argument")
+    return list(entries)
+
+
+def cb3_table_digest(entries):
+    """Section 15.5: BLAKE3 of the domain and the entries as one CBOR array, 32 bytes."""
+    encoded = cb3_head(4, len(entries)) + b"".join(cb3_text(entry) for entry in entries)
+    return blake3_hash(CB3_TABLE_DOMAIN + encoded, 32)
+
+
+def cb3_authenticated(entries, implicit):
+    """Section 15.5: the implicit assertion a token authenticates, with or without a table."""
+    if entries is not None:
+        return CB3_TABLE_DOMAIN + cb3_table_digest(entries) + implicit
+    if implicit.startswith(CB3_TABLE_DOMAIN):
+        raise Verdict("argument")
+    return implicit
+
+
+def cb3_encode(claims, table=None):
+    """Sections 15.3 and 15.5, the issuer's side: the payload of a set of claims."""
     out = cb3_head(5, len(claims.registered) + len(claims.custom))
     for key, name in CB3_KEYS:
         if name not in claims.registered:
@@ -1643,6 +1670,8 @@ def cb3_encode(claims):
                 out += cb3_bytes(b"\x02" + parse_key_string(text, b"kcb2.public.", 2658))
             else:
                 raise Verdict("argument")
+        elif name in CB3_TABLE_CLAIMS and table is not None and value in table:
+            out += cb3_head(0, table.index(value))
         else:
             out += cb3_text(value)
     for name, value in claims.custom:
@@ -1735,8 +1764,8 @@ class CborReader:
         self.fail()
 
 
-def cb3_decode(payload):
-    """Section 15.3, the verifier's side: claims from an authenticated payload."""
+def cb3_decode(payload, table=None):
+    """Sections 15.3 and 15.5, the verifier's side: claims from an authenticated payload."""
     reader = CborReader(payload)
     major, count = reader.head()
     if major != 5 or count > reader.left() // 2:
@@ -1773,9 +1802,15 @@ def cb3_decode(payload):
                     claims.registered[name] = (b"kcb2.public." + b64_encode(raw[1:])).decode("ascii")
                 else:
                     reader.fail()
+            elif name in CB3_TABLE_CLAIMS and vmajor == 0:
+                if table is None or varg >= len(table):
+                    reader.fail()
+                claims.registered[name] = table[varg]
             else:
                 text = reader.text(vmajor, varg)
                 if name == "jti" and UUID_RE.fullmatch(text):
+                    reader.fail()
+                if name in CB3_TABLE_CLAIMS and table is not None and text in table:
                     reader.fail()
                 claims.registered[name] = text
             continue
@@ -1863,7 +1898,80 @@ def check_cb3(report, doc, mldsa):
         report.check("%s re-encodes" % name, cb3_encode(parse_claims(utf8(vector["claims"]))) == payload)
         if not ml_checked:
             report.skip("%s ML-DSA-65 half" % name, "dilithium-py is not installed")
+    check_cb3_table(report, doc, mldsa)
     report.section("cb3.json", before)
+
+
+def check_cb3_table(report, doc, mldsa):
+    """Section 15.5 against the table member of cb3.json."""
+    tables = doc["table"]
+    table = cb3_table(tables["entries"])
+    report.check("cb3 table digest", cb3_table_digest(table) == unhex(tables["digest"]))
+    for vector in tables["digests"]:
+        got = cb3_table_digest(cb3_table(vector["entries"]))
+        report.check("cb3 table digest of %r" % vector["entries"], got == unhex(vector["digest"]), "got %s" % got.hex())
+    for vector in tables["local"]:
+        name = vector["name"]
+        key = import_local_key(unhex(vector["key"]))
+        claims = parse_claims(utf8(vector["claims"]))
+        payload = cb3_encode(claims, table)
+        report.check("%s payload" % name, payload == unhex(vector["payload"]), "got %s" % payload.hex())
+        footer = cb3_footer(cb3_key_id(vector, key))
+        report.check("%s footer" % name, footer == unhex(vector["footer"]))
+        implicit = cb3_authenticated(table, utf8(vector["implicit-assertion"]))
+        report.check("%s authenticated implicit assertion" % name,
+                     implicit == unhex(vector["authenticated-implicit-assertion"]))
+        sealed = local_seal(key, unhex(vector["nonce"]), payload, footer, implicit, CB3_LOCAL_HEADER)
+        for field in ("ek", "n2", "ak", "ciphertext", "pae", "tag"):
+            report.check("%s %s" % (name, field), sealed[field] == unhex(vector[field]))
+        token = utf8(vector["token"])
+        report.check("%s token" % name, sealed["token"] == token, "got %s" % sealed["token"].decode())
+        opened = cb3_decode(local_open(token, key, footer, implicit, CB3_LOCAL_HEADER), table)
+        report.check("%s opens to its claims" % name, opened.to_json() == utf8(vector["claims"]))
+        expect_verdict(report, "%s without the table" % name,
+                       lambda t=token, k=key, f=footer, v=vector: local_open(t, k, f, utf8(v["implicit-assertion"]),
+                                                                             CB3_LOCAL_HEADER), "invalid")
+    key = import_local_key(unhex(doc["open-key"]))
+    for vector in tables["opens"]:
+        token = utf8(vector["token"])
+        entries = None if vector["table"] is None else cb3_table(vector["table"])
+        implicit = utf8(vector["implicit-assertion"])
+
+        def authenticate(footer, t=token, e=entries, i=implicit):
+            return local_open(t, key, footer, cb3_authenticated(e, i), CB3_LOCAL_HEADER), True
+
+        opened = open_claims(token, "local", authenticate, kcb2_lid(key).decode("ascii"), Rules(vector["rules"]), mldsa,
+                             lambda payload, e=entries: cb3_decode(payload, e), cb3_footer)
+        report.check("%s verdict" % vector["name"], opened.verdict == vector["expect"],
+                     "got %s, expected %s" % (opened.verdict, vector["expect"]))
+    for vector in tables["profile"]:
+        entries = table if vector["with-table"] else None
+        try:
+            got = cb3_decode(unhex(vector["payload"]), entries)
+            verdict = "ok"
+        except Verdict as refused:
+            got, verdict = None, refused.name
+        report.check("%s verdict" % vector["name"], verdict == vector["expect"], "got %s" % verdict)
+        if got is not None:
+            report.check("%s claims" % vector["name"], got.to_json() == utf8(vector["claims"]))
+            report.check("%s re-encodes" % vector["name"], cb3_encode(got, entries) == unhex(vector["payload"]))
+    for vector in tables["refused"]:
+        expect_verdict(report, "refused table of %d entries" % len(vector["entries"]),
+                       lambda v=vector: cb3_table(v["entries"]), vector["expect"])
+    vector = tables.get("public")
+    if vector is not None:
+        name = vector["name"]
+        pk = import_public_key(unhex(vector["public-key"]))
+        footer = cb3_footer(kcb2_pid(pk).decode("ascii"))
+        payload, ml_checked = public_verify(utf8(vector["token"]), pk, footer, cb3_authenticated(table, b""), mldsa,
+                                            CB3_PUBLIC_HEADER)
+        report.check("%s payload" % name, payload == unhex(vector["payload"]))
+        report.check("%s claims" % name, cb3_decode(payload, table).to_json() == utf8(vector["claims"]))
+        expect_verdict(report, "%s without the table" % name,
+                       lambda: public_verify(utf8(vector["token"]), pk, footer, b"", mldsa, CB3_PUBLIC_HEADER),
+                       "invalid")
+        if not ml_checked:
+            report.skip("%s ML-DSA-65 half" % name, "dilithium-py is not installed")
 
 
 def load(directory, filename):

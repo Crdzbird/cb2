@@ -993,7 +993,7 @@ identifiers.
 Sealing a cb3.local token or signing a cb3.public token writes the
 payload of 15.3 and the footer of 15.2 and applies 15.1. Opening one
 performs the steps of 9.6 with 15.1 in place of section 5 or 6 in step
-2, with 15.3 in place of 9.2 in step 3, and every other step and verdict
+2, with 15.3 (and 15.5 under a claim table) in place of 9.2 in step 3, and every other step and verdict
 unchanged, including the holder proof of 13.5, whose implicit assertion
 is the cb3 token's text. As in cb2, a `kcb2.local` cnf in a cb3.public
 payload is refused by the issuer with `argument` and by the verifier
@@ -1003,6 +1003,53 @@ The parameters of cb2 are kept on purpose: the nonce, the tag and its
 key commitment, the signature pair and the verdicts. The size of a cb3
 token is smaller only because the claims and the key id are encoded
 more compactly.
+
+### 15.5 Claim table
+
+An issuer and its verifiers MAY agree on a claim table: an ordered list
+of 1 to 256 text strings, each non-empty, distinct from the others and
+an identifier under 9.4, typically the issuer's own name and the
+audiences it serves. A table is configuration, like a key: both sides
+hold the same list, and it is never sent.
+
+The table's digest is the full 32-byte unkeyed BLAKE3 hash of the 11
+bytes `kcb3.table.` followed by the entries written as one CBOR array of
+text strings under the rules of 15.3 (the array head, then each entry's
+text head and UTF-8):
+
+```
+d = BLAKE3("kcb3.table." || cbor_array(entries), 32)
+```
+
+A token made under a table authenticates the implicit assertion
+
+```
+i' = "kcb3.table." || d || i
+```
+
+in place of the caller's implicit assertion i, in 15.1 for both
+purposes. A token made without a table authenticates i itself, and an
+issuer or verifier MUST refuse with `argument` an i that begins with the
+11 bytes `kcb3.table.`. The assertion that is authenticated therefore
+names the table, or the absence of one, without ambiguity, and a token
+opens only under the table it was made under: under any other table, or
+none, authentication fails and the verdict is `invalid`.
+
+Under a table, the issuer writes the value of iss (key 1) and of aud
+(key 3) as the unsigned integer index of the entry equal to it, counting
+from 0, when there is such an entry, and as a text string otherwise.
+Every other claim is written as in 15.3. A verifier that authenticated
+the token under the table reads an unsigned integer under key 1 or 3 as
+the text of that entry, and MUST treat as `claims_malformed` an index
+past the last entry and a text string equal to an entry (it has a
+shorter encoding). Without a table, an unsigned integer under key 1 or 3
+is `claims_malformed`. The claims then go through 9.6 unchanged, so
+`issuer_mismatch`, `audience_mismatch` and the rules that accept any
+issuer or audience keep their meaning.
+
+A table hides nothing: it shortens the token by the length of the
+values it replaces, and the index tells a reader of a cb3.public token
+as much as the text did to anyone who holds the table.
 
 ## Appendix A. Test vector files
 
@@ -1216,6 +1263,19 @@ MUST yield invalid.
 `public`: objects with `name`, `public-key` (hex), `claims`, `payload`,
 `footer`, `implicit-assertion` and `token`, verified not reproduced.
 
+`table`: the vectors of 15.5. `entries` and `digest` give the table the
+other members use and its digest; `digests` holds further tables with
+their digests. `local` is as the top-level `local`, with `payload`
+written under the table and `authenticated-implicit-assertion` (hex),
+the i' that the intermediate values use; an implementation MUST
+reproduce both and the token, and MUST open it under the table. `opens`
+are tokens opened under `open-key` with `rules`, the `table` entries
+(null for none) and `implicit-assertion`; each MUST yield `expect`.
+`profile` is as the top-level `profile`, read under the table when
+`with-table` is true and without one otherwise. `refused` holds entry
+lists that MUST be refused as a table with `argument`. `public` is one
+cb3.public token signed under the table, verified not reproduced.
+
 ## Appendix B. Worked examples
 
 ### B.1 cb2-E-10: the shortest cb2.local token
@@ -1357,4 +1417,5 @@ apart unnoticed.
 13. For the experimental cb3 headers of section 15: every vector in
     cb3.json yields what A.7 records, every payload the reader accepts
     encodes back to the same bytes, and no cb2 token opens as cb3 nor
-    the reverse.
+    the reverse. Under a claim table (15.5) the same holds, and a token
+    opens under no other table and under none.

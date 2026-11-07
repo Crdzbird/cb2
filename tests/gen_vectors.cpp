@@ -1035,17 +1035,21 @@ Claims cb3_claims() {
 
 Bytes bytes_of(std::string_view s) { return Bytes(s.begin(), s.end()); }
 
-std::string cb3_seal(const LocalKey& k, const Claims& c, std::string_view nonce_hex, std::string_view implicit) {
-    auto tok = cb2::CompactToken::seal_with_nonce_for_testing(k, c, tu::unhex(nonce_hex), implicit);
+std::string cb3_seal(const LocalKey& k, const Claims& c, std::string_view nonce_hex, std::string_view implicit,
+                     const cb2::ClaimTable* table = nullptr) {
+    auto tok = table != nullptr
+                   ? cb2::CompactToken::seal_with_nonce_for_testing(k, c, *table, tu::unhex(nonce_hex), implicit)
+                   : cb2::CompactToken::seal_with_nonce_for_testing(k, c, tu::unhex(nonce_hex), implicit);
     if (tok.is_err()) { std::fprintf(stderr, "cb3 seal failed\n"); std::exit(1); }
     return tok.value();
 }
 
 Value cb3_local(std::string_view name, const LocalKey& k, std::string_view key_hex, const Claims& c,
-                std::string_view nonce_hex, std::string_view implicit) {
-    const std::string payload = cb2::CompactClaims::encode(c).value();
+                std::string_view nonce_hex, std::string_view implicit, const cb2::ClaimTable* table = nullptr) {
+    const std::string payload = cb2::CompactClaims::encode(c, table).value();
     const std::string footer = cb2::CompactToken::footer_for(k.key_id());
-    const std::string token = cb3_seal(k, c, nonce_hex, implicit);
+    const std::string token = cb3_seal(k, c, nonce_hex, implicit, table);
+    const std::string authenticated = table != nullptr ? table->bind(implicit) : std::string(implicit);
     Value v = object();
     put(v, "name", str(name));
     put(v, "key", str(key_hex));
@@ -1056,9 +1060,158 @@ Value cb3_local(std::string_view name, const LocalKey& k, std::string_view key_h
     put(v, "payload", str(tu::hex(bytes_of(payload))));
     put(v, "footer", str(tu::hex(bytes_of(footer))));
     put(v, "implicit-assertion", str(implicit));
+    if (table != nullptr) put(v, "authenticated-implicit-assertion", str(tu::hex(bytes_of(authenticated))));
     put(v, "token", str(token));
-    local_intermediates(v, key_hex, nonce_hex, payload, footer, implicit, token, cb2::CompactToken::LOCAL_HEADER);
+    local_intermediates(v, key_hex, nonce_hex, payload, footer, authenticated, token, cb2::CompactToken::LOCAL_HEADER);
     return v;
+}
+
+Value entries_of(const std::vector<std::string>& entries) {
+    Value v = array();
+    for (const auto& e : entries) v.items.push_back(str(e));
+    return v;
+}
+
+Value table_open(std::string_view name, std::string_view token, const std::vector<std::string>* entries,
+                 std::string_view implicit, Value r, std::string_view expect) {
+    Value v = object();
+    put(v, "name", str(name));
+    put(v, "token", str(token));
+    put(v, "table", entries != nullptr ? entries_of(*entries) : Value{});
+    put(v, "implicit-assertion", str(implicit));
+    put(v, "rules", std::move(r));
+    put(v, "expect", str(expect));
+    return v;
+}
+
+Value table_profile(std::string_view name, const Bytes& payload, const cb2::ClaimTable* table, std::string_view expect) {
+    const auto r = cb2::CompactClaims::decode(payload, table);
+    const std::string got = r.is_ok() ? "ok" : cb2::error_name(r.error());
+    if (got != expect) {
+        std::fprintf(stderr, "cb3 table profile vector %.*s: expected %.*s, got %s\n", static_cast<int>(name.size()),
+                     name.data(), static_cast<int>(expect.size()), expect.data(), got.c_str());
+        std::exit(1);
+    }
+    Value v = object();
+    put(v, "name", str(name));
+    put(v, "payload", str(tu::hex(payload)));
+    put(v, "with-table", boolean(table != nullptr));
+    put(v, "expect", str(expect));
+    if (r.is_ok()) put(v, "claims", str(r.value().to_json()));
+    return v;
+}
+
+Bytes cb(std::initializer_list<int> b);
+
+/// The claim table vectors of PROTOCOL.md 15.5: digests, reproduced
+/// tokens with the authenticated implicit assertion, opens under the same,
+/// another or no table, the payload rules and the refused tables.
+Value cb3_table_vectors(const LocalKey& key, const LocalKey& anonymous, const LocalKey& named, const Claims& c,
+                        const std::string& tableless) {
+    const std::vector<std::string> entries = {"https://issuer.example", "api", "billing"};
+    const std::vector<std::string> reordered = {"api", "https://issuer.example", "billing"};
+    const std::vector<std::string> longer = {"https://issuer.example", "api", "billing", "mobile"};
+    const cb2::ClaimTable table = cb2::ClaimTable::make(entries).value();
+    Value root = object();
+    put(root, "entries", entries_of(entries));
+    put(root, "digest", str(tu::hex(table.digest())));
+
+    Value digests = array();
+    for (const auto& list : {entries, reordered, longer, std::vector<std::string>{"llave-\xc3\xb1"}}) {
+        Value v = object();
+        put(v, "entries", entries_of(list));
+        put(v, "digest", str(tu::hex(cb2::ClaimTable::make(list).value().digest())));
+        digests.items.push_back(std::move(v));
+    }
+    put(root, "digests", std::move(digests));
+
+    Claims mobile = c;
+    mobile.aud = "mobile";
+    Claims billing;
+    billing.aud = "billing";
+    Value local = array();
+    local.items.push_back(cb3_local("cb3-T-L-1 iss and aud in the table", key, KEY_HEX, c, NONCE_A, "", &table));
+    local.items.push_back(cb3_local("cb3-T-L-2 an aud outside the table, no key id, an implicit assertion", anonymous,
+                                    KEY_HEX, mobile, NONCE_B, "tenant-7", &table));
+    local.items.push_back(cb3_local("cb3-T-L-3 only an aud, the last entry, under an explicit key id", named, KEY_HEX,
+                                    billing, NONCE_ZERO, "", &table));
+    put(root, "local", std::move(local));
+
+    const std::string t = cb3_seal(key, c, NONCE_A, "", &table);
+    const auto ok_rules = [] { return rules(NOW, true, 0, "https://issuer.example", "api", nullptr, 0); };
+    Value opens = array();
+    opens.items.push_back(table_open("cb3-T-O-1 the same table", t, &entries, "", ok_rules(), "ok"));
+    opens.items.push_back(table_open("cb3-T-O-2 no table", t, nullptr, "", ok_rules(), "invalid"));
+    opens.items.push_back(table_open("cb3-T-O-3 the entries in another order", t, &reordered, "", ok_rules(), "invalid"));
+    opens.items.push_back(table_open("cb3-T-O-4 one entry more", t, &longer, "", ok_rules(), "invalid"));
+    opens.items.push_back(table_open("cb3-T-O-5 the same table, another implicit assertion", t, &entries, "x",
+                                     ok_rules(), "invalid"));
+    opens.items.push_back(table_open("cb3-T-O-6 another issuer", t, &entries, "",
+                                     rules(NOW, true, 0, "https://other.example", "api", nullptr, 0),
+                                     "issuer_mismatch"));
+    opens.items.push_back(table_open("cb3-T-O-7 another audience", t, &entries, "",
+                                     rules(NOW, true, 0, "https://issuer.example", "billing", nullptr, 0),
+                                     "audience_mismatch"));
+    opens.items.push_back(table_open("cb3-T-O-8 expired at exp", t, &entries, "",
+                                     rules(NOW + 900, true, 0, "https://issuer.example", "api", nullptr, 0), "expired"));
+    opens.items.push_back(table_open("cb3-T-O-9 a token without a table under the table", tableless, &entries, "",
+                                     ok_rules(), "invalid"));
+    opens.items.push_back(table_open("cb3-T-O-10 a reserved implicit assertion without a table", tableless, nullptr,
+                                     "kcb3.table.", ok_rules(), "argument"));
+    put(root, "opens", std::move(opens));
+
+    Value profile = array();
+    profile.items.push_back(table_profile("cb3-T-C-1 iss as index 0", cb({0xa1, 0x01, 0x00}), &table, "ok"));
+    profile.items.push_back(table_profile("cb3-T-C-2 aud as index 2", cb({0xa1, 0x03, 0x02}), &table, "ok"));
+    profile.items.push_back(table_profile("cb3-T-C-3 an aud outside the table as text",
+                                          cb({0xa1, 0x03, 0x66, 'm', 'o', 'b', 'i', 'l', 'e'}), &table, "ok"));
+    profile.items.push_back(table_profile("cb3-T-C-4 an unsigned custom value is not an index",
+                                          cb({0xa1, 0x61, 'x', 0x00}), &table, "ok"));
+    profile.items.push_back(table_profile("cb3-T-C-5 an index past the last entry", cb({0xa1, 0x01, 0x03}), &table,
+                                          "claims_malformed"));
+    profile.items.push_back(table_profile("cb3-T-C-6 index 24", cb({0xa1, 0x03, 0x18, 0x18}), &table,
+                                          "claims_malformed"));
+    profile.items.push_back(table_profile("cb3-T-C-7 an index not in shortest form", cb({0xa1, 0x03, 0x18, 0x01}),
+                                          &table, "claims_malformed"));
+    profile.items.push_back(table_profile("cb3-T-C-8 a text equal to an entry",
+                                          cb({0xa1, 0x03, 0x63, 'a', 'p', 'i'}), &table, "claims_malformed"));
+    profile.items.push_back(table_profile("cb3-T-C-9 sub as an index", cb({0xa1, 0x02, 0x00}), &table,
+                                          "claims_malformed"));
+    profile.items.push_back(table_profile("cb3-T-C-10 a negative index", cb({0xa1, 0x01, 0x20}), &table,
+                                          "claims_malformed"));
+    profile.items.push_back(table_profile("cb3-T-C-11 an index without a table", cb({0xa1, 0x01, 0x00}), nullptr,
+                                          "claims_malformed"));
+    profile.items.push_back(table_profile("cb3-T-C-12 a text without a table",
+                                          cb({0xa1, 0x03, 0x63, 'a', 'p', 'i'}), nullptr, "ok"));
+    put(root, "profile", std::move(profile));
+
+    std::vector<std::string> too_many;
+    for (int i = 0; i < 257; ++i) too_many.push_back("e" + std::to_string(i));
+    Value refused = array();
+    for (const auto& list : {std::vector<std::string>{}, std::vector<std::string>{"api", "api"},
+                             std::vector<std::string>{"api", ""}, std::vector<std::string>{"a\nb"}, too_many}) {
+        if (cb2::ClaimTable::make(list).is_ok()) {
+            std::fprintf(stderr, "cb3 refused table accepted\n");
+            std::exit(1);
+        }
+        Value v = object();
+        put(v, "entries", entries_of(list));
+        put(v, "expect", str("argument"));
+        refused.items.push_back(std::move(v));
+    }
+    put(root, "refused", std::move(refused));
+
+#ifdef CB2_HAS_PQ
+    const auto issuer = cb2::SecretKey::generate().value();
+    Value pub = object();
+    put(pub, "name", str("cb3-T-P-1 cb3.public under the table"));
+    put(pub, "public-key", str(tu::hex(issuer.public_key().bytes())));
+    put(pub, "claims", str(c.to_json()));
+    put(pub, "payload", str(tu::hex(bytes_of(cb2::CompactClaims::encode(c, &table).value()))));
+    put(pub, "token", str(cb2::CompactToken::sign(issuer, c, table).value()));
+    put(root, "public", std::move(pub));
+#endif
+    return root;
 }
 
 Value cb3_open(std::string_view name, std::string_view token, std::optional<std::string> verifier_key_id,
@@ -1297,6 +1450,7 @@ void write_cb3(const std::string& dir) {
     }
     put(root, "public", std::move(pub));
 #endif
+    put(root, "table", cb3_table_vectors(key, anonymous, named, c, t1));
     if (!tu::write_file((dir + "/cb3.json").c_str(), pretty(root))) std::exit(1);
 }
 }
