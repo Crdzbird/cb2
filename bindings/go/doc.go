@@ -21,7 +21,9 @@
 // claims tokens, but carry the claims as CBOR and bind the key id as a
 // KeyDigest, which makes a local token about half as long. They may
 // change before they are released. A cb2 token never opens as a compact
-// one, nor the reverse. PeekKeyDigest and KeyDigestOf pick a key.
+// one, nor the reverse. PeekKeyDigest and KeyDigestOf pick a key. A
+// ClaimTable, shared by the issuer and its verifiers like a key, makes
+// the token shorter still when passed to the WithTable forms.
 //
 // # Holder proofs
 //

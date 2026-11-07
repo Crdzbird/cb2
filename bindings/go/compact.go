@@ -7,26 +7,28 @@ package cb2
 extern int cb2GoReplay(void* user, char* jti, size_t n);
 extern int cb2GoProofReplay(void* user, char* jti, size_t n);
 
-static int cb2_go_compact_open(const cb2_local_key* key, const char* token, size_t token_len,
+static int cb2_go_compact_open(const cb2_local_key* key, const cb2_claim_table* table,
+                               const char* token, size_t token_len,
                                const char* rules, size_t rules_len,
                                const uint8_t* implicit, size_t implicit_len,
                                int with_replay, int with_proof, uintptr_t user,
                                char** out_claims, size_t* out_len) {
-    return cb2_compact_open(key, token, token_len, rules, rules_len, implicit, implicit_len,
-                            with_replay ? (cb2_replay_fn)cb2GoReplay : NULL,
-                            with_proof ? (cb2_replay_fn)cb2GoProofReplay : NULL,
-                            (void*)user, out_claims, out_len);
+    return cb2_compact_open_with_table(key, table, token, token_len, rules, rules_len, implicit, implicit_len,
+                                       with_replay ? (cb2_replay_fn)cb2GoReplay : NULL,
+                                       with_proof ? (cb2_replay_fn)cb2GoProofReplay : NULL,
+                                       (void*)user, out_claims, out_len);
 }
 
-static int cb2_go_compact_verify(const cb2_public_key* key, const char* token, size_t token_len,
+static int cb2_go_compact_verify(const cb2_public_key* key, const cb2_claim_table* table,
+                                 const char* token, size_t token_len,
                                  const char* rules, size_t rules_len,
                                  const uint8_t* implicit, size_t implicit_len,
                                  int with_replay, int with_proof, uintptr_t user,
                                  char** out_claims, size_t* out_len) {
-    return cb2_compact_verify(key, token, token_len, rules, rules_len, implicit, implicit_len,
-                              with_replay ? (cb2_replay_fn)cb2GoReplay : NULL,
-                              with_proof ? (cb2_replay_fn)cb2GoProofReplay : NULL,
-                              (void*)user, out_claims, out_len);
+    return cb2_compact_verify_with_table(key, table, token, token_len, rules, rules_len, implicit, implicit_len,
+                                         with_replay ? (cb2_replay_fn)cb2GoReplay : NULL,
+                                         with_proof ? (cb2_replay_fn)cb2GoProofReplay : NULL,
+                                         (void*)user, out_claims, out_len);
 }
 */
 import "C"
@@ -50,9 +52,17 @@ type KeyDigest [KeyDigestBytes]byte
 // takes the same claims as TokenSeal and carries them as CBOR, with the
 // key id, when set, bound as its KeyDigest. A custom number that is not
 // an int64 integer written in canonical form (1.5, 1e3, -0) is refused
-// with ErrArgument, as are a time outside years 0000 to 9999 and a cnf
-// that is not a kcb2.local or kcb2.public key.
+// with ErrArgument, as are a time outside years 0000 to 9999, a cnf
+// that is not a kcb2.local or kcb2.public key, and an implicit
+// assertion that starts with "kcb3.table.".
 func CompactSeal(key *LocalKey, claims map[string]any, implicit []byte) (string, error) {
+	return CompactSealWithTable(key, nil, claims, implicit)
+}
+
+// CompactSealWithTable is CompactSeal under a claim table, which only
+// CompactOpenWithTable with the same table accepts. A nil table makes
+// it CompactSeal.
+func CompactSealWithTable(key *LocalKey, table *ClaimTable, claims map[string]any, implicit []byte) (string, error) {
 	payload, err := json.Marshal(claims)
 	if err != nil {
 		return "", fmt.Errorf("cb2: encode claims: %w", err)
@@ -63,9 +73,14 @@ func CompactSeal(key *LocalKey, claims map[string]any, implicit []byte) (string,
 	if p == nil {
 		return "", ErrClosed
 	}
+	tp, err := table.acquire()
+	if err != nil {
+		return "", err
+	}
+	defer table.release()
 	var out *C.char
 	var n C.size_t
-	code := C.cb2_compact_seal(p, charPtr(payload), C.size_t(len(payload)),
+	code := C.cb2_compact_seal_with_table(p, tp, charPtr(payload), C.size_t(len(payload)),
 		bytesPtr(implicit), C.size_t(len(implicit)), &out, &n)
 	if err := check(code); err != nil {
 		return "", err
@@ -77,6 +92,13 @@ func CompactSeal(key *LocalKey, claims map[string]any, implicit []byte) (string,
 // token. Claims are refused as in CompactSeal, and so is a cnf holding
 // a kcb2.local key.
 func CompactSign(key *SecretKey, claims map[string]any, implicit []byte) (string, error) {
+	return CompactSignWithTable(key, nil, claims, implicit)
+}
+
+// CompactSignWithTable is CompactSign under a claim table, which only
+// CompactVerifyWithTable with the same table accepts. A nil table makes
+// it CompactSign.
+func CompactSignWithTable(key *SecretKey, table *ClaimTable, claims map[string]any, implicit []byte) (string, error) {
 	payload, err := json.Marshal(claims)
 	if err != nil {
 		return "", fmt.Errorf("cb2: encode claims: %w", err)
@@ -87,9 +109,14 @@ func CompactSign(key *SecretKey, claims map[string]any, implicit []byte) (string
 	if p == nil {
 		return "", ErrClosed
 	}
+	tp, err := table.acquire()
+	if err != nil {
+		return "", err
+	}
+	defer table.release()
 	var out *C.char
 	var n C.size_t
-	code := C.cb2_compact_sign(p, charPtr(payload), C.size_t(len(payload)),
+	code := C.cb2_compact_sign_with_table(p, tp, charPtr(payload), C.size_t(len(payload)),
 		bytesPtr(implicit), C.size_t(len(implicit)), &out, &n)
 	if err := check(code); err != nil {
 		return "", err
@@ -102,6 +129,13 @@ func CompactSign(key *SecretKey, claims map[string]any, implicit []byte) (string
 // refused here with ErrInvalid, and a compact token is refused by
 // TokenOpen. Callbacks behave as in TokenOpen.
 func CompactOpen(key *LocalKey, token string, rules Rules, implicit []byte) (map[string]any, error) {
+	return CompactOpenWithTable(key, nil, token, rules, implicit)
+}
+
+// CompactOpenWithTable is CompactOpen under a claim table. A token made
+// under another table, or under none, is refused with ErrInvalid, and
+// so is a tabled token opened with a nil table.
+func CompactOpenWithTable(key *LocalKey, table *ClaimTable, token string, rules Rules, implicit []byte) (map[string]any, error) {
 	rj, err := json.Marshal(rules.object())
 	if err != nil {
 		return nil, fmt.Errorf("cb2: encode rules: %w", err)
@@ -112,11 +146,16 @@ func CompactOpen(key *LocalKey, token string, rules Rules, implicit []byte) (map
 	if p == nil {
 		return nil, ErrClosed
 	}
+	tp, err := table.acquire()
+	if err != nil {
+		return nil, err
+	}
+	defer table.release()
 	cb := newCallbacks(&rules)
 	defer cb.release()
 	var out *C.char
 	var n C.size_t
-	code := C.cb2_go_compact_open(p, strPtr(token), C.size_t(len(token)),
+	code := C.cb2_go_compact_open(p, tp, strPtr(token), C.size_t(len(token)),
 		charPtr(rj), C.size_t(len(rj)), bytesPtr(implicit), C.size_t(len(implicit)),
 		flag(rules.Replay != nil), flag(rules.ProofReplay != nil), cb.user(), &out, &n)
 	cb.rethrow()
@@ -126,6 +165,12 @@ func CompactOpen(key *LocalKey, token string, rules Rules, implicit []byte) (map
 // CompactVerify checks a compact public token against the rules and
 // returns the claims. Callbacks behave as in TokenOpen.
 func CompactVerify(key *PublicKey, token string, rules Rules, implicit []byte) (map[string]any, error) {
+	return CompactVerifyWithTable(key, nil, token, rules, implicit)
+}
+
+// CompactVerifyWithTable is CompactVerify under a claim table, with the
+// verdicts of CompactOpenWithTable.
+func CompactVerifyWithTable(key *PublicKey, table *ClaimTable, token string, rules Rules, implicit []byte) (map[string]any, error) {
 	rj, err := json.Marshal(rules.object())
 	if err != nil {
 		return nil, fmt.Errorf("cb2: encode rules: %w", err)
@@ -136,11 +181,16 @@ func CompactVerify(key *PublicKey, token string, rules Rules, implicit []byte) (
 	if p == nil {
 		return nil, ErrClosed
 	}
+	tp, err := table.acquire()
+	if err != nil {
+		return nil, err
+	}
+	defer table.release()
 	cb := newCallbacks(&rules)
 	defer cb.release()
 	var out *C.char
 	var n C.size_t
-	code := C.cb2_go_compact_verify(p, strPtr(token), C.size_t(len(token)),
+	code := C.cb2_go_compact_verify(p, tp, strPtr(token), C.size_t(len(token)),
 		charPtr(rj), C.size_t(len(rj)), bytesPtr(implicit), C.size_t(len(implicit)),
 		flag(rules.Replay != nil), flag(rules.ProofReplay != nil), cb.user(), &out, &n)
 	cb.rethrow()

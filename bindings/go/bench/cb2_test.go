@@ -48,17 +48,32 @@ func cb2Formats() ([]format, func(), error) {
 		issue: func() (string, error) { return cb2.CompactSeal(local, claims, nil) },
 		check: func(t string) error { return cb2Role(cb2.CompactOpen(local, t, cb2Rules(), nil)) },
 	}}
+	table, err := cb2.NewClaimTable([]string{issuer, audience})
+	if err != nil {
+		local.Close()
+		return nil, nil, err
+	}
+	fs = append(fs, format{
+		name:  "compact.local.table",
+		issue: func() (string, error) { return cb2.CompactSealWithTable(local, table, claims, nil) },
+		check: func(t string) error { return cb2Role(cb2.CompactOpenWithTable(local, table, t, cb2Rules(), nil)) },
+	})
 	secret, err := cb2.GenerateSecretKey()
 	if errors.Is(err, cb2.ErrUnavailable) {
-		return fs, local.Close, nil
+		return fs, func() {
+			local.Close()
+			table.Close()
+		}, nil
 	}
 	if err != nil {
 		local.Close()
+		table.Close()
 		return nil, nil, err
 	}
 	public, err := secret.PublicKey()
 	if err != nil {
 		local.Close()
+		table.Close()
 		secret.Close()
 		return nil, nil, err
 	}
@@ -70,9 +85,14 @@ func cb2Formats() ([]format, func(), error) {
 		name:  "compact.public",
 		issue: func() (string, error) { return cb2.CompactSign(secret, claims, nil) },
 		check: func(t string) error { return cb2Role(cb2.CompactVerify(public, t, cb2Rules(), nil)) },
+	}, format{
+		name:  "compact.public.table",
+		issue: func() (string, error) { return cb2.CompactSignWithTable(secret, table, claims, nil) },
+		check: func(t string) error { return cb2Role(cb2.CompactVerifyWithTable(public, table, t, cb2Rules(), nil)) },
 	})
 	return fs, func() {
 		local.Close()
+		table.Close()
 		secret.Close()
 		public.Close()
 	}, nil

@@ -361,3 +361,47 @@ func ExamplePeekKeyDigest() {
 	fmt.Println(ok, peeked == want)
 	// Output: true true
 }
+
+func ExampleCompactSealWithTable() {
+	key, err := cb2.GenerateLocalKey()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer key.Close()
+	table, err := cb2.NewClaimTable([]string{"https://issuer.example", "api", "billing"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer table.Close()
+
+	claims := map[string]any{
+		"iss": "https://issuer.example",
+		"aud": "api",
+		"sub": "user-1",
+		"exp": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+	}
+	tabled, err := cb2.CompactSealWithTable(key, table, claims, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	plain, err := cb2.CompactSeal(key, claims, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	rules := cb2.Rules{
+		Issuer:   cb2.String("https://issuer.example"),
+		Audience: cb2.String("api"),
+	}
+	got, err := cb2.CompactOpenWithTable(key, table, tabled, rules, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(got["aud"], len(tabled) < len(plain))
+
+	_, err = cb2.CompactOpen(key, tabled, rules, nil)
+	fmt.Println(errors.Is(err, cb2.ErrInvalid))
+	// Output:
+	// api true
+	// true
+}
