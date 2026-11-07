@@ -1,5 +1,6 @@
 /// The request a holder proof must match: method, target and nonce.
 final class ProofRequest {
+  /// The request [htm] [htu], with the [nonce] the server issued.
   const factory ProofRequest({
     required String htm,
     required String htu,

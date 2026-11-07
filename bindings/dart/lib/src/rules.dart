@@ -1,12 +1,13 @@
-import 'proof_request.dart';
-import 'replay_check.dart';
+import 'package:cb2/src/holder_rules.dart';
+import 'package:cb2/src/replay_check.dart';
 
 /// The rules a claims token is checked against, one field per member of
 /// the rules JSON of cb2_c.h. Times are Unix seconds.
 ///
-/// [replay] and [proofReplay] are run for the token's jti and the proof's
-/// jti; a callback that throws refuses the id.
+/// [replay] is run for the jti of the token, a callback that throws
+/// refuses the id; [holder] checks a holder proof.
 final class Rules {
+  /// Rules with the given members; a null member is left out of the JSON.
   const factory Rules({
     int? now,
     int? clockSkew,
@@ -22,11 +23,7 @@ final class Rules {
     List<String>? seenJti,
     bool? requireCnf,
     bool? ignoreCnf,
-    String? proof,
-    ProofRequest? request,
-    int? proofLifetime,
-    List<String>? proofSeenJti,
-    ReplayCheck? proofReplay,
+    HolderRules? holder,
   }) = Rules._;
 
   const Rules._({
@@ -44,52 +41,51 @@ final class Rules {
     this.seenJti,
     this.requireCnf,
     this.ignoreCnf,
-    this.proof,
-    this.request,
-    this.proofLifetime,
-    this.proofSeenJti,
-    this.proofReplay,
+    this.holder,
   });
 
+  /// The time of the check in Unix seconds; the library clock when null.
   final int? now;
-  final int? clockSkew;
-  final bool? requireExp;
-  final bool? allowAnyAudience;
-  final bool? allowAnyIssuer;
-  final String? issuer;
-  final String? audience;
-  final String? subject;
-  final int? maxTokenBytes;
-  final int? maxLifetime;
-  final ReplayCheck? replay;
-  final List<String>? seenJti;
-  final bool? requireCnf;
-  final bool? ignoreCnf;
-  final String? proof;
-  final ProofRequest? request;
-  final int? proofLifetime;
-  final List<String>? proofSeenJti;
-  final ReplayCheck? proofReplay;
 
-  /// The rules JSON object; "replay" is set when [replay] is given.
-  Map<String, Object?> toJson() => {
-    if (now != null) 'now': now,
-    if (clockSkew != null) 'clock_skew': clockSkew,
-    if (requireExp != null) 'require_exp': requireExp,
-    if (allowAnyAudience != null) 'allow_any_audience': allowAnyAudience,
-    if (allowAnyIssuer != null) 'allow_any_issuer': allowAnyIssuer,
-    if (issuer != null) 'issuer': issuer,
-    if (audience != null) 'audience': audience,
-    if (subject != null) 'subject': subject,
-    if (maxTokenBytes != null) 'max_token_bytes': maxTokenBytes,
-    if (maxLifetime != null) 'max_lifetime': maxLifetime,
-    if (replay != null) 'replay': true,
-    if (seenJti != null) 'seen_jti': seenJti,
-    if (requireCnf != null) 'require_cnf': requireCnf,
-    if (ignoreCnf != null) 'ignore_cnf': ignoreCnf,
-    if (proof != null) 'proof': proof,
-    if (request != null) 'request': request!.toJson(),
-    if (proofLifetime != null) 'proof_lifetime': proofLifetime,
-    if (proofSeenJti != null) 'proof_seen_jti': proofSeenJti,
-  };
+  /// The leeway in seconds granted to exp, nbf and iat.
+  final int? clockSkew;
+
+  /// Whether a token without exp is refused.
+  final bool? requireExp;
+
+  /// Whether any aud is accepted when [audience] is null.
+  final bool? allowAnyAudience;
+
+  /// Whether any iss is accepted when [issuer] is null.
+  final bool? allowAnyIssuer;
+
+  /// The iss the token must carry.
+  final String? issuer;
+
+  /// The aud the token must name.
+  final String? audience;
+
+  /// The sub the token must carry.
+  final String? subject;
+
+  /// The largest token accepted, in bytes; the library default when null.
+  final int? maxTokenBytes;
+
+  /// The longest exp minus iat accepted, in seconds.
+  final int? maxLifetime;
+
+  /// The replay check run for the jti of the token.
+  final ReplayCheck? replay;
+
+  /// Ids already seen; a token whose jti is listed is refused.
+  final List<String>? seenJti;
+
+  /// Whether a token without a cnf claim is refused.
+  final bool? requireCnf;
+
+  /// Whether a cnf claim is left unchecked, for a resource that reads it.
+  final bool? ignoreCnf;
+
+  /// The check of the holder proof presented with the token.
+  final HolderRules? holder;
 }

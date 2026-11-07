@@ -1,13 +1,12 @@
 import 'dart:ffi';
 
+import 'package:cb2/src/cb2_exception.dart';
+import 'package:cb2/src/ffi/loaded.dart';
+import 'package:cb2/src/local_key.dart';
+import 'package:cb2/src/memory.dart';
+import 'package:cb2/src/prove_call.dart';
+import 'package:cb2/src/secret_key.dart';
 import 'package:ffi/ffi.dart';
-
-import 'cb2_exception.dart';
-import 'library.dart';
-import 'local_key.dart';
-import 'memory.dart';
-import 'prove_call.dart';
-import 'secret_key.dart';
 
 /// Holder proofs: made by the client for one request and one access
 /// token, presented alongside the token to prove possession of the key
@@ -28,7 +27,7 @@ final class Holder {
     String? nonce,
     int lifetime = 60,
   }) => proveCall(
-    Cb2Library.bindings.holderProve,
+    bindings.proofs.holderProve,
     client.handle,
     htm: htm,
     htu: htu,
@@ -52,7 +51,7 @@ final class Holder {
     String? nonce,
     int lifetime = 60,
   }) => proveCall(
-    Cb2Library.bindings.holderProveLocal,
+    bindings.proofs.holderProveLocal,
     proofKey.handle,
     htm: htm,
     htu: htu,
@@ -67,7 +66,7 @@ final class Holder {
   static String normalizeTarget(String uri) => using((arena) {
     final out = arena<Pointer<Char>>();
     Cb2Exception.check(
-      Cb2Library.bindings.holderNormalizeTarget(
+      bindings.proofs.holderNormalizeTarget(
         arenaText(arena, uri),
         textLength(uri),
         out,

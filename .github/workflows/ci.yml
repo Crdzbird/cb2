@@ -250,6 +250,68 @@ jobs:
           path: ct_probe.valgrind.log
           if-no-files-found: ignore
 
+  # The Dart package and the Flutter plugin: format, strict analysis, the
+  # hundred-line limit on every Dart file, the package tests and its CLI
+  # example against the C ABI built here, then the iOS and macOS framework
+  # from pinned sources, the example app built for both and its
+  # integration test run on macOS.
+  dart:
+    runs-on: macos-15
+    env:
+      FLUTTER_VERSION: 3.47.9
+      LANG: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Install deps
+        run: brew install cmake ninja libsodium liboqs blake3 openssl@3
+      - name: Build the C ABI
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCB2_BUILD_BENCH=OFF \
+            -DCB2_BUILD_EXAMPLES=OFF -DCB2_BUILD_PLAYGROUND=OFF
+          cmake --build build --target cb2_c cb2_c_test
+          ./build/bindings/c/cb2_c_test
+          echo "CB2_C_LIBRARY=$GITHUB_WORKSPACE/build/bindings/c/libcb2_c.dylib" >> "$GITHUB_ENV"
+      - name: Install Flutter
+        run: |
+          git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Format and the hundred-line limit
+        run: |
+          flutter --version
+          dart format --output=none --set-exit-if-changed bindings/dart bindings/flutter/cb2_flutter
+          long=$(find bindings/dart bindings/flutter/cb2_flutter -name '*.dart' -not -path '*/.dart_tool/*' \
+            -not -path '*/build/*' -exec awk 'END { if (NR > 100) print FILENAME ": " NR }' {} \;)
+          test -z "$long" || { echo "$long"; exit 1; }
+      - name: Package cb2
+        working-directory: bindings/dart
+        run: |
+          dart pub get
+          dart analyze --fatal-infos
+          dart test
+          dart run example/cb2_example.dart
+      - name: Plugin cb2_flutter
+        working-directory: bindings/flutter/cb2_flutter
+        run: |
+          flutter pub get
+          flutter analyze --fatal-infos
+          flutter test
+      - name: Cache the Apple dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: bindings/flutter/cb2_flutter/build/apple-deps
+          key: apple-deps-${{ hashFiles('bindings/flutter/cb2_flutter/tool/build_xcframework.sh') }}
+      - name: Build cb2_c.xcframework
+        run: bash bindings/flutter/cb2_flutter/tool/build_xcframework.sh
+      - name: Example app
+        working-directory: bindings/flutter/cb2_flutter/example
+        run: |
+          flutter pub get
+          flutter analyze --fatal-infos
+          flutter test
+          flutter build ios --simulator --debug
+          flutter build macos --debug
+          flutter test integration_test -d macos
+
   # The second implementation. tools/check_vectors.py was written from
   # docs/PROTOCOL.md alone and must still pass every committed vector with
   # nothing skipped, so a change to the reference that the document does

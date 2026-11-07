@@ -553,18 +553,19 @@ tests mirroring the C test.
 | Java | `bindings/java/cb2` | a Gradle library and Java module, `com.cipherbird.cb2`: JNI glue over the C ABI, the native libraries packed in the jar and loaded from it or from java.library.path | 23 JUnit 5 cases, run against both loading paths; an HTTP token service example |
 | Kotlin | `bindings/java/cb2-kotlin` | a Gradle library over the Java one: a rules DSL, a claims builder and extensions, `com.cipherbird.cb2.kotlin` | 12 JUnit 5 cases; a command line tour example |
 | Swift | `bindings/swift` | a Swift 6 package with typed throws and `Sendable` keys; the C ABI as an XCFramework for macOS and iOS apps (`scripts/build-xcframework.sh`) or a system library for development; a command-line and a SwiftUI example | 15 Swift Testing cases on both layouts, the examples built for macOS and the iOS simulator |
-| Dart | `bindings/dart` | dart:ffi, callbacks through NativeCallable | `dart test` |
-| Flutter | `bindings/flutter/cb2_flutter` | an FFI plugin over the Dart package, native library per platform | `flutter analyze`; the mobile native builds are not verified here |
+| Dart | `bindings/dart` | package `cb2`: dart:ffi, callbacks through NativeCallable, a CLI example | 14 `dart test` cases and the example, in CI |
+| Flutter | `bindings/flutter/cb2_flutter` | an FFI plugin over package `cb2`; a dynamic `cb2_c.xcframework` built from pinned sources for iOS and macOS (Swift Package Manager and CocoaPods), CMake for Android, Linux and Windows; an example app | host tests, the example on the iOS simulator and macOS with its integration test, in CI; Android, Linux and Windows builds are not verified here |
 
 CI runs the Swift, Python, Node and Go tests on macOS and the Python,
 Node and Go tests on Linux after building the C ABI, and on both the
 Gradle build of the Java and Kotlin libraries with their tests and
 examples. On macOS it also builds the Swift XCFramework, runs the Swift
 tests and the command-line example on it, and builds the SwiftUI
-example for macOS and the iOS simulator. The Dart and Flutter tests run
-locally with their build scripts, since those toolchains are not on the
-runners. A separate job checks the JavaScript package on Node 22.12 and
-24 as npm would ship it.
+example for macOS and the iOS simulator. A macOS job for Dart and
+Flutter runs the package tests and example, the plugin tests, and the
+Flutter example app built for the iOS simulator and run under its
+integration test on macOS. A separate job checks the JavaScript package
+on Node 22.12 and 24 as npm would ship it.
 
 ## Repository layout
 

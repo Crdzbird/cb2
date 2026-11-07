@@ -1,0 +1,26 @@
+name: cb2_flutter_example
+description: >-
+  Example app of cb2_flutter: issues, opens and verifies a cb2.local and a
+  cb2.public token and shows the library refusing bad ones.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.0
+  flutter: '>=3.47.0'
+
+dependencies:
+  cb2_flutter:
+    path: ../
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  very_good_analysis: ^11.0.0
+
+flutter:
+  uses-material-design: true

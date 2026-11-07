@@ -1,11 +1,10 @@
 import 'dart:ffi';
 import 'dart:typed_data';
 
+import 'package:cb2/src/cb2_exception.dart';
+import 'package:cb2/src/ffi/loaded.dart';
+import 'package:cb2/src/memory.dart';
 import 'package:ffi/ffi.dart';
-
-import 'cb2_exception.dart';
-import 'library.dart';
-import 'memory.dart';
 
 /// A 32-byte symmetric key for cb2.local tokens (kcb2.local in PASERK).
 final class LocalKey implements Finalizable {
@@ -14,7 +13,7 @@ final class LocalKey implements Finalizable {
   }
 
   static final NativeFinalizer _finalizer = NativeFinalizer(
-    Cb2Library.bindings.localKeyFreePointer,
+    bindings.localKey.freePointer,
   );
 
   Pointer<Void> _handle;
@@ -28,14 +27,13 @@ final class LocalKey implements Finalizable {
   }
 
   /// A fresh random key.
-  static LocalKey generate() => LocalKey._(
-    takeHandle((_, out) => Cb2Library.bindings.localKeyGenerate(out)),
-  );
+  static LocalKey generate() =>
+      LocalKey._(takeHandle((_, out) => bindings.localKey.generate(out)));
 
   /// A key from its raw bytes; weak material is refused with argument.
   static LocalKey fromBytes(Uint8List bytes) => LocalKey._(
     takeHandle(
-      (arena, out) => Cb2Library.bindings.localKeyFromBytes(
+      (arena, out) => bindings.localKey.fromBytes(
         arenaBytes(arena, bytes),
         bytes.length,
         out,
@@ -46,7 +44,7 @@ final class LocalKey implements Finalizable {
   /// A key from its kcb2.local text.
   static LocalKey fromPaserk(String text) => LocalKey._(
     takeHandle(
-      (arena, out) => Cb2Library.bindings.localKeyFromPaserk(
+      (arena, out) => bindings.localKey.fromPaserk(
         arenaText(arena, text),
         textLength(text),
         out,
@@ -58,15 +56,13 @@ final class LocalKey implements Finalizable {
   static LocalKey adopt(Pointer<Void> handle) => LocalKey._(handle);
 
   /// The kcb2.local text of this key; treat it as a secret.
-  String toPaserk() =>
-      takeSecretText(Cb2Library.bindings.localKeyToPaserk(handle));
+  String toPaserk() => takeSecretText(bindings.localKey.toPaserk(handle));
 
   /// The kcb2.lid identifier of this key.
-  String get paserkId => takeText(Cb2Library.bindings.localKeyPaserkId(handle));
+  String get paserkId => takeText(bindings.localKey.paserkId(handle));
 
   /// The key id bound into token footers, null once cleared.
-  String? get keyId =>
-      takeOptionalText(Cb2Library.bindings.localKeyKeyId(handle));
+  String? get keyId => takeOptionalText(bindings.localKey.keyId(handle));
 
   set keyId(String? id) {
     if (id == null) {
@@ -75,7 +71,7 @@ final class LocalKey implements Finalizable {
     }
     using((arena) {
       Cb2Exception.check(
-        Cb2Library.bindings.localKeySetKeyId(
+        bindings.localKey.setKeyId(
           handle,
           arenaText(arena, id),
           textLength(id),
@@ -85,7 +81,7 @@ final class LocalKey implements Finalizable {
   }
 
   /// Removes the key id so tokens carry none.
-  void clearKeyId() => Cb2Library.bindings.localKeyClearKeyId(handle);
+  void clearKeyId() => bindings.localKey.clearKeyId(handle);
 
   /// Frees the native key now instead of at garbage collection.
   void dispose() {
@@ -93,7 +89,7 @@ final class LocalKey implements Finalizable {
       return;
     }
     _finalizer.detach(this);
-    Cb2Library.bindings.localKeyFree(_handle);
+    bindings.localKey.free(_handle);
     _handle = nullptr;
   }
 }

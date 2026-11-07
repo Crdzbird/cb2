@@ -1,6 +1,18 @@
-include: package:lints/recommended.yaml
+include: package:very_good_analysis/analysis_options.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  errors:
+    unawaited_futures: error
+    discarded_futures: error
 
 linter:
   rules:
-    - unawaited_futures
-    - prefer_final_locals
+    discarded_futures: true
+    unawaited_futures: true
+    avoid_catching_errors: false
+    prefer_constructors_over_static_methods: false
+    unnecessary_type_name_in_constructor: false

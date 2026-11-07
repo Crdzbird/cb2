@@ -1,7 +1,22 @@
 name: cb2
-description: Dart bindings for cb2, the post-quantum token library, over its C ABI.
-version: 0.1.0
+description: >-
+  Dart bindings for cb2, the post-quantum successor to PASETO: cb2.local and
+  cb2.public tokens, holder proofs and key sealing over the cb2 C ABI.
+version: 0.2.0
+repository: https://github.com/Crdzbird/cb2/tree/main/bindings/dart
+issue_tracker: https://github.com/Crdzbird/cb2/issues
 publish_to: none
+topics:
+  - cryptography
+  - token
+  - post-quantum
+  - ffi
+platforms:
+  android:
+  ios:
+  linux:
+  macos:
+  windows:
 
 environment:
   sdk: ^3.13.0
@@ -10,5 +25,5 @@ dependencies:
   ffi: ^2.1.0
 
 dev_dependencies:
-  lints: ^6.0.0
   test: ^1.25.0
+  very_good_analysis: ^11.0.0

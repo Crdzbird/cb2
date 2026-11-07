@@ -1,8 +1,8 @@
 import 'dart:ffi';
 import 'dart:typed_data';
 
-import 'library.dart';
-import 'memory.dart';
+import 'package:cb2/src/ffi/loaded.dart';
+import 'package:cb2/src/memory.dart';
 
 /// The public half of a recipient pair (kcb2.recipient in PASERK).
 final class RecipientPublicKey implements Finalizable {
@@ -11,7 +11,7 @@ final class RecipientPublicKey implements Finalizable {
   }
 
   static final NativeFinalizer _finalizer = NativeFinalizer(
-    Cb2Library.bindings.recipientPublicKeyFreePointer,
+    bindings.recipientPublicKey.freePointer,
   );
 
   Pointer<Void> _handle;
@@ -27,7 +27,7 @@ final class RecipientPublicKey implements Finalizable {
   /// A key from its raw bytes.
   static RecipientPublicKey fromBytes(Uint8List bytes) => RecipientPublicKey._(
     takeHandle(
-      (arena, out) => Cb2Library.bindings.recipientPublicKeyFromBytes(
+      (arena, out) => bindings.recipientPublicKey.fromBytes(
         arenaBytes(arena, bytes),
         bytes.length,
         out,
@@ -38,7 +38,7 @@ final class RecipientPublicKey implements Finalizable {
   /// A key from its kcb2.recipient text.
   static RecipientPublicKey fromPaserk(String text) => RecipientPublicKey._(
     takeHandle(
-      (arena, out) => Cb2Library.bindings.recipientPublicKeyFromPaserk(
+      (arena, out) => bindings.recipientPublicKey.fromPaserk(
         arenaText(arena, text),
         textLength(text),
         out,
@@ -51,12 +51,10 @@ final class RecipientPublicKey implements Finalizable {
       RecipientPublicKey._(handle);
 
   /// The kcb2.recipient text of this key.
-  String toPaserk() =>
-      takeText(Cb2Library.bindings.recipientPublicKeyToPaserk(handle));
+  String toPaserk() => takeText(bindings.recipientPublicKey.toPaserk(handle));
 
   /// The kcb2.rid identifier of this key.
-  String get paserkId =>
-      takeText(Cb2Library.bindings.recipientPublicKeyPaserkId(handle));
+  String get paserkId => takeText(bindings.recipientPublicKey.paserkId(handle));
 
   /// Frees the native key now instead of at garbage collection.
   void dispose() {
@@ -64,7 +62,7 @@ final class RecipientPublicKey implements Finalizable {
       return;
     }
     _finalizer.detach(this);
-    Cb2Library.bindings.recipientPublicKeyFree(_handle);
+    bindings.recipientPublicKey.free(_handle);
     _handle = nullptr;
   }
 }

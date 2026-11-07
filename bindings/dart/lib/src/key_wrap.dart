@@ -1,11 +1,10 @@
 import 'dart:ffi';
 
+import 'package:cb2/src/cb2_exception.dart';
+import 'package:cb2/src/ffi/loaded.dart';
+import 'package:cb2/src/local_key.dart';
+import 'package:cb2/src/memory.dart';
 import 'package:ffi/ffi.dart';
-
-import 'cb2_exception.dart';
-import 'library.dart';
-import 'local_key.dart';
-import 'memory.dart';
 
 /// Symmetric key wrapping (kcb2.local-wrap).
 final class KeyWrap {
@@ -14,9 +13,7 @@ final class KeyWrap {
   /// Wraps [key] under [wrapping] and returns the kcb2.local-wrap text.
   static String wrap(LocalKey wrapping, LocalKey key) => using((arena) {
     final out = arena<Pointer<Char>>();
-    Cb2Exception.check(
-      Cb2Library.bindings.wrap(wrapping.handle, key.handle, out),
-    );
+    Cb2Exception.check(bindings.proofs.wrap(wrapping.handle, key.handle, out));
     return takeText(out.value);
   });
 
@@ -24,7 +21,7 @@ final class KeyWrap {
   static LocalKey unwrap(String text, LocalKey wrapping) => using((arena) {
     final out = arena<Pointer<Void>>();
     Cb2Exception.check(
-      Cb2Library.bindings.unwrap(
+      bindings.proofs.unwrap(
         arenaText(arena, text),
         textLength(text),
         wrapping.handle,

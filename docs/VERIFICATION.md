@@ -4,6 +4,36 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, Dart package and Flutter plugin as libraries
+
+Package `cb2` (`bindings/dart`) and the plugin `cb2_flutter` follow pub
+conventions: README, CHANGELOG, LICENSE, an example, dartdoc on every
+public member, and `very_good_analysis` with strict casts, inference and
+raw types. The FFI bindings, one 408-line file, are split by area under
+`lib/src/ffi` so that every Dart file holds one class and stays under a
+hundred lines; the holder proof members of `Rules` move to
+`HolderRules`. Build hooks (native assets) were weighed and not adopted
+yet: a hook would have to build libsodium, BLAKE3 and liboqs for every
+target or download release binaries that do not exist; the reasoning is
+in `bindings/dart/README.md`.
+
+On iOS and macOS the plugin now ships `cb2_c.framework`, a dynamic
+framework exporting only the `cb2_*` functions, built by
+`tool/build_xcframework.sh` from the hash-pinned libsodium 1.0.22,
+BLAKE3 1.5.4 and liboqs 0.15.0 (ML-DSA-65 and ML-KEM-768, no OpenSSL)
+for the iOS device, the simulator and macOS, arm64 and x86_64, with
+iOS 15.0 and macOS 11.0 as minimums; it is served both through Swift
+Package Manager and through CocoaPods. With Flutter 3.47.9 and Xcode 27:
+`dart test` passes 14 of 14 against `libcb2_c.dylib`, the CLI example
+prints every accepted step and the refusals `replayed`, `invalid` and
+`audience_mismatch`, `flutter test` passes 2 of 2 in the plugin and 2 of
+2 in the example, the three analyzers report nothing with fatal infos,
+and the example app ran on an iPhone 18 Pro simulator (iOS 27.0) and on
+macOS with all eight steps as expected; its integration test passed on
+both. With Swift Package Manager turned off, through CocoaPods, the app
+built for both and its integration test passed on macOS. The Android, Linux and Windows native
+builds of the plugin were not run.
+
 ## 2026-11-07, the Swift bridge as a package with an XCFramework and examples
 
 `bindings/swift` is now a Swift 6 package (tools 6.0, complete

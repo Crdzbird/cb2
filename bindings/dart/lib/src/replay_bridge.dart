@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:ffi';
 
-import 'bindings.dart';
-import 'replay_check.dart';
+import 'package:cb2/src/ffi/token_signatures.dart';
+import 'package:cb2/src/replay_check.dart';
 
 /// Hands a Dart [ReplayCheck] to the library as a C function pointer for
 /// the duration of one call. The native callable is isolate-local, so the

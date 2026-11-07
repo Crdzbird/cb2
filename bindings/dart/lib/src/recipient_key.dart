@@ -1,20 +1,20 @@
 import 'dart:ffi';
 import 'dart:typed_data';
 
-import 'library.dart';
-import 'memory.dart';
-import 'recipient_public_key.dart';
+import 'package:cb2/src/ffi/loaded.dart';
+import 'package:cb2/src/memory.dart';
+import 'package:cb2/src/recipient_public_key.dart';
 
 /// A recipient pair for kcb2.seal (kcb2.recipient-secret in PASERK).
 ///
-/// Only available when [hasSeal] is true for the loaded library.
+/// Only available when `hasSeal()` is true for the loaded library.
 final class RecipientKey implements Finalizable {
   RecipientKey._(this._handle) {
     _finalizer.attach(this, _handle, detach: this);
   }
 
   static final NativeFinalizer _finalizer = NativeFinalizer(
-    Cb2Library.bindings.recipientKeyFreePointer,
+    bindings.recipientKey.freePointer,
   );
 
   Pointer<Void> _handle;
@@ -29,13 +29,13 @@ final class RecipientKey implements Finalizable {
 
   /// A fresh random recipient pair.
   static RecipientKey generate() => RecipientKey._(
-    takeHandle((_, out) => Cb2Library.bindings.recipientKeyGenerate(out)),
+    takeHandle((_, out) => bindings.recipientKey.generate(out)),
   );
 
   /// A key from its raw bytes.
   static RecipientKey fromBytes(Uint8List bytes) => RecipientKey._(
     takeHandle(
-      (arena, out) => Cb2Library.bindings.recipientKeyFromBytes(
+      (arena, out) => bindings.recipientKey.fromBytes(
         arenaBytes(arena, bytes),
         bytes.length,
         out,
@@ -46,7 +46,7 @@ final class RecipientKey implements Finalizable {
   /// A key from its kcb2.recipient-secret text.
   static RecipientKey fromPaserk(String text) => RecipientKey._(
     takeHandle(
-      (arena, out) => Cb2Library.bindings.recipientKeyFromPaserk(
+      (arena, out) => bindings.recipientKey.fromPaserk(
         arenaText(arena, text),
         textLength(text),
         out,
@@ -55,19 +55,15 @@ final class RecipientKey implements Finalizable {
   );
 
   /// The kcb2.recipient-secret text of this key; treat it as a secret.
-  String toPaserk() =>
-      takeSecretText(Cb2Library.bindings.recipientKeyToPaserk(handle));
+  String toPaserk() => takeSecretText(bindings.recipientKey.toPaserk(handle));
 
   /// The public half, as a new key the caller owns.
   RecipientPublicKey publicKey() => RecipientPublicKey.adopt(
-    takeHandle(
-      (_, out) => Cb2Library.bindings.recipientKeyPublicKey(handle, out),
-    ),
+    takeHandle((_, out) => bindings.recipientKey.publicKey(handle, out)),
   );
 
   /// The kcb2.rid identifier of this key.
-  String get paserkId =>
-      takeText(Cb2Library.bindings.recipientKeyPaserkId(handle));
+  String get paserkId => takeText(bindings.recipientKey.paserkId(handle));
 
   /// Frees the native key now instead of at garbage collection.
   void dispose() {
@@ -75,7 +71,7 @@ final class RecipientKey implements Finalizable {
       return;
     }
     _finalizer.detach(this);
-    Cb2Library.bindings.recipientKeyFree(_handle);
+    bindings.recipientKey.free(_handle);
     _handle = nullptr;
   }
 }

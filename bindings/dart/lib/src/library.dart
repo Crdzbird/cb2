@@ -1,25 +1,19 @@
 import 'dart:ffi';
 import 'dart:io';
 
-import 'bindings.dart';
-
 /// Locates and opens the cb2 C library once for the whole isolate.
 ///
-/// The environment variable CB2_C_LIBRARY wins when set. Otherwise the
-/// platform's spelling of [name] is opened (libcb2_c.dylib, libcb2_c.so,
-/// cb2_c.dll, or cb2_c.framework/cb2_c on iOS), and when that fails the
-/// symbols are looked up in the running process, which is where a
-/// statically linked build puts them.
+/// The environment variable CB2_C_LIBRARY wins when set. Otherwise each
+/// of [candidates] is opened in turn, and when none opens the symbols are
+/// looked up in the running process, which is where a statically linked
+/// build puts them.
 final class Cb2Library {
   const Cb2Library._();
 
   /// The base name of the shared library, without prefix or extension.
+  ///
+  /// Set it before the first call into cb2; the library is opened once.
   static String name = 'cb2_c';
-
-  static Cb2Bindings? _bindings;
-
-  /// The typed entry points of the library, opened on first use.
-  static Cb2Bindings get bindings => _bindings ??= Cb2Bindings(open());
 
   /// Opens the library following the rules of this class.
   static DynamicLibrary open() {
@@ -37,13 +31,12 @@ final class Cb2Library {
     return DynamicLibrary.process();
   }
 
-  /// The file names tried for [name] on the current platform, in order.
+  /// The file names tried for [name] on the current platform, in order:
+  /// cb2_c.framework/cb2_c then libcb2_c.dylib on iOS and macOS,
+  /// cb2_c.dll on Windows, libcb2_c.so elsewhere.
   static List<String> candidates() {
-    if (Platform.isIOS) {
+    if (Platform.isIOS || Platform.isMacOS) {
       return ['$name.framework/$name', 'lib$name.dylib'];
-    }
-    if (Platform.isMacOS) {
-      return ['lib$name.dylib', '$name.framework/$name'];
     }
     if (Platform.isWindows) {
       return ['$name.dll', 'lib$name.dll'];

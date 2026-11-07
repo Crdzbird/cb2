@@ -1,8 +1,16 @@
-include: package:flutter_lints/flutter.yaml
+include: package:very_good_analysis/analysis_options.yaml
 
 analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  errors:
+    unawaited_futures: error
+    discarded_futures: error
   exclude:
     - build/**
+    - example/**
     - android/**
     - ios/**
     - windows/**
@@ -11,5 +19,6 @@ analyzer:
 
 linter:
   rules:
-    - unawaited_futures
-    - prefer_final_locals
+    discarded_futures: true
+    unawaited_futures: true
+    unnecessary_type_name_in_constructor: false

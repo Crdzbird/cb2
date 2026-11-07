@@ -1,11 +1,10 @@
 import 'dart:ffi';
 import 'dart:typed_data';
 
+import 'package:cb2/src/cb2_exception.dart';
+import 'package:cb2/src/ffi/token_signatures.dart';
+import 'package:cb2/src/memory.dart';
 import 'package:ffi/ffi.dart';
-
-import 'bindings.dart';
-import 'cb2_exception.dart';
-import 'memory.dart';
 
 /// Produces a raw token from [message] through [seal].
 String rawSeal(

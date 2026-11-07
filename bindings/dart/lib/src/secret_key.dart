@@ -1,22 +1,21 @@
 import 'dart:ffi';
 import 'dart:typed_data';
 
+import 'package:cb2/src/cb2_exception.dart';
+import 'package:cb2/src/ffi/loaded.dart';
+import 'package:cb2/src/memory.dart';
+import 'package:cb2/src/public_key.dart';
 import 'package:ffi/ffi.dart';
 
-import 'cb2_exception.dart';
-import 'library.dart';
-import 'memory.dart';
-import 'public_key.dart';
-
 /// A signing pair for cb2.public tokens (kcb2.secret in PASERK); the
-/// pair exists only when [hasPublic] is true for the loaded library.
+/// pair exists only when `hasPublic()` is true for the loaded library.
 final class SecretKey implements Finalizable {
   SecretKey._(this._handle) {
     _finalizer.attach(this, _handle, detach: this);
   }
 
   static final NativeFinalizer _finalizer = NativeFinalizer(
-    Cb2Library.bindings.secretKeyFreePointer,
+    bindings.secretKey.freePointer,
   );
 
   Pointer<Void> _handle;
@@ -30,14 +29,13 @@ final class SecretKey implements Finalizable {
   }
 
   /// A fresh random signing pair.
-  static SecretKey generate() => SecretKey._(
-    takeHandle((_, out) => Cb2Library.bindings.secretKeyGenerate(out)),
-  );
+  static SecretKey generate() =>
+      SecretKey._(takeHandle((_, out) => bindings.secretKey.generate(out)));
 
   /// A key from its raw bytes.
   static SecretKey fromBytes(Uint8List bytes) => SecretKey._(
     takeHandle(
-      (arena, out) => Cb2Library.bindings.secretKeyFromBytes(
+      (arena, out) => bindings.secretKey.fromBytes(
         arenaBytes(arena, bytes),
         bytes.length,
         out,
@@ -48,7 +46,7 @@ final class SecretKey implements Finalizable {
   /// A key from its kcb2.secret text.
   static SecretKey fromPaserk(String text) => SecretKey._(
     takeHandle(
-      (arena, out) => Cb2Library.bindings.secretKeyFromPaserk(
+      (arena, out) => bindings.secretKey.fromPaserk(
         arenaText(arena, text),
         textLength(text),
         out,
@@ -57,17 +55,15 @@ final class SecretKey implements Finalizable {
   );
 
   /// The kcb2.secret text of this key; treat it as a secret.
-  String toPaserk() =>
-      takeSecretText(Cb2Library.bindings.secretKeyToPaserk(handle));
+  String toPaserk() => takeSecretText(bindings.secretKey.toPaserk(handle));
 
   /// The public half, as a new key the caller owns.
   PublicKey publicKey() => PublicKey.adopt(
-    takeHandle((_, out) => Cb2Library.bindings.secretKeyPublicKey(handle, out)),
+    takeHandle((_, out) => bindings.secretKey.publicKey(handle, out)),
   );
 
   /// The key id bound into token footers, null once cleared.
-  String? get keyId =>
-      takeOptionalText(Cb2Library.bindings.secretKeyKeyId(handle));
+  String? get keyId => takeOptionalText(bindings.secretKey.keyId(handle));
 
   set keyId(String? id) {
     if (id == null) {
@@ -76,7 +72,7 @@ final class SecretKey implements Finalizable {
     }
     using((arena) {
       Cb2Exception.check(
-        Cb2Library.bindings.secretKeySetKeyId(
+        bindings.secretKey.setKeyId(
           handle,
           arenaText(arena, id),
           textLength(id),
@@ -86,7 +82,7 @@ final class SecretKey implements Finalizable {
   }
 
   /// Removes the key id so tokens carry none.
-  void clearKeyId() => Cb2Library.bindings.secretKeyClearKeyId(handle);
+  void clearKeyId() => bindings.secretKey.clearKeyId(handle);
 
   /// Frees the native key now instead of at garbage collection.
   void dispose() {
@@ -94,7 +90,7 @@ final class SecretKey implements Finalizable {
       return;
     }
     _finalizer.detach(this);
-    Cb2Library.bindings.secretKeyFree(_handle);
+    bindings.secretKey.free(_handle);
     _handle = nullptr;
   }
 }

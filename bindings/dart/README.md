@@ -1,33 +1,39 @@
 # cb2 for Dart
 
 Dart bindings for cb2, the post-quantum successor to PASETO, over the C ABI
-in `bindings/c` (`cb2_c.h`). Keys are native handles freed by a
-`NativeFinalizer` or by `dispose()`; every verdict of the library is a
-`Cb2Exception` with the C code and its stable name (`invalid`, `expired`,
-`proof_mismatch`, ...). Replay checks are Dart callbacks bridged to the
-library for the duration of one call.
+in `bindings/c` (`cb2_c.h`). The package issues and checks cb2.local
+tokens (XChaCha20 with keyed BLAKE3) and cb2.public tokens (Ed25519 and
+ML-DSA-65, both required), makes holder proofs, and wraps or seals keys.
 
-## Pointing at the library
+- Keys are native handles freed by a `NativeFinalizer`, or at once by
+  `dispose()`.
+- Every verdict of the library is a `Cb2Exception` carrying the C code
+  and its stable name (`invalid`, `expired`, `replayed`,
+  `audience_mismatch`, `proof_mismatch`, ...).
+- Replay checks are plain Dart callbacks, bridged to the library for the
+  duration of one call.
 
-The loader in `Cb2Library` tries, in order:
+Flutter apps use `cb2_flutter` (`bindings/flutter/cb2_flutter`), which
+ships the native library and re-exports this API.
 
-1. the path in the environment variable `CB2_C_LIBRARY`;
-2. the platform spelling of `Cb2Library.name` (`cb2_c` by default):
-   `libcb2_c.dylib`, `libcb2_c.so`, `cb2_c.dll`, or
-   `cb2_c.framework/cb2_c` on iOS, resolved by the dynamic linker;
-3. the symbols of the running process, for a statically linked build.
+## Quick start
 
-Build the shared library from the repository root with CMake (the
-`cb2_c` target under `bindings/c`) and run the tests against it:
+Build the C library from the repository root, then point the package at
+it:
 
+    cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+    cmake --build build --target cb2_c
     cd bindings/dart
     dart pub get
-    CB2_C_LIBRARY=/path/to/build/bindings/c/libcb2_c.dylib dart test
+    export CB2_C_LIBRARY="$PWD/../../build/bindings/c/libcb2_c.dylib"
+    dart test
+    dart run example/cb2_example.dart
 
-`hasPublic()` and `hasSeal()` say whether the loaded build carries
-cb2.public (liboqs) and kcb2.seal.
+On Linux the file is `libcb2_c.so`. `hasPublic()` and `hasSeal()` say
+whether the loaded build carries cb2.public and kcb2.seal (both need
+liboqs).
 
-## Example
+## Usage
 
 ```dart
 import 'package:cb2/cb2.dart';
@@ -43,19 +49,15 @@ void main() {
   });
 
   final seen = <String>{};
-  final claims = Token.open(
-    key,
-    token,
-    Rules(
-      issuer: 'https://issuer.example',
-      audience: 'api',
-      replay: (jti) => seen.add(jti),
-    ),
+  final rules = Rules(
+    issuer: 'https://issuer.example',
+    audience: 'api',
+    replay: seen.add,
   );
-  print(claims['sub']);
+  print(Token.open(key, token, rules)['sub']);
 
   try {
-    Token.open(key, token, const Rules(issuer: 'https://issuer.example'));
+    Token.open(key, token, rules);
   } on Cb2Exception catch (e) {
     print(e.name);
   }
@@ -63,15 +65,70 @@ void main() {
 }
 ```
 
-`Local` and `Public` carry raw bytes with an optional footer and implicit
-assertion; `Token` carries claims as a `Map<String, Object?>` checked
-against `Rules`, whose fields mirror the rules JSON documented in
-`cb2_c.h`. `Holder.prove` makes a holder proof for a bound token;
-`KeyWrap` and `Seal` wrap a local key under another key or seal it to a
-`RecipientPublicKey`.
+The example in `example/cb2_example.dart` does the same for cb2.public
+with `SecretKey`, `PublicKey`, `Token.sign` and `Token.verify`, and shows
+three refusals.
+
+## API
+
+| Type | What it does |
+| --- | --- |
+| `LocalKey`, `SecretKey`, `PublicKey` | Keys for cb2.local and cb2.public, from bytes, PASERK text, or fresh randomness. |
+| `RecipientKey`, `RecipientPublicKey` | X-Wing pairs for kcb2.seal. |
+| `Token` | Claims tokens as `Map<String, Object?>`: `seal`, `open`, `sign`, `verify`, `peekKeyId`. |
+| `Rules`, `HolderRules`, `ProofRequest` | What a claims token is checked against; the fields mirror the rules JSON of `cb2_c.h`. |
+| `Local`, `Public` | Raw tokens over bytes, with an optional footer and implicit assertion. |
+| `Holder` | Holder proofs, public and local mode, and target normalization. |
+| `KeyWrap`, `Seal` | Wrap a local key under another, or seal it to a recipient. |
+| `Cb2Exception` | Every refusal and failure of the library. |
+| `Cb2Library` | Where the native library is looked for. |
+
+## Locating the native library
+
+`Cb2Library.open` tries, in order:
+
+1. the path in the environment variable `CB2_C_LIBRARY`;
+2. the platform spelling of `Cb2Library.name` (`cb2_c` by default),
+   resolved by the dynamic linker: `cb2_c.framework/cb2_c` then
+   `libcb2_c.dylib` on iOS and macOS (the framework is what
+   `cb2_flutter` bundles), `cb2_c.dll` on Windows, `libcb2_c.so`
+   elsewhere;
+3. the symbols of the running process, for a statically linked build.
+
+The library is opened on the first call into cb2 and kept for the life
+of the isolate, so set `Cb2Library.name` before that call if needed.
+
+### Why not build hooks (native assets)
+
+Dart build hooks (`hook/build.dart` with `package:hooks` and
+`package:code_assets`) are the modern way for a package to ship native
+code: the hook builds or fetches a library per target, and `@Native`
+bindings resolve it without any loader. They were considered and not
+adopted for this release, for three reasons:
+
+- `libcb2_c` depends on libsodium, BLAKE3 and liboqs. A hook would have
+  to build all three from source for every target (Android ABIs, iOS
+  device and simulator, macOS, Linux, Windows) on every clean build, or
+  download prebuilt binaries, which needs published release artifacts
+  this repository does not have.
+- The same Dart code must run under `dart test` against a library built
+  by CMake, in Flutter apps where the plugin ships the library, and in
+  statically linked apps. The loader above serves all three without a
+  second code path.
+- `cb2_flutter` already ships the library through the platform build
+  systems (CMake on Android, Linux and Windows, a dynamic XCFramework on
+  iOS and macOS), which works with today's Flutter tooling.
+
+The move to hooks becomes worthwhile once hash-pinned release binaries
+of `libcb2_c` exist: a hook would then download the one for the target
+and emit it as a code asset, and the bindings could switch to `@Native`
+with the loader kept as a fallback for local builds.
 
 ## Layout
 
-One class per file under `lib/src`; `lib/src/bindings.dart` holds every
-typed entry point of the ABI and is the one file longer than a hundred
-lines, since the signatures belong together.
+One class per file under `lib/src`, none over a hundred lines. The FFI
+signatures and lookups sit under `lib/src/ffi` and are not exported;
+`KeyCalls` serves all five key kinds since their entry points share one
+naming scheme. Key creation is by static methods (`LocalKey.generate`,
+`LocalKey.fromPaserk`, ...) rather than constructors, since a key is a
+native handle and cannot be a const value.

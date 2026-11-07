@@ -1,0 +1,5 @@
+PRODUCT_NAME = cb2_flutter_example
+
+PRODUCT_BUNDLE_IDENTIFIER = dev.cb2.cb2FlutterExample
+
+PRODUCT_COPYRIGHT = Copyright 2026 Crdzbird. MIT License.

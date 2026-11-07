@@ -39,8 +39,7 @@ void run() {
   });
 
   test('key id and weak key material', () {
-    final fresh = LocalKey.generate();
-    fresh.keyId = 'rotation-1';
+    final fresh = LocalKey.generate()..keyId = 'rotation-1';
     expect(fresh.keyId, 'rotation-1');
     expect(() => fresh.keyId = 'a\u200b', verdict('argument'));
     fresh.clearKeyId();

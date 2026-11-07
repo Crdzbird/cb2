@@ -2,17 +2,16 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 
+import 'package:cb2/src/cb2_exception.dart';
+import 'package:cb2/src/ffi/loaded.dart';
 import 'package:ffi/ffi.dart';
-
-import 'cb2_exception.dart';
-import 'library.dart';
 
 /// Copies [bytes] into [arena]; the null pointer stands for no bytes.
 Pointer<Uint8> arenaBytes(Arena arena, Uint8List? bytes) {
   if (bytes == null || bytes.isEmpty) {
     return nullptr;
   }
-  final Pointer<Uint8> out = arena<Uint8>(bytes.length);
+  final out = arena<Uint8>(bytes.length);
   out.asTypedList(bytes.length).setAll(0, bytes);
   return out;
 }
@@ -31,14 +30,14 @@ int textLength(String? text) => text == null ? 0 : utf8.encode(text).length;
 /// Takes a text result of the library: decodes it and frees it.
 String takeText(Pointer<Char> text, [int? length]) {
   final decoded = readText(text, length);
-  Cb2Library.bindings.free(text.cast<Void>());
+  bindings.core.free(text.cast<Void>());
   return decoded;
 }
 
 /// Takes a text result that carries key material: decodes, wipes, frees.
 String takeSecretText(Pointer<Char> text) {
   final decoded = readText(text, null);
-  Cb2Library.bindings.freeSecret(text);
+  bindings.core.freeSecret(text);
   return decoded;
 }
 
@@ -53,7 +52,7 @@ String? takeOptionalText(Pointer<Char> text) {
 /// Takes a byte result of the library: copies it out and frees it.
 Uint8List takeBytes(Pointer<Uint8> bytes, int length) {
   final copy = Uint8List.fromList(bytes.asTypedList(length));
-  Cb2Library.bindings.free(bytes.cast<Void>());
+  bindings.core.free(bytes.cast<Void>());
   return copy;
 }
 

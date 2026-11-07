@@ -37,10 +37,12 @@ void run() {
       issuer: issuer,
       audience: 'api',
       now: now,
-      proof: presented,
-      request: ProofRequest(htm: htm, htu: 'https://api.example/v1/me'),
-      proofSeenJti: seen,
-      proofReplay: check,
+      holder: HolderRules(
+        proof: presented,
+        request: ProofRequest(htm: htm, htu: 'https://api.example/v1/me'),
+        seenJti: seen,
+        replay: check,
+      ),
     );
 
     expect(

@@ -1,16 +1,15 @@
 import 'dart:ffi';
 import 'dart:typed_data';
 
+import 'package:cb2/src/cb2_exception.dart';
+import 'package:cb2/src/claims_calls.dart';
+import 'package:cb2/src/ffi/loaded.dart';
+import 'package:cb2/src/local_key.dart';
+import 'package:cb2/src/memory.dart';
+import 'package:cb2/src/public_key.dart';
+import 'package:cb2/src/rules.dart';
+import 'package:cb2/src/secret_key.dart';
 import 'package:ffi/ffi.dart';
-
-import 'cb2_exception.dart';
-import 'claims_calls.dart';
-import 'library.dart';
-import 'local_key.dart';
-import 'memory.dart';
-import 'public_key.dart';
-import 'rules.dart';
-import 'secret_key.dart';
 
 /// Claims tokens: a JSON object of registered and custom claims, sealed
 /// or signed, then opened or verified against [Rules].
@@ -25,16 +24,14 @@ final class Token {
     LocalKey key,
     Map<String, Object?> claims, {
     Uint8List? implicit,
-  }) =>
-      issueClaims(Cb2Library.bindings.tokenSeal, key.handle, claims, implicit);
+  }) => issueClaims(bindings.tokens.tokenSeal, key.handle, claims, implicit);
 
   /// Signs [claims] with [key] as a cb2.public token.
   static String sign(
     SecretKey key,
     Map<String, Object?> claims, {
     Uint8List? implicit,
-  }) =>
-      issueClaims(Cb2Library.bindings.tokenSign, key.handle, claims, implicit);
+  }) => issueClaims(bindings.tokens.tokenSign, key.handle, claims, implicit);
 
   /// Opens a cb2.local [token] under [key] and checks it against [rules].
   static Map<String, Object?> open(
@@ -43,7 +40,7 @@ final class Token {
     Rules rules, {
     Uint8List? implicit,
   }) => checkClaims(
-    Cb2Library.bindings.tokenOpen,
+    bindings.tokens.tokenOpen,
     key.handle,
     token,
     rules,
@@ -57,7 +54,7 @@ final class Token {
     Rules rules, {
     Uint8List? implicit,
   }) => checkClaims(
-    Cb2Library.bindings.tokenVerify,
+    bindings.tokens.tokenVerify,
     key.handle,
     token,
     rules,
@@ -68,7 +65,7 @@ final class Token {
   static String? peekKeyId(String token) => using((arena) {
     final out = arena<Pointer<Char>>();
     Cb2Exception.check(
-      Cb2Library.bindings.peekKeyId(
+      bindings.tokens.peekKeyId(
         arenaText(arena, token),
         textLength(token),
         out,

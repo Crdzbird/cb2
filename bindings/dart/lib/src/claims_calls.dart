@@ -2,13 +2,13 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 
+import 'package:cb2/src/cb2_exception.dart';
+import 'package:cb2/src/ffi/claims_signatures.dart';
+import 'package:cb2/src/memory.dart';
+import 'package:cb2/src/replay_bridge.dart';
+import 'package:cb2/src/rules.dart';
+import 'package:cb2/src/rules_json.dart';
 import 'package:ffi/ffi.dart';
-
-import 'bindings.dart';
-import 'cb2_exception.dart';
-import 'memory.dart';
-import 'replay_bridge.dart';
-import 'rules.dart';
 
 /// Issues a claims token from [claims] through [issue].
 String issueClaims(
@@ -44,7 +44,7 @@ Map<String, Object?> checkClaims(
   Uint8List? implicit,
 ) {
   final replay = ReplayBridge.of(rules.replay);
-  final proofReplay = ReplayBridge.of(rules.proofReplay);
+  final proofReplay = ReplayBridge.of(rules.holder?.replay);
   try {
     return using((arena) {
       final json = jsonEncode(rules.toJson());

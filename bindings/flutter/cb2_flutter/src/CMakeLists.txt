@@ -45,6 +45,7 @@ set_target_properties(cb2_c PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON)
 target_include_directories(cb2_c PRIVATE "${CB2_C_DIR}/include" "${CB2_ROOT}/include")
+target_compile_definitions(cb2_c PRIVATE CB2_C_BUILDING)
 
 if(CB2_DEPS_LIBS)
     set(_cb2_libs ${CB2_DEPS_LIBS})

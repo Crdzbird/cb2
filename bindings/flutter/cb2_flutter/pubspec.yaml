@@ -1,7 +1,17 @@
 name: cb2_flutter
-description: Flutter packaging of the cb2 token library, its C ABI built or bundled per platform, with the Dart API of package cb2.
-version: 0.1.0
+description: >-
+  Flutter plugin for cb2, the post-quantum successor to PASETO: the cb2 C
+  library built or bundled for every platform, with the Dart API of
+  package cb2.
+version: 0.2.0
+repository: https://github.com/Crdzbird/cb2/tree/main/bindings/flutter/cb2_flutter
+issue_tracker: https://github.com/Crdzbird/cb2/issues
 publish_to: none
+topics:
+  - cryptography
+  - token
+  - post-quantum
+  - ffi
 
 environment:
   sdk: ^3.13.0
@@ -14,9 +24,9 @@ dependencies:
     sdk: flutter
 
 dev_dependencies:
-  flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter
+  very_good_analysis: ^11.0.0
 
 flutter:
   plugin:

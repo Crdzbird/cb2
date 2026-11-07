@@ -1,10 +1,9 @@
 import 'dart:ffi';
 
+import 'package:cb2/src/cb2_exception.dart';
+import 'package:cb2/src/ffi/proof_signatures.dart';
+import 'package:cb2/src/memory.dart';
 import 'package:ffi/ffi.dart';
-
-import 'bindings.dart';
-import 'cb2_exception.dart';
-import 'memory.dart';
 
 /// Makes a holder proof through [prove] under the key behind [key], for
 /// the request [htm] [htu] and [accessToken], identified by [jti], valid

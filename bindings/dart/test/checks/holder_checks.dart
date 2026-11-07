@@ -39,10 +39,12 @@ void run() {
       issuer: issuer,
       audience: 'api',
       now: now,
-      proof: proof,
-      request: ProofRequest(htm: htm, htu: htu),
-      proofSeenJti: seen,
-      proofReplay: check,
+      holder: HolderRules(
+        proof: proof,
+        request: ProofRequest(htm: htm, htu: htu),
+        seenJti: seen,
+        replay: check,
+      ),
     );
 
     const loud = 'HTTPS://API.EXAMPLE:443/v1/me?x=1';

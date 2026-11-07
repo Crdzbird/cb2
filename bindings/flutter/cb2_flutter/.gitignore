@@ -31,3 +31,6 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 /build/
 /coverage/
+
+/ios/cb2_flutter/Frameworks/
+/macos/cb2_flutter/Frameworks/

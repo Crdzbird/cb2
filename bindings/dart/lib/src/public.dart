@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
-import 'library.dart';
-import 'public_key.dart';
-import 'raw_calls.dart';
-import 'secret_key.dart';
+import 'package:cb2/src/ffi/loaded.dart';
+import 'package:cb2/src/public_key.dart';
+import 'package:cb2/src/raw_calls.dart';
+import 'package:cb2/src/secret_key.dart';
 
 /// cb2.public tokens over arbitrary bytes.
 final class Public {
@@ -17,7 +17,7 @@ final class Public {
     Uint8List? footer,
     Uint8List? implicit,
   }) => rawSeal(
-    Cb2Library.bindings.publicSign,
+    bindings.tokens.publicSign,
     key.handle,
     message,
     footer,
@@ -33,7 +33,7 @@ final class Public {
     Uint8List? implicit,
     int maxTokenBytes = 0,
   }) => rawOpen(
-    Cb2Library.bindings.publicVerify,
+    bindings.tokens.publicVerify,
     key.handle,
     token,
     footer,

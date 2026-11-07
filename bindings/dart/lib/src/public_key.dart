@@ -1,11 +1,10 @@
 import 'dart:ffi';
 import 'dart:typed_data';
 
+import 'package:cb2/src/cb2_exception.dart';
+import 'package:cb2/src/ffi/loaded.dart';
+import 'package:cb2/src/memory.dart';
 import 'package:ffi/ffi.dart';
-
-import 'cb2_exception.dart';
-import 'library.dart';
-import 'memory.dart';
 
 /// The verifying half of a signing pair (kcb2.public in PASERK).
 final class PublicKey implements Finalizable {
@@ -14,7 +13,7 @@ final class PublicKey implements Finalizable {
   }
 
   static final NativeFinalizer _finalizer = NativeFinalizer(
-    Cb2Library.bindings.publicKeyFreePointer,
+    bindings.publicKey.freePointer,
   );
 
   Pointer<Void> _handle;
@@ -30,7 +29,7 @@ final class PublicKey implements Finalizable {
   /// A key from its raw bytes.
   static PublicKey fromBytes(Uint8List bytes) => PublicKey._(
     takeHandle(
-      (arena, out) => Cb2Library.bindings.publicKeyFromBytes(
+      (arena, out) => bindings.publicKey.fromBytes(
         arenaBytes(arena, bytes),
         bytes.length,
         out,
@@ -41,7 +40,7 @@ final class PublicKey implements Finalizable {
   /// A key from its kcb2.public text.
   static PublicKey fromPaserk(String text) => PublicKey._(
     takeHandle(
-      (arena, out) => Cb2Library.bindings.publicKeyFromPaserk(
+      (arena, out) => bindings.publicKey.fromPaserk(
         arenaText(arena, text),
         textLength(text),
         out,
@@ -53,15 +52,13 @@ final class PublicKey implements Finalizable {
   static PublicKey adopt(Pointer<Void> handle) => PublicKey._(handle);
 
   /// The kcb2.public text of this key.
-  String toPaserk() => takeText(Cb2Library.bindings.publicKeyToPaserk(handle));
+  String toPaserk() => takeText(bindings.publicKey.toPaserk(handle));
 
   /// The kcb2.pid identifier of this key.
-  String get paserkId =>
-      takeText(Cb2Library.bindings.publicKeyPaserkId(handle));
+  String get paserkId => takeText(bindings.publicKey.paserkId(handle));
 
   /// The key id bound into token footers, null once cleared.
-  String? get keyId =>
-      takeOptionalText(Cb2Library.bindings.publicKeyKeyId(handle));
+  String? get keyId => takeOptionalText(bindings.publicKey.keyId(handle));
 
   set keyId(String? id) {
     if (id == null) {
@@ -70,7 +67,7 @@ final class PublicKey implements Finalizable {
     }
     using((arena) {
       Cb2Exception.check(
-        Cb2Library.bindings.publicKeySetKeyId(
+        bindings.publicKey.setKeyId(
           handle,
           arenaText(arena, id),
           textLength(id),
@@ -80,7 +77,7 @@ final class PublicKey implements Finalizable {
   }
 
   /// Removes the key id so tokens carry none.
-  void clearKeyId() => Cb2Library.bindings.publicKeyClearKeyId(handle);
+  void clearKeyId() => bindings.publicKey.clearKeyId(handle);
 
   /// Frees the native key now instead of at garbage collection.
   void dispose() {
@@ -88,7 +85,7 @@ final class PublicKey implements Finalizable {
       return;
     }
     _finalizer.detach(this);
-    Cb2Library.bindings.publicKeyFree(_handle);
+    bindings.publicKey.free(_handle);
     _handle = nullptr;
   }
 }
