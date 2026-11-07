@@ -14,4 +14,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "cb2-jvm"
 
-include("cb2", "cb2-kotlin", "examples:token-service", "examples:token-tour")
+include("cb2", "cb2-kotlin", "bench", "examples:token-service", "examples:token-tour")

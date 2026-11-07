@@ -18,3 +18,12 @@ application {
     mainClass = "com.cipherbird.cb2.example.service.TokenService"
     applicationDefaultJvmArgs = listOf("--enable-native-access=com.cipherbird.cb2")
 }
+
+tasks.register<JavaExec>("quickStart") {
+    description = "Runs the quick start of the README."
+    group = "application"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainModule = "com.cipherbird.cb2.example.service"
+    mainClass = "com.cipherbird.cb2.example.service.QuickStart"
+    jvmArgs("--enable-native-access=com.cipherbird.cb2")
+}

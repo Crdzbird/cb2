@@ -92,11 +92,12 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: gradle
-      - name: Java and Kotlin bridges (Gradle build, tests, both examples)
+      - name: Java and Kotlin bridges (Gradle build with the benchmarks compiled, tests, examples, quick starts)
         run: |
           cd bindings/java
           ./gradlew --no-daemon build
           ./gradlew --no-daemon -q :examples:token-service:run :examples:token-tour:run
+          ./gradlew --no-daemon -q :examples:token-service:quickStart :examples:token-tour:quickStart
       - name: Cache the Swift XCFramework dependencies
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
@@ -240,11 +241,12 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: gradle
-      - name: Java and Kotlin bridges (Gradle build, tests, both examples)
+      - name: Java and Kotlin bridges (Gradle build with the benchmarks compiled, tests, examples, quick starts)
         run: |
           cd bindings/java
           ./gradlew --no-daemon build
           ./gradlew --no-daemon -q :examples:token-service:run :examples:token-tour:run
+          ./gradlew --no-daemon -q :examples:token-service:quickStart :examples:token-tour:quickStart
       # Secrets are marked undefined and memcheck must report nothing:
       # verdicts and outgoing token bytes are declassified in the library
       # (detail::declassify), and the one accepted lookup is listed with

@@ -4,6 +4,32 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, the Java and Kotlin README and JVM benchmarks
+
+bindings/java/README.md is rewritten for a first-time user, and
+bindings/java/bench is a JMH project (never published) that compares the
+Java library with JJWT 0.13.0, Nimbus JOSE+JWT 10.10 (Tink 1.24.0 for
+Ed25519) and paseto4j 2026.0 (Bouncy Castle 1.84) on one 187-byte claims
+payload, issuing and then checking issuer, audience and expiry. Under
+Oracle JDK 21.0.1, JMH 1.37, 2 forks, 3 warmup and 5 measured one-second
+iterations, with other processes holding the load average at 7 to 10,
+in microseconds per operation: cb2.local 6.57 to issue and 6.03 to
+check; PASETO v4.local 6.81 and 5.56; JJWT HS256 4.70 and 6.79; Nimbus
+HS256 2.55 and 4.90; cb2.public 174.31 and 123.18; PASETO v4.public
+57.37 and 76.37; Nimbus EdDSA 63.04 and 174.84; JJWT EdDSA 574.20 and
+569.92; Nimbus ES256 152.92 and 533.91; JJWT ES256 163.75 and 536.44.
+Every 99.9% interval is within 6% of its score. Tokens: cb2.local 430
+bytes, cb2.public 4843, PASETO 344 and 345, JWT 269 to 315. A first run
+under a load of 44 had intervals up to 77% and is not used.
+
+The README quick starts are the files QuickStart.java and QuickStart.kt
+in the two example projects, run by `quickStart` tasks that CI now runs.
+Both printed the token, its claims, the replayed refusal and a verified
+cb2.public token; the same two files, built in a separate Gradle project
+against the artifacts installed with `publishToMavenLocal` into a
+scratch repository through the dependency lines of the README, printed
+the same. The published POM of cb2 lists no dependencies.
+
 ## 2026-11-07, Go binding README and benchmark against golang-jwt and go-paseto
 
 `bindings/go/README.md` is rewritten for a first-time user: what cb2
