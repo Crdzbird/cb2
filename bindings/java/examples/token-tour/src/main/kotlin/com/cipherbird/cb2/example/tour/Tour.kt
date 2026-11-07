@@ -5,10 +5,14 @@ import com.cipherbird.cb2.LocalKey
 import com.cipherbird.cb2.RecipientKey
 import com.cipherbird.cb2.SecretKey
 import com.cipherbird.cb2.kotlin.claims
+import com.cipherbird.cb2.kotlin.compactKeyDigest
+import com.cipherbird.cb2.kotlin.openCompact
 import com.cipherbird.cb2.kotlin.openClaims
+import com.cipherbird.cb2.kotlin.peekCompactKeyDigest
 import com.cipherbird.cb2.kotlin.prove
 import com.cipherbird.cb2.kotlin.rememberingCheck
 import com.cipherbird.cb2.kotlin.sealClaims
+import com.cipherbird.cb2.kotlin.sealCompact
 import com.cipherbird.cb2.kotlin.sealTo
 import com.cipherbird.cb2.kotlin.signClaims
 import com.cipherbird.cb2.kotlin.unsealBy
@@ -23,6 +27,7 @@ fun main() {
     println("cb2 ${Cb2.version()} from Kotlin, public ${Cb2.hasPublic()}, seal ${Cb2.hasSeal()}")
     LocalKey.generate().use { key ->
         local(key)
+        compact(key)
         if (Cb2.hasPublic()) signed()
         holder(key)
         if (Cb2.hasSeal()) sealing(key)
@@ -41,6 +46,16 @@ private fun local(key: LocalKey) {
     line("refused", verdictOf { key.openClaims(token) { issuer(ISSUER); audience("api"); now(exp.epochSecond + 1) } } + ", one second after exp")
     val tampered = token.dropLast(1) + if (token.last() == 'A') 'B' else 'A'
     line("refused", verdictOf { key.openClaims(tampered) { issuer(ISSUER); audience("api") } } + ", one character changed")
+}
+
+private fun compact(key: LocalKey) {
+    section("compact (cb3.local, experimental)")
+    val claims = claims("iss" to ISSUER, "aud" to "api", "sub" to "user-1", "exp" to Instant.now().plusSeconds(3600), "jti" to "id-2")
+    val token = key.sealCompact(claims)
+    line("sealed", "${token.take(24)}... (${token.length} chars, cb2.local: ${key.sealClaims(claims).length})")
+    line("picked", "key digest matches: ${token.peekCompactKeyDigest().contentEquals(key.compactKeyDigest)}")
+    line("opened", key.openCompact(token) { issuer(ISSUER); audience("api") })
+    line("refused", verdictOf { key.openClaims(token) { issuer(ISSUER); audience("api") } } + ", a compact token opened as cb2.local")
 }
 
 private fun holder(key: LocalKey) {

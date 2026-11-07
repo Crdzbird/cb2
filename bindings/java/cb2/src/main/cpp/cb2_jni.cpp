@@ -11,7 +11,7 @@
  * Replay checks: the Java side passes objects implementing ReplayCheck;
  * the C callbacks call accept(String) through the JNIEnv of the calling
  * thread, which is sound because the C ABI runs them synchronously inside
- * cb2_token_open and cb2_token_verify. A Java exception raised by a check
+ * cb2_token_open, cb2_token_verify, cb2_compact_open and cb2_compact_verify. A Java exception raised by a check
  * is cleared and the id is refused.
  *
  * No C++ exception crosses into the JVM: the only allocations that can
@@ -585,6 +585,50 @@ CB2_JNI(jbyteArray, peekKeyId)(JNIEnv* env, jclass, jbyteArray token) {
         return nullptr;
     }
     return take_text(env, out, false);
+}
+
+/* Compact claims tokens */
+
+CB2_JNI(jbyteArray, compactSeal)(JNIEnv* env, jclass, jlong key, jbyteArray claims, jbyteArray implicit) {
+    return issue(env, key, claims, implicit, cb2_compact_seal);
+}
+
+CB2_JNI(jbyteArray, compactSign)(JNIEnv* env, jclass, jlong key, jbyteArray claims, jbyteArray implicit) {
+    return issue(env, key, claims, implicit, cb2_compact_sign);
+}
+
+CB2_JNI(jbyteArray, compactOpen)(JNIEnv* env, jclass, jlong key, jbyteArray token, jbyteArray rules,
+                                 jbyteArray implicit, jobject replay, jobject proof) {
+    return check(env, key, token, rules, implicit, replay, proof, cb2_compact_open);
+}
+
+CB2_JNI(jbyteArray, compactVerify)(JNIEnv* env, jclass, jlong key, jbyteArray token, jbyteArray rules,
+                                   jbyteArray implicit, jobject replay, jobject proof) {
+    return check(env, key, token, rules, implicit, replay, proof, cb2_compact_verify);
+}
+
+CB2_JNI(jbyteArray, compactPeekKeyDigest)(JNIEnv* env, jclass, jbyteArray token) {
+    Bytes t = read(env, token);
+    if (pending(env)) return nullptr;
+    uint8_t* out = nullptr;
+    int rc = cb2_compact_peek_key_digest(t.chars(), t.size(), &out);
+    if (rc != CB2_OK) {
+        throw_code(env, rc);
+        return nullptr;
+    }
+    return take_bytes(env, out, CB2_KEY_DIGEST_BYTES);
+}
+
+CB2_JNI(jbyteArray, compactKeyDigest)(JNIEnv* env, jclass, jbyteArray id) {
+    Bytes i = read(env, id);
+    if (pending(env)) return nullptr;
+    uint8_t* out = nullptr;
+    int rc = cb2_compact_key_digest(i.chars(), i.size(), &out);
+    if (rc != CB2_OK) {
+        throw_code(env, rc);
+        return nullptr;
+    }
+    return take_bytes(env, out, CB2_KEY_DIGEST_BYTES);
 }
 
 /* Holder proofs */

@@ -25,6 +25,8 @@ public final class TokenSizes {
         System.out.println("claims JSON (cb2 and PASETO payload): " + Claims.json().length() + " bytes");
         print("cb2.local", cb2.localSeal());
         print("cb2.public (Ed25519 + ML-DSA-65)", cb2.publicSign());
+        print("cb3.local (compact)", cb2.compactLocalSeal());
+        print("cb3.public (compact)", cb2.compactPublicSign());
         print("JJWT HS256", jjwt.hs256Sign());
         print("JJWT EdDSA", jjwt.eddsaSign());
         print("JJWT ES256", jjwt.es256Sign());

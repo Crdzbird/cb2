@@ -6,6 +6,11 @@ custom role claim). Each benchmark issues a token, or checks one and its
 claims (issuer, audience and expiry) on the way back. This project is
 never published; the JWT and PASETO libraries stay here.
 
+`Cb2Bench` also measures the experimental compact forms, cb3.local and
+cb3.public (`compactLocalSeal`, `compactLocalOpen`, `compactPublicSign`,
+`compactPublicVerify`), on the same claims; their timings are not yet in
+the table of the main README.
+
 Run every benchmark (about six minutes: 2 forks, 3 warmup and 5 measured
 iterations of one second each, average time per operation in
 microseconds):
