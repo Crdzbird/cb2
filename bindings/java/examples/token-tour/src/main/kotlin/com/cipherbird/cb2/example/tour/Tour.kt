@@ -4,6 +4,7 @@ import com.cipherbird.cb2.Cb2
 import com.cipherbird.cb2.LocalKey
 import com.cipherbird.cb2.RecipientKey
 import com.cipherbird.cb2.SecretKey
+import com.cipherbird.cb2.kotlin.claimTable
 import com.cipherbird.cb2.kotlin.claims
 import com.cipherbird.cb2.kotlin.compactKeyDigest
 import com.cipherbird.cb2.kotlin.openCompact
@@ -56,6 +57,12 @@ private fun compact(key: LocalKey) {
     line("picked", "key digest matches: ${token.peekCompactKeyDigest().contentEquals(key.compactKeyDigest)}")
     line("opened", key.openCompact(token) { issuer(ISSUER); audience("api") })
     line("refused", verdictOf { key.openClaims(token) { issuer(ISSUER); audience("api") } } + ", a compact token opened as cb2.local")
+    claimTable(ISSUER, "api").use { table ->
+        val tabled = key.sealCompact(table, claims)
+        line("sealed", "${tabled.length} chars under a claim table of the issuer and the audience")
+        line("opened", key.openCompact(table, tabled) { issuer(ISSUER); audience("api") })
+        line("refused", verdictOf { key.openCompact(tabled) { issuer(ISSUER); audience("api") } } + ", opened without the table")
+    }
 }
 
 private fun holder(key: LocalKey) {
