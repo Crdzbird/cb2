@@ -4,6 +4,34 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, Phase 0 of the compact-tokens branch: the size harness
+
+cb2_size (bench/bench_size.cpp, built with the tests) measures token
+sizes on a corpus of 1,000 claim sets drawn from a fixed seed, the
+corpus of docs/research/token-size/PLAN.md. Every length depends only
+on the claims, so the table is exact and the same on every run; three
+runs with fresh keys each matched bench/size_expected.txt with 0
+differences. `cb2_size --check` was shown to fail (exit 1) on a changed
+mean and on a row missing from the expected file. It passed in the
+release build, under ASan and UBSan, and without liboqs (the four
+local rows only), and as the CTest test cb2_size_check.
+
+Sizes in characters (bytes for the claims), minimum, mean and maximum:
+claims JSON 211, 217.167, 224; cb2.local 462, 470.194, 479; a cb2.local
+bound to a local proof key 546, 554.194, 563, with its cb2.holder-local
+proof 406; cb2.public 4875, 4883.194, 4892; a cb2.local bound to a
+client key pair 4018, 4026.194, 4035; a cb2.public bound to a client
+key pair 8431, 8439.194, 8448, with its cb2.holder-public proof 4819.
+Every bound cb2.public token is over the 8,192-byte header field
+default of nginx, and cb2.public and both public-key rows are over the
+4,096-byte cookie limit. This reproduces the 470 and 4,883 the plan
+starts from, which is the exit criterion of Phase 0.
+
+Timings on the same corpus, median of five passes: cb2.local seal 5.39
+us and open 3.90; cb2.public sign 183.59 and verify 126.86; a bound
+cb2.public request check (token and proof) 323.19. They are printed
+for reference and not checked.
+
 ## 2026-11-07, the Java and Kotlin README and JVM benchmarks
 
 bindings/java/README.md is rewritten for a first-time user, and

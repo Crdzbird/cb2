@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, compact-tokens]
   pull_request:
 
 # Two runners, the same matrix on both: a release build with the hybrid
@@ -27,6 +27,8 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCB2_BUILD_BENCH=ON
           cmake --build build
           ./build/cb2_tests
+          ./build/cb2_size --check bench/size_expected.txt
+          ./build/cb2_size
           ./build/cb2_example_text
           ./build/cb2_playground playground/demo.cb2
           ./build/cb2_playground playground/demo_text.cb2
@@ -40,8 +42,9 @@ jobs:
       - name: Tests under ASan/UBSan
         run: |
           cmake -S . -B build-asan -G Ninja -DCB2_SANITIZE=ON -DCB2_BUILD_BENCH=OFF
-          cmake --build build-asan --target cb2_tests cb2_example_text cb2_playground cb2_c_test cb2_c_example
+          cmake --build build-asan --target cb2_tests cb2_size cb2_example_text cb2_playground cb2_c_test cb2_c_example
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_tests
+          ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_size --check bench/size_expected.txt
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_example_text
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_playground playground/demo.cb2
           ASAN_OPTIONS=detect_leaks=0 ./build-asan/cb2_playground playground/demo_text.cb2
@@ -53,8 +56,9 @@ jobs:
         run: |
           cmake -S . -B build-nopq -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCB2_PQ=OFF -DCB2_BUILD_BENCH=OFF
-          cmake --build build-nopq --target cb2_tests cb2_example_text cb2_playground cb2_c_test cb2_c_example
+          cmake --build build-nopq --target cb2_tests cb2_size cb2_example_text cb2_playground cb2_c_test cb2_c_example
           ./build-nopq/cb2_tests
+          ./build-nopq/cb2_size --check bench/size_expected.txt
           ./build-nopq/cb2_example_text
           ./build-nopq/cb2_playground playground/demo.cb2
           ./build-nopq/cb2_playground playground/demo_text.cb2
@@ -171,6 +175,8 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCB2_BUILD_BENCH=ON
           cmake --build build
           ./build/cb2_tests
+          ./build/cb2_size --check bench/size_expected.txt
+          ./build/cb2_size
           ./build/cb2_example_text
           ./build/cb2_playground playground/demo.cb2
           ./build/cb2_playground playground/demo_text.cb2
@@ -184,8 +190,9 @@ jobs:
       - name: Tests under ASan/UBSan
         run: |
           cmake -S . -B build-asan -G Ninja -DCB2_SANITIZE=ON -DCB2_BUILD_BENCH=OFF
-          cmake --build build-asan --target cb2_tests cb2_example_text cb2_playground cb2_c_test cb2_c_example
+          cmake --build build-asan --target cb2_tests cb2_size cb2_example_text cb2_playground cb2_c_test cb2_c_example
           ./build-asan/cb2_tests
+          ./build-asan/cb2_size --check bench/size_expected.txt
           ./build-asan/cb2_example_text
           ./build-asan/cb2_playground playground/demo.cb2
           ./build-asan/cb2_playground playground/demo_text.cb2
@@ -197,8 +204,9 @@ jobs:
         run: |
           cmake -S . -B build-nopq -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCB2_PQ=OFF -DCB2_BUILD_BENCH=OFF
-          cmake --build build-nopq --target cb2_tests cb2_example_text cb2_playground cb2_c_test cb2_c_example
+          cmake --build build-nopq --target cb2_tests cb2_size cb2_example_text cb2_playground cb2_c_test cb2_c_example
           ./build-nopq/cb2_tests
+          ./build-nopq/cb2_size --check bench/size_expected.txt
           ./build-nopq/cb2_example_text
           ./build-nopq/cb2_playground playground/demo.cb2
           ./build-nopq/cb2_playground playground/demo_text.cb2

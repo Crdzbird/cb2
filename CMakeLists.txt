@@ -104,6 +104,12 @@ if(CB2_BUILD_TESTS)
         CB2_V4_VECTORS="${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/paseto-v4/v4.json")
     add_test(NAME cb2_tests COMMAND cb2_tests)
 
+    add_executable(cb2_size bench/bench_size.cpp)
+    target_link_libraries(cb2_size PRIVATE cb2::cb2)
+    target_compile_options(cb2_size PRIVATE ${CB2_WARNINGS} ${CB2_SANITIZE_FLAGS})
+    target_link_options(cb2_size PRIVATE ${CB2_SANITIZE_FLAGS})
+    add_test(NAME cb2_size_check COMMAND cb2_size --check "${CMAKE_CURRENT_SOURCE_DIR}/bench/size_expected.txt")
+
     add_executable(cb2_gen_vectors tests/gen_vectors.cpp)
     target_link_libraries(cb2_gen_vectors PRIVATE cb2::cb2)
     target_compile_options(cb2_gen_vectors PRIVATE ${CB2_WARNINGS} ${CB2_SANITIZE_FLAGS})
