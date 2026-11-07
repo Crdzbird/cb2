@@ -1,15 +1,16 @@
 /**
  * cb2 for JavaScript: the C ABI of cb2 compiled to WebAssembly, one build
  * for Node and browsers. load() instantiates the core and returns the API:
- * the key classes, Local, Public, Token, Compact, Holder, KeyWrap and
- * Seal, plus hasPublic(), hasSeal(), version() and errorName(code). The
- * declarations are in types/cb2.d.ts.
+ * the key classes, ClaimTable, Local, Public, Token, Compact, Holder,
+ * KeyWrap and Seal, plus hasPublic(), hasSeal(), version() and
+ * errorName(code). The declarations are in types/cb2.d.ts.
  *
  * @module cb2
  */
 import createCb2Core from "../dist/cb2_core.js";
 import { Cb2Error } from "./error.js";
 import { makeKeys } from "./keys.js";
+import { makeClaimTable } from "./table.js";
 import { makeTokens } from "./tokens.js";
 
 export { Cb2Error };
@@ -49,6 +50,7 @@ export async function load(options = {}) {
     const keys = makeKeys(m);
     return {
         ...keys,
+        ClaimTable: makeClaimTable(m),
         ...makeTokens(m, keys),
         Cb2Error,
         /** True when cb2.public (ML-DSA-65) is in this build. */

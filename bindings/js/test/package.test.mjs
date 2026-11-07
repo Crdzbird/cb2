@@ -26,6 +26,7 @@ const PACKED = [
     "src/error.js",
     "src/heap.js",
     "src/keys.js",
+    "src/table.js",
     "src/tokens.js",
     "types/cb2.d.cts",
     "types/cb2.d.ts",
@@ -75,7 +76,7 @@ test("Cb2Core declares every function of cb2_c.h and the core exports each", asy
 test("the runtime API has the members the declarations name", async () => {
     const cb2 = await load();
     assert.deepEqual(Object.keys(cb2).sort(), [
-        "Cb2Error", "Compact", "Holder", "KeyWrap", "Local", "LocalKey", "Public", "PublicKey", "RecipientKey",
+        "Cb2Error", "ClaimTable", "Compact", "Holder", "KeyWrap", "Local", "LocalKey", "Public", "PublicKey", "RecipientKey",
         "RecipientPublicKey", "Seal", "SecretKey", "Token", "core", "errorName", "hasPublic", "hasSeal", "version",
     ]);
     const methods = (o) => Object.keys(o).filter((k) => typeof o[k] === "function").sort();
@@ -84,6 +85,10 @@ test("the runtime API has the members the declarations name", async () => {
     assert.deepEqual(methods(cb2.Token), ["open", "peekKeyId", "seal", "sign", "verify"]);
     assert.deepEqual(methods(cb2.Compact), ["keyDigest", "open", "peekKeyDigest", "seal", "sign", "verify"]);
     assert.equal(cb2.Compact.keyDigestBytes, 16);
+    assert.equal(cb2.ClaimTable.name, "ClaimTable");
+    assert.equal(cb2.ClaimTable.digestBytes, 32);
+    assert.equal(typeof cb2.ClaimTable.fromEntries, "function");
+    assert.deepEqual(Object.getOwnPropertyNames(cb2.ClaimTable.prototype).sort(), ["constructor", "digest", "free", "freed", "ptr"]);
     assert.deepEqual(methods(cb2.Holder), ["normalizeTarget", "prove", "proveLocal"]);
     assert.deepEqual(methods(cb2.KeyWrap), ["unwrap", "wrap"]);
     assert.deepEqual(methods(cb2.Seal), ["seal", "unseal"]);
