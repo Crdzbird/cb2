@@ -12,7 +12,8 @@
  * Rows: the claims JSON, cb2.local, a cb2.local bound to a local proof
  * key with its cb2.holder-local proof, and with cb2.public, cb2.public
  * itself, tokens of both purposes bound to a client key pair and the
- * cb2.holder-public proof. Each row gives the minimum, mean and maximum
+ * cb2.holder-public proof, and the same tokens under the cb3 headers
+ * (compact.hpp). Each row gives the minimum, mean and maximum
  * length in characters (bytes for the claims) and whether the longest
  * fits a 4,096-byte cookie and one 8 KB header field.
  *
@@ -147,6 +148,7 @@ Run measure() {
     static const cb2::HolderRequest get{"GET", TARGET, std::nullopt};
     static std::vector<std::string> local_tokens;
     static std::vector<cb2::ValidationRules> rules;
+    static std::vector<std::string> cb3_local_tokens;
     for (const Item& it : items) {
         run.add("claims.json", it.claims.to_json().size());
         local_tokens.push_back(must(cb2::Token::seal(key, it.claims), "seal"));
@@ -160,12 +162,25 @@ Run measure() {
         check(cb2::Token::open(token, key, rules_with_proof(bound, proof)).is_ok(), "bound cb2.local");
         run.add("cb2.local.bound-local", token.size());
         run.add("cb2.holder-local", proof.size());
+        cb3_local_tokens.push_back(must(cb2::CompactToken::seal(key, it.claims), "cb3 seal"));
+        run.add("cb3.local", cb3_local_tokens.back().size());
+        check(cb2::CompactToken::open(cb3_local_tokens.back(), key, rules.back()).is_ok(), "cb3.local");
+        const std::string cb3_token = must(cb2::CompactToken::seal(key, bound), "cb3 seal bound");
+        const std::string cb3_proof = must(cb2::HolderProof::make_local(proof_key, get, cb3_token, it.proof_id, CORPUS_NOW, 60), "make_local");
+        check(cb2::CompactToken::open(cb3_token, key, rules_with_proof(bound, cb3_proof)).is_ok(), "bound cb3.local");
+        run.add("cb3.local.bound-local", cb3_token.size());
     }
     run.timed.push_back({"cb2.local seal", [] {
         for (const Item& it : items) (void)cb2::Token::seal(key, it.claims);
     }});
     run.timed.push_back({"cb2.local open", [] {
         for (std::size_t i = 0; i < local_tokens.size(); ++i) (void)cb2::Token::open(local_tokens[i], key, rules[i]);
+    }});
+    run.timed.push_back({"cb3.local seal", [] {
+        for (const Item& it : items) (void)cb2::CompactToken::seal(key, it.claims);
+    }});
+    run.timed.push_back({"cb3.local open", [] {
+        for (std::size_t i = 0; i < cb3_local_tokens.size(); ++i) (void)cb2::CompactToken::open(cb3_local_tokens[i], key, rules[i]);
     }});
 #ifdef CB2_HAS_PQ
     static const cb2::SecretKey issuer = must(cb2::SecretKey::generate(), "issuer key");
@@ -174,6 +189,9 @@ Run measure() {
     static std::vector<std::string> public_tokens;
     static std::vector<std::string> bound_tokens;
     static std::vector<cb2::ValidationRules> bound_rules;
+    static std::vector<std::string> cb3_public_tokens;
+    static std::vector<std::string> cb3_bound_tokens;
+    static std::vector<cb2::ValidationRules> cb3_bound_rules;
     for (std::size_t i = 0; i < items.size(); ++i) {
         const Item& it = items[i];
         public_tokens.push_back(must(cb2::Token::sign(issuer, it.claims), "sign"));
@@ -192,6 +210,19 @@ Run measure() {
         run.add("cb2.holder-public", pub_proof.size());
         bound_tokens.push_back(pub);
         bound_rules.push_back(rules_with_proof(bound, pub_proof));
+        cb3_public_tokens.push_back(must(cb2::CompactToken::sign(issuer, it.claims), "cb3 sign"));
+        run.add("cb3.public", cb3_public_tokens.back().size());
+        check(cb2::CompactToken::verify(cb3_public_tokens.back(), issuer_public, rules[i]).is_ok(), "cb3.public");
+        const std::string cb3_local = must(cb2::CompactToken::seal(key, bound), "cb3 seal bound");
+        const std::string cb3_pub = must(cb2::CompactToken::sign(issuer, bound), "cb3 sign bound");
+        const std::string cb3_local_proof = must(cb2::HolderProof::make(client, get, cb3_local, it.proof_id, CORPUS_NOW, 60), "make");
+        const std::string cb3_pub_proof = must(cb2::HolderProof::make(client, get, cb3_pub, it.proof_id, CORPUS_NOW, 60), "make");
+        check(cb2::CompactToken::open(cb3_local, key, rules_with_proof(bound, cb3_local_proof)).is_ok(), "bound cb3.local");
+        check(cb2::CompactToken::verify(cb3_pub, issuer_public, rules_with_proof(bound, cb3_pub_proof)).is_ok(), "bound cb3.public");
+        run.add("cb3.local.bound-public", cb3_local.size());
+        run.add("cb3.public.bound-public", cb3_pub.size());
+        cb3_bound_tokens.push_back(cb3_pub);
+        cb3_bound_rules.push_back(rules_with_proof(bound, cb3_pub_proof));
     }
     run.timed.push_back({"cb2.public sign", [] {
         for (const Item& it : items) (void)cb2::Token::sign(issuer, it.claims);
@@ -201,6 +232,15 @@ Run measure() {
     }});
     run.timed.push_back({"bound cb2.public request check", [] {
         for (std::size_t i = 0; i < bound_tokens.size(); ++i) (void)cb2::Token::verify(bound_tokens[i], issuer_public, bound_rules[i]);
+    }});
+    run.timed.push_back({"cb3.public sign", [] {
+        for (const Item& it : items) (void)cb2::CompactToken::sign(issuer, it.claims);
+    }});
+    run.timed.push_back({"cb3.public verify", [] {
+        for (std::size_t i = 0; i < cb3_public_tokens.size(); ++i) (void)cb2::CompactToken::verify(cb3_public_tokens[i], issuer_public, rules[i]);
+    }});
+    run.timed.push_back({"bound cb3.public request check", [] {
+        for (std::size_t i = 0; i < cb3_bound_tokens.size(); ++i) (void)cb2::CompactToken::verify(cb3_bound_tokens[i], issuer_public, cb3_bound_rules[i]);
     }});
 #endif
     return run;

@@ -1022,12 +1022,295 @@ void write_paserk(const std::string& dir) {
     if (!tu::write_file((dir + "/paserk.json").c_str(), pretty(root))) std::exit(1);
 }
 
+
+/// The cb3 claims of the vectors: every registered claim, a canonical
+/// UUID jti and custom values of every JSON kind the profile carries.
+Claims cb3_claims() {
+    Claims c = base_claims();
+    c.exp = NOW + 900;
+    c.jti = "6dc1614e-1fe8-9d1b-69c4-f1cf07ab4d5c";
+    (void)c.set_json("limits", R"({"n":-42,"tags":["a",true,null],"deep":{"x":9223372036854775807}})");
+    return c;
+}
+
+Bytes bytes_of(std::string_view s) { return Bytes(s.begin(), s.end()); }
+
+std::string cb3_seal(const LocalKey& k, const Claims& c, std::string_view nonce_hex, std::string_view implicit) {
+    auto tok = cb2::CompactToken::seal_with_nonce_for_testing(k, c, tu::unhex(nonce_hex), implicit);
+    if (tok.is_err()) { std::fprintf(stderr, "cb3 seal failed\n"); std::exit(1); }
+    return tok.value();
+}
+
+Value cb3_local(std::string_view name, const LocalKey& k, std::string_view key_hex, const Claims& c,
+                std::string_view nonce_hex, std::string_view implicit) {
+    const std::string payload = cb2::CompactClaims::encode(c).value();
+    const std::string footer = cb2::CompactToken::footer_for(k.key_id());
+    const std::string token = cb3_seal(k, c, nonce_hex, implicit);
+    Value v = object();
+    put(v, "name", str(name));
+    put(v, "key", str(key_hex));
+    if (k.key_id() && *k.key_id() != k.paserk_id()) put(v, "key-id", str(*k.key_id()));
+    if (!k.key_id()) put(v, "key-id", Value{});
+    put(v, "nonce", str(nonce_hex));
+    put(v, "claims", str(c.to_json()));
+    put(v, "payload", str(tu::hex(bytes_of(payload))));
+    put(v, "footer", str(tu::hex(bytes_of(footer))));
+    put(v, "implicit-assertion", str(implicit));
+    put(v, "token", str(token));
+    local_intermediates(v, key_hex, nonce_hex, payload, footer, implicit, token, cb2::CompactToken::LOCAL_HEADER);
+    return v;
+}
+
+Value cb3_open(std::string_view name, std::string_view token, std::optional<std::string> verifier_key_id,
+               Value r, std::string_view expect) {
+    Value v = object();
+    put(v, "name", str(name));
+    put(v, "token", str(token));
+    if (verifier_key_id) put(v, "verifier-key-id", str(*verifier_key_id));
+    put(v, "rules", std::move(r));
+    put(v, "expect", str(expect));
+    return v;
+}
+
+Value cb3_profile(std::string_view name, const Bytes& payload, std::string_view expect) {
+    const auto r = cb2::CompactClaims::decode(payload);
+    const std::string got = r.is_ok() ? "ok" : cb2::error_name(r.error());
+    if (got != expect) {
+        std::fprintf(stderr, "cb3 profile vector %.*s: expected %.*s, got %s\n", static_cast<int>(name.size()),
+                     name.data(), static_cast<int>(expect.size()), expect.data(), got.c_str());
+        std::exit(1);
+    }
+    Value v = object();
+    put(v, "name", str(name));
+    put(v, "payload", str(tu::hex(payload)));
+    put(v, "expect", str(expect));
+    if (r.is_ok()) put(v, "claims", str(r.value().to_json()));
+    return v;
+}
+
+Bytes cb(std::initializer_list<int> b) {
+    Bytes v;
+    for (const int x : b) v.push_back(static_cast<uint8_t>(x));
+    return v;
+}
+
+Bytes cb_text_jti(std::string_view jti) {
+    Bytes v = cb({0xa1, 0x07, 0x78, static_cast<int>(jti.size())});
+    v.insert(v.end(), jti.begin(), jti.end());
+    return v;
+}
+
+Bytes cb_nested(std::size_t arrays) {
+    Bytes v = cb({0xa1, 0x61, 'x'});
+    for (std::size_t i = 0; i < arrays; ++i) v.push_back(0x81);
+    v.push_back(0x00);
+    return v;
+}
+
+void write_cb3(const std::string& dir) {
+    Value root = object();
+    put(root, "name", str("cb3 compact claims tokens (experimental, PROTOCOL.md section 15)"));
+    put(root, "generator", str("cb2_gen_vectors"));
+
+    const LocalKey key = LocalKey::from_bytes(tu::unhex(KEY_HEX)).value();
+    LocalKey anonymous = LocalKey::from_bytes(tu::unhex(KEY_HEX)).value();
+    anonymous.clear_key_id();
+    LocalKey named = LocalKey::from_bytes(tu::unhex(KEY_HEX)).value();
+    named.set_key_id("llave-\xc3\xb1");
+    Claims bound = cb3_claims();
+    bound.cnf = LocalKey::from_bytes(tu::unhex(KEY2_HEX)).value().to_paserk().c_str();
+    const Claims c = cb3_claims();
+
+    Value local = array();
+    local.items.push_back(cb3_local("cb3-L-1 every registered claim, a UUID jti, custom values, default key id", key,
+                                    KEY_HEX, c, NONCE_A, ""));
+    local.items.push_back(cb3_local("cb3-L-2 no key id, a text jti, an implicit assertion", anonymous, KEY_HEX,
+                                    base_claims(), NONCE_B, IMPLICIT_A));
+    local.items.push_back(cb3_local("cb3-L-3 international claims under an explicit key id", named, KEY_HEX,
+                                    international_claims(), NONCE_A, ""));
+    local.items.push_back(cb3_local("cb3-L-4 a local proof key in cnf", key, KEY_HEX, bound, NONCE_B, ""));
+    local.items.push_back(cb3_local("cb3-L-5 no claims at all", key, KEY_HEX, Claims{}, NONCE_ZERO, ""));
+    put(root, "local", std::move(local));
+
+    const std::string t1 = cb3_seal(key, c, NONCE_A, "");
+    Value opens = array();
+    put(root, "open-key", str(KEY_HEX));
+    opens.items.push_back(cb3_open("cb3-O-1 accepted", t1, std::nullopt,
+                                   rules(NOW, true, 0, "https://issuer.example", "api", nullptr, 0), "ok"));
+    opens.items.push_back(cb3_open("cb3-O-2 expired at exp", t1, std::nullopt,
+                                   rules(NOW + 900, true, 0, "https://issuer.example", "api", nullptr, 0), "expired"));
+    opens.items.push_back(cb3_open("cb3-O-3 another audience", t1, std::nullopt,
+                                   rules(NOW, true, 0, "https://issuer.example", "web", nullptr, 0),
+                                   "audience_mismatch"));
+    opens.items.push_back(cb3_open("cb3-O-4 another issuer", t1, std::nullopt,
+                                   rules(NOW, true, 0, "https://other.example", "api", nullptr, 0), "issuer_mismatch"));
+    opens.items.push_back(cb3_open("cb3-O-5 one byte over the size limit", t1, std::nullopt,
+                                   rules(NOW, true, 0, "https://issuer.example", "api", nullptr,
+                                         static_cast<long long>(t1.size()) - 1),
+                                   "too_large"));
+    opens.items.push_back(cb3_open("cb3-O-6 the verifier's key has another id", t1, std::string("other"),
+                                   rules(NOW, true, 0, "https://issuer.example", "api", nullptr, 0), "invalid"));
+    opens.items.push_back(cb3_open("cb3-O-7 a cb2.local token under the cb3 verifier",
+                                   Token::seal(key, c).value(), std::nullopt,
+                                   rules(NOW, true, 0, "https://issuer.example", "api", nullptr, 0), "invalid"));
+    opens.items.push_back(cb3_open("cb3-O-8 a cb2.local token relabelled cb3.local",
+                                   "cb3.local." + Token::seal(key, c).value().substr(10), std::nullopt,
+                                   rules(NOW, true, 0, "https://issuer.example", "api", nullptr, 0), "invalid"));
+    opens.items.push_back(cb3_open("cb3-O-9 a cb3.local token relabelled cb2.local, refused by cb3",
+                                   "cb2.local." + t1.substr(10), std::nullopt,
+                                   rules(NOW, true, 0, "https://issuer.example", "api", nullptr, 0), "invalid"));
+    put(root, "opens", std::move(opens));
+    Value relabelled = object();
+    put(relabelled, "note", str("a cb3.local token relabelled cb2.local must be invalid under cb2.local (5.3)"));
+    put(relabelled, "key", str(KEY_HEX));
+    put(relabelled, "footer", str(Token::footer_for(key.key_id())));
+    put(relabelled, "token", str("cb2.local." + t1.substr(10)));
+    put(root, "relabelled-as-cb2", std::move(relabelled));
+
+    Value profile = array();
+    profile.items.push_back(cb3_profile("cb3-C-1 the empty map", cb({0xa0}), "ok"));
+    profile.items.push_back(cb3_profile("cb3-C-2 int64 bounds in a custom value",
+                                        cb({0xa2, 0x61, 'a', 0x1b, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                                            0x61, 'b', 0x3b, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}),
+                                        "ok"));
+    profile.items.push_back(cb3_profile("cb3-C-3 nesting 15 deep", cb_nested(15), "ok"));
+    profile.items.push_back(cb3_profile("cb3-C-4 the earliest and latest times",
+                                        cb({0xa2, 0x04, 0x1b, 0x00, 0x00, 0x00, 0x3a, 0xff, 0xf4, 0x41, 0x7f, 0x06,
+                                            0x3b, 0x00, 0x00, 0x00, 0x0e, 0x79, 0x74, 0x7b, 0xff}),
+                                        "ok"));
+    profile.items.push_back(cb3_profile("cb3-C-43 one second before the earliest time",
+                                        cb({0xa1, 0x06, 0x3b, 0x00, 0x00, 0x00, 0x0e, 0x79, 0x74, 0x7c, 0x00}),
+                                        "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-5 no bytes", cb({}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-6 an array, not a map", cb({0x80}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-7 a byte after the map", cb({0xa0, 0x00}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-8 an indefinite map", cb({0xbf, 0xff}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-9 a map count not in shortest form", cb({0xb8, 0x00}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-10 a key not in shortest form", cb({0xa1, 0x18, 0x01, 0x61, 'a'}),
+                                        "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-11 key 0", cb({0xa1, 0x00, 0x61, 'a'}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-12 key 9", cb({0xa1, 0x09, 0x61, 'a'}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-13 keys out of order", cb({0xa2, 0x02, 0x61, 'a', 0x01, 0x61, 'b'}),
+                                        "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-14 a repeated key", cb({0xa2, 0x01, 0x61, 'a', 0x01, 0x61, 'b'}),
+                                        "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-15 a registered key after a custom name",
+                                        cb({0xa2, 0x61, 'r', 0x01, 0x01, 0x61, 'a'}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-16 a repeated custom name",
+                                        cb({0xa2, 0x61, 'r', 0x01, 0x61, 'r', 0x02}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-17 an empty custom name", cb({0xa1, 0x60, 0x01}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-18 a registered name as a custom name",
+                                        cb({0xa1, 0x63, 'i', 's', 's', 0x61, 'a'}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-19 text that is not UTF-8", cb({0xa1, 0x01, 0x62, 0xc3, 0x28}),
+                                        "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-20 iss as a byte string", cb({0xa1, 0x01, 0x41, 'a'}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-21 an indefinite text string", cb({0xa1, 0x01, 0x7f, 0x61, 'a', 0xff}),
+                                        "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-22 exp as text", cb({0xa1, 0x04, 0x61, '1'}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-23 exp as a float", cb({0xa1, 0x04, 0xfb, 0, 0, 0, 0, 0, 0, 0, 0}),
+                                        "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-24 exp under a tag", cb({0xa1, 0x04, 0xc1, 0x00}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-25 exp after 9999",
+                                        cb({0xa1, 0x04, 0x1b, 0x00, 0x00, 0x00, 0x3b, 0x00, 0x00, 0x00, 0x00}),
+                                        "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-26 exp not in shortest form",
+                                        cb({0xa1, 0x04, 0x1a, 0x00, 0x00, 0x00, 0x05}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-27 a 15-byte jti",
+                                        cb({0xa1, 0x07, 0x4f, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}),
+                                        "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-28 a text jti in canonical UUID form",
+                                        cb_text_jti("6dc1614e-1fe8-9d1b-69c4-f1cf07ab4d5c"), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-29 an uppercase UUID jti stays text",
+                                        cb_text_jti("6DC1614E-1FE8-9D1B-69C4-F1CF07AB4D5C"), "ok"));
+    profile.items.push_back(cb3_profile("cb3-C-30 cnf of one byte", cb({0xa1, 0x08, 0x41, 0x01}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-31 undefined", cb({0xa1, 0x61, 'x', 0xf7}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-32 a one-byte simple value", cb({0xa1, 0x61, 'x', 0xf8, 0x20}),
+                                        "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-33 a half float", cb({0xa1, 0x61, 'x', 0xf9, 0x00, 0x00}),
+                                        "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-34 a byte string in a custom value", cb({0xa1, 0x61, 'x', 0x41, 0x00}),
+                                        "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-35 an indefinite array", cb({0xa1, 0x61, 'x', 0x9f, 0xff}),
+                                        "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-36 2^63, above int64",
+                                        cb({0xa1, 0x61, 'x', 0x1b, 0x80, 0, 0, 0, 0, 0, 0, 0}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-37 -1 - 2^63, below int64",
+                                        cb({0xa1, 0x61, 'x', 0x3b, 0x80, 0, 0, 0, 0, 0, 0, 0}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-38 a repeated key inside a custom map",
+                                        cb({0xa1, 0x61, 'x', 0xa2, 0x61, 'k', 0x01, 0x61, 'k', 0x02}),
+                                        "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-39 an integer key inside a custom map",
+                                        cb({0xa1, 0x61, 'x', 0xa1, 0x01, 0x01}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-40 an array count beyond the bytes left",
+                                        cb({0xa1, 0x61, 'x', 0x9a, 0xff, 0xff, 0xff, 0xff}), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-41 nesting 16 deep", cb_nested(16), "claims_malformed"));
+    profile.items.push_back(cb3_profile("cb3-C-42 an identifier with a control character",
+                                        cb({0xa1, 0x02, 0x63, 'a', 0x7f, 'b'}), "claims_malformed"));
+    put(root, "profile", std::move(profile));
+
+    Value refused = array();
+    for (const char* json : {"{\"ratio\":1.5}", "{\"n\":9223372036854775808}", "{\"n\":-0}", "{\"n\":1e3}",
+                             "{\"cnf\":\"not-a-key\"}"}) {
+        const auto parsed = Claims::from_json(json);
+        if (parsed.is_err() || cb2::CompactClaims::encode(parsed.value()).error() != cb2::Error::argument) {
+            std::fprintf(stderr, "cb3 refused vector %s did not give argument\n", json);
+            std::exit(1);
+        }
+        Value v = object();
+        put(v, "claims", str(json));
+        put(v, "expect", str("argument"));
+        refused.items.push_back(std::move(v));
+    }
+    put(root, "refused", std::move(refused));
+
+    Value tamper = object();
+    put(tamper, "key", str(KEY_HEX));
+    put(tamper, "token", str(t1));
+    Value cases = array();
+    for (size_t pos = 0; pos < t1.size(); ++pos) {
+        Value v = object();
+        put(v, "position", number(static_cast<long long>(pos)));
+        put(v, "token", str(flip_char(t1, pos)));
+        cases.items.push_back(std::move(v));
+    }
+    put(tamper, "cases", std::move(cases));
+    put(root, "tamper", std::move(tamper));
+
+#ifdef CB2_HAS_PQ
+    const auto issuer = cb2::SecretKey::generate().value();
+    const auto client = cb2::SecretKey::generate().value();
+    Claims pub_bound = cb3_claims();
+    pub_bound.cnf = client.public_key().to_paserk();
+    Value pub = array();
+    for (const auto& [name, claims] : {std::pair<const char*, const Claims*>{"cb3-P-1 every registered claim", &c},
+                                       std::pair<const char*, const Claims*>{"cb3-P-2 a client key in cnf", &pub_bound}}) {
+        const std::string payload = cb2::CompactClaims::encode(*claims).value();
+        Value v = object();
+        put(v, "name", str(name));
+        put(v, "public-key", str(tu::hex(issuer.public_key().bytes())));
+        put(v, "claims", str(claims->to_json()));
+        put(v, "payload", str(tu::hex(bytes_of(payload))));
+        put(v, "footer", str(tu::hex(bytes_of(cb2::CompactToken::footer_for(issuer.key_id())))));
+        put(v, "implicit-assertion", str(""));
+        put(v, "token", str(cb2::CompactToken::sign(issuer, *claims).value()));
+        pub.items.push_back(std::move(v));
+    }
+    put(root, "public", std::move(pub));
+#endif
+    if (!tu::write_file((dir + "/cb3.json").c_str(), pretty(root))) std::exit(1);
+}
 }
 
 int main(int argc, char** argv) {
     if (sodium_init() < 0) return 2;
     const std::string dir = argc > 1 ? argv[1] : "tests/vectors";
+    if (argc > 2 && std::string_view(argv[2]) == "cb3") {
+        write_cb3(dir);
+        std::printf("cb3 vectors written to %s\n", dir.c_str());
+        return 0;
+    }
     write_local(dir);
+    write_cb3(dir);
     write_claims(dir);
     write_paserk(dir);
 #ifdef CB2_HAS_PQ

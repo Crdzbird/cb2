@@ -4,6 +4,46 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, Phase 1 of the compact-tokens branch: cb3.local and cb3.public
+
+The experimental cb3 headers (PROTOCOL.md section 15) are in the C++
+library: include/cb2/cbor.hpp, the strict CBOR subset, and
+include/cb2/compact.hpp, CompactClaims and CompactToken. They reuse the
+cb2.local and cb2.public constructions under the headers `cb3.local.`
+and `cb3.public.`, with the claims in CBOR and a 16-byte BLAKE3 key
+digest as the footer.
+
+Tests: tests/test_compact.cpp (14 cases) covers the round trip, the
+canonical UUID jti, every refusal of the issuer, 36 payloads outside the
+profile, nesting to the cb2 limit, every verdict of cb2 on cb3.local,
+the exact token length with the 32-byte nonce and tag, cross-header
+refusal both ways and after relabelling the prefix, the key digest
+binding, a tamper sweep of every character, a cb3.local token bound to
+a local proof key, and cb3.public with a client key in cnf and its
+holder proof. tests/vectors/cb3.json (5 reproduced local tokens with
+their intermediates, 9 opens, 43 profile payloads, 5 refusals, a
+284-position tamper sweep, 2 public tokens) is checked by the C++ suite
+and by tools/check_vectors.py, which got its own CBOR reader and writer
+written from section 15: 411 cb3 checks, and the whole checker 1,049
+passed, 0 failed, 0 skipped. Release and ASan/UBSan: 117 of 117 cases;
+without liboqs: 90 of 90; the full release build with the C ABI,
+examples and playground: CTest 11 of 11 and cb2_c_test passed. The new
+files compile without warnings under GCC 16 with -Wall -Wextra
+-Wpedantic -Wshadow -Wconversion. fuzz_compact, which requires every
+accepted payload to encode back to the same bytes, ran 11,002,031
+inputs in 301 seconds from a seed corpus of the 50 vector payloads,
+with no failure (coverage 1951, 690 corpus entries).
+
+Sizes on the Phase 0 corpus, mean characters, cb2 then cb3: local 470.2
+and 260.2; local bound to a local proof key 554.2 and 308.2; public
+4,883.2 and 4,673.2; local bound to a client key pair 4,026.2 and
+2,912.2; public bound to a client key pair 8,439.2 and 7,325.2, which
+now fits an 8 KB header field. Timings on the same run: cb3.local seal
+3.65 us and open 2.56 (cb2.local 5.40 and 3.64); cb3.public sign 179.18
+and verify 117.96 (cb2.public 178.15 and 119.32).
+
+The C ABI and the language bindings do not expose cb3 yet.
+
 ## 2026-11-07, Phase 0 of the compact-tokens branch: the size harness
 
 cb2_size (bench/bench_size.cpp, built with the tests) measures token

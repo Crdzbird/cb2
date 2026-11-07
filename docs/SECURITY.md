@@ -277,6 +277,36 @@ it must not, and this library does not strip the claim for it.
   public halves do not match its secret halves; it does not claim to
   detect every change to the secret halves.
 
+## The experimental cb3 headers
+
+cb3.local and cb3.public (PROTOCOL.md section 15, on the compact-tokens
+branch) claim exactly what cb2.local and cb2.public claim, because they
+are the same constructions under new headers. Nothing below changes
+between cb2 and cb3, and each item is checked:
+
+- the nonce is 32 random bytes fed whole into the key derivation, so the
+  nonce budget per key is that of cb2.local;
+- the tag is the 32-byte keyed-BLAKE3 output, keeping the 2^128 key
+  commitment bound above;
+- cb3.public requires both Ed25519 and ML-DSA-65 (category 3), with the
+  header as the FIPS 204 context;
+- the length limit applies before authentication and the CBOR reader
+  runs only after it, so a forger never reaches the parser;
+- the key digest is inside the authenticated footer: a wrong or
+  colliding digest can only fail verification, never select a key. The
+  digest is 16 bytes of BLAKE3, so two of an issuer's ids collide with
+  probability about n^2 / 2^129 for n ids;
+- every verdict keeps its meaning, issuer_mismatch and
+  audience_mismatch included;
+- nothing is compressed, so the token length leaks no more than the
+  JSON of cb2 does: the length of each value, not its content.
+
+The CBOR reader is new code on the authenticated side. It accepts one
+canonical encoding of each set of claims (cbor.hpp, compact.hpp), every
+length is checked against the bytes left before anything is allocated,
+nesting is bounded as for JSON, and the fuzz target fuzz_compact checks
+that every payload it accepts encodes back to the same bytes.
+
 ## Limits
 
 | Quantity | Limit |
@@ -286,6 +316,8 @@ it must not, and this library does not strip the claim for it.
 | token accepted by the claims layer | max_token_bytes, default 16,384 |
 | ML-DSA context string | the 11-byte header; FIPS 204 allows up to 255 |
 | JSON nesting | 16 levels |
+| cb3 CBOR nesting | 16 levels, the payload map included |
+| cb3 key digest | exactly 16 bytes |
 | local key | exactly 32 bytes |
 | public key | exactly 1,984 bytes |
 | secret key | exactly 6,048 bytes |

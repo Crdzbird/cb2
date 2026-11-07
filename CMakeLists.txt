@@ -85,6 +85,7 @@ if(CB2_BUILD_TESTS)
         tests/test_local.cpp
         tests/test_public.cpp
         tests/test_claims.cpp
+        tests/test_compact.cpp
         tests/test_keys.cpp
         tests/test_vectors.cpp
         tests/test_v4_crosscheck.cpp
@@ -165,7 +166,7 @@ if(CB2_FUZZ)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         message(FATAL_ERROR "CB2_FUZZ requires clang with the libFuzzer runtime")
     endif()
-    foreach(_fz fuzz_local fuzz_public fuzz_claims fuzz_seal fuzz_holder fuzz_sha3)
+    foreach(_fz fuzz_local fuzz_public fuzz_claims fuzz_compact fuzz_seal fuzz_holder fuzz_sha3)
         add_executable(cb2_${_fz} fuzz/${_fz}.cpp)
         target_link_libraries(cb2_${_fz} PRIVATE cb2::cb2)
         target_compile_options(cb2_${_fz} PRIVATE -g -O1 -fsanitize=fuzzer,address,undefined)

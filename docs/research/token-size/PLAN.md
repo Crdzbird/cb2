@@ -130,6 +130,22 @@ The sender-constrained public token is the case to measure first in Phase 1, sin
 
 Phase 0 is done on the branch: `cb2_size` (bench/bench_size.cpp) builds the 1,000-set corpus from a fixed seed, prints sizes and timings, and `cb2_size --check bench/size_expected.txt` asserts every row exactly in CI, in the release, sanitizer and no-liboqs builds. It reproduces the starting point: cb2.local 470.194 characters on average and cb2.public 4,883.194. It also measures the bound tokens the plan names as the urgent case. A cb2.public token bound to a client key pair is 8,431 to 8,448 characters, every one over the 8,192-byte nginx header default, and its holder proof is 4,819. A cb2.local token bound to the same key pair is 4,026 on average, so the client's public key in cnf alone costs about 3,560 characters. That is where Phase 1's binary cnf has the most to save.
 
+### Phase 1 result
+
+The core of Phase 1 is on the branch: cb3.local and cb3.public in the C++ library (include/cb2/cbor.hpp and include/cb2/compact.hpp), section 15 of PROTOCOL.md, tests/vectors/cb3.json, the cb3 checks in the C++ suite and in tools/check_vectors.py with its own CBOR reader and writer, the fuzz target fuzz_compact, and cb3 rows in cb2_size. Measured on the 1,000-set corpus, mean characters:
+
+| token | cb2 | cb3 | change |
+|---|---:|---:|---:|
+| local | 470.2 | 260.2 | -44.7% |
+| local bound to a local proof key | 554.2 | 308.2 | -44.4% |
+| public | 4,883.2 | 4,673.2 | -4.3% |
+| local bound to a client key pair | 4,026.2 | 2,912.2 | -27.7% |
+| public bound to a client key pair | 8,439.2 | 7,325.2 | -13.2% |
+
+The bound public token now fits one 8 KB header field (7,317 to 7,334 characters), the case the plan named first. Sealing is faster because there is less to encrypt and no JSON to write (cb3.local seal 3.65 us against 5.40, open 2.56 against 3.64 on the same run); signing and verifying are unchanged within noise, as the signatures dominate. Every item of the security floor holds by construction and is tested: the nonce and tag lengths, the signature pair, cross-header refusal, the key digest binding, the verdicts, and a tamper sweep of every character.
+
+Not yet done in Phase 1: the C ABI and the seven language bindings do not expose cb3. They follow once the format is reviewed, so that a change to the format does not have to be made eight times.
+
 ### Protocol and test-vector changes
 
 PROTOCOL.md needs a new chapter for each cb3 header. Each states the body layout by offset, the PAE, and a CBOR profile section that lists every rejection rule and its error: `invalid` before authentication and `claims_malformed` after. The validation order stays the same: length limit first, authentication second, CBOR parsing only after authentication. SECURITY.md restates that the nonce, tag and signature parameters are unchanged from cb2 and gives the key-id collision rule. MIGRATION.md says that cb2 and cb3 are separate headers and that neither verifier accepts the other's tokens. Under tests/vectors, new files cb3_local.json and cb3_public.json mirror Appendix A and record intermediate values (CBOR claims hex, key id, nonce, ek, n2, ak, PAE, tag) so a divergence can be located. A claims file holds acceptance and rejection cases for duplicate keys, non-shortest integers, indefinite lengths, tags, floats, negative times, trailing bytes, reserved integer keys and, in Phase 2, unknown table indexes and a wrong table digest. Cross-header vectors cover a cb2 token given to a cb3 verifier and the reverse. The tamper sweep covers every position of a cb3 token. tools/check_vectors.py gets its own CBOR decoder, written from the document alone, so that the independent second implementation still exists.

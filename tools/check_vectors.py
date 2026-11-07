@@ -9,7 +9,9 @@ checks that every failure, tamper, weak-key, rejected-secret-key and
 claims vector yields the recorded verdict, runs the holder proof vectors
 of section 13 through the whole validation order, reproduces the X-Wing
 vectors of draft-connolly-cfrg-xwing-kem and the kcb2.seal strings of
-section 14. It exits 0 when every check passes and 1 otherwise.
+section 14, and checks the experimental cb3 headers of section 15 with
+its own CBOR reader and writer. It exits 0 when every check passes and 1
+otherwise.
 
 Primitives come from two PyPI packages: blake3 for BLAKE3 in hash and
 keyed mode, and pynacl for Ed25519, X25519 and for libsodium's HChaCha20
@@ -1045,8 +1047,14 @@ def check_constraint(claims, rules, token, purpose, mldsa):
     return rules.check_proof_claims(proof_claims), ml_checked
 
 
-def open_claims(token, purpose, authenticate, verifier_key_id, rules, mldsa):
-    """Section 9.6 in order; authenticate(footer) returns (payload, fully_checked)."""
+def open_claims(token, purpose, authenticate, verifier_key_id, rules, mldsa, parse=None, footer_of=None):
+    """Section 9.6 in order; authenticate(footer) returns (payload, fully_checked).
+
+    parse and footer_of default to the JSON payload of 9.1 and the footer
+    of section 8; the cb3 headers of section 15 pass their own.
+    """
+    parse = parse or parse_claims
+    footer_of = footer_of or footer_for
     if not rules.complete():
         return Opened("rules_incomplete")
     if verifier_key_id is not None and not identifier_ok(verifier_key_id):
@@ -1056,11 +1064,11 @@ def open_claims(token, purpose, authenticate, verifier_key_id, rules, mldsa):
     if len(token) > rules.max_token_bytes:
         return Opened("too_large")
     try:
-        payload, fully_checked = authenticate(footer_for(verifier_key_id))
+        payload, fully_checked = authenticate(footer_of(verifier_key_id))
     except Verdict as verdict:
         return Opened(verdict.name)
     try:
-        claims = parse_claims(payload)
+        claims = parse(payload)
     except Verdict as verdict:
         return Opened(verdict.name, None, fully_checked)
     verdict = rules.check(claims)
@@ -1547,6 +1555,317 @@ def check_seal(report, doc, mlkem):
     report.section("seal.json", before)
 
 
+CB3_LOCAL_HEADER = b"cb3.local."
+CB3_PUBLIC_HEADER = b"cb3.public."
+CB3_KEY_DOMAIN = b"kcb3.kid."
+CB3_KEYS = ((1, "iss"), (2, "sub"), (3, "aud"), (4, "exp"), (5, "nbf"), (6, "iat"), (7, "jti"), (8, "cnf"))
+CB3_MIN_TIME = -62167219200
+CB3_MAX_TIME = 253402300799
+CB3_MAX_DEPTH = 16
+INT64_MAX = 2**63 - 1
+UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+CANONICAL_INT_RE = re.compile(r"-?(0|[1-9][0-9]*)")
+
+
+def cb3_footer(key_id):
+    """Section 15.2: the 16-byte key digest, or no footer for a key without an id."""
+    if key_id is None:
+        return b""
+    return blake3_hash(CB3_KEY_DOMAIN + key_id.encode("utf-8"), 16)
+
+
+def cb3_head(major, argument):
+    """A CBOR head with its argument in shortest form."""
+    if argument < 24:
+        return bytes([major << 5 | argument])
+    for info, size in ((24, 1), (25, 2), (26, 4), (27, 8)):
+        if argument < 1 << (8 * size):
+            return bytes([major << 5 | info]) + argument.to_bytes(size, "big")
+    raise Verdict("argument")
+
+
+def cb3_integer(value):
+    """A CBOR integer in int64."""
+    if value >= 0:
+        return cb3_head(0, value)
+    return cb3_head(1, -1 - value)
+
+
+def cb3_text(text):
+    """A CBOR text string."""
+    data = text.encode("utf-8")
+    return cb3_head(3, len(data)) + data
+
+
+def cb3_bytes(data):
+    """A CBOR byte string."""
+    return cb3_head(2, len(data)) + data
+
+
+def cb3_encode_value(value):
+    """A custom claim value in the profile of 15.3; argument when it cannot be carried."""
+    if isinstance(value, str):
+        return cb3_text(value)
+    if isinstance(value, JsonLiteral):
+        return {"false": b"\xf4", "true": b"\xf5", "null": b"\xf6"}[value.text]
+    if isinstance(value, JsonNumber):
+        if CANONICAL_INT_RE.fullmatch(value.text) is None or value.text == "-0":
+            raise Verdict("argument")
+        number = int(value.text)
+        if number > INT64_MAX or number < -INT64_MAX - 1:
+            raise Verdict("argument")
+        return cb3_integer(number)
+    if isinstance(value, JsonObject):
+        return cb3_head(5, len(value.members)) + b"".join(cb3_text(k) + cb3_encode_value(v) for k, v in value.members)
+    return cb3_head(4, len(value)) + b"".join(cb3_encode_value(v) for v in value)
+
+
+def cb3_encode(claims):
+    """Section 15.3, the issuer's side: the payload of a set of claims."""
+    out = cb3_head(5, len(claims.registered) + len(claims.custom))
+    for key, name in CB3_KEYS:
+        if name not in claims.registered:
+            continue
+        value = claims.registered[name]
+        out += cb3_head(0, key)
+        if name in TIME_CLAIMS:
+            instant = parse_rfc3339(value)
+            if instant < CB3_MIN_TIME or instant > CB3_MAX_TIME:
+                raise Verdict("argument")
+            out += cb3_integer(instant)
+        elif name == "jti" and UUID_RE.fullmatch(value):
+            out += cb3_bytes(bytes.fromhex(value.replace("-", "")))
+        elif name == "cnf":
+            text = value.encode("utf-8")
+            if text.startswith(b"kcb2.local.") and len(text) == 54:
+                out += cb3_bytes(b"\x01" + parse_key_string(text, b"kcb2.local.", 54))
+            elif text.startswith(b"kcb2.public.") and len(text) == 2658:
+                out += cb3_bytes(b"\x02" + parse_key_string(text, b"kcb2.public.", 2658))
+            else:
+                raise Verdict("argument")
+        else:
+            out += cb3_text(value)
+    for name, value in claims.custom:
+        out += cb3_text(name) + cb3_encode_value(value)
+    return out
+
+
+class CborReader:
+    """The verifier's reader of section 15.3; every refusal is claims_malformed."""
+
+    def __init__(self, data):
+        self.data = data
+        self.pos = 0
+
+    def fail(self):
+        raise Verdict("claims_malformed")
+
+    def left(self):
+        return len(self.data) - self.pos
+
+    def head(self):
+        """One head: (major, argument), shortest form, no tag, float or indefinite length."""
+        if self.pos >= len(self.data):
+            self.fail()
+        initial = self.data[self.pos]
+        self.pos += 1
+        major, info = initial >> 5, initial & 0x1F
+        if major == 6:
+            self.fail()
+        if major == 7:
+            if info not in (20, 21, 22):
+                self.fail()
+            return major, info
+        if info < 24:
+            return major, info
+        if info > 27:
+            self.fail()
+        size = 1 << (info - 24)
+        if size > self.left():
+            self.fail()
+        argument = int.from_bytes(self.data[self.pos : self.pos + size], "big")
+        self.pos += size
+        if argument < (24, 1 << 8, 1 << 16, 1 << 32)[info - 24]:
+            self.fail()
+        return major, argument
+
+    def take(self, length):
+        if length > self.left():
+            self.fail()
+        data = self.data[self.pos : self.pos + length]
+        self.pos += length
+        return data
+
+    def text(self, major, argument):
+        if major != 3:
+            self.fail()
+        try:
+            return self.take(argument).decode("utf-8")
+        except UnicodeDecodeError:
+            self.fail()
+
+    def integer(self, major, argument):
+        if major not in (0, 1) or argument > INT64_MAX:
+            self.fail()
+        return argument if major == 0 else -1 - argument
+
+    def value(self, depth):
+        """A custom claim value as the JSON value it stands for."""
+        major, argument = self.head()
+        if major in (0, 1):
+            return JsonNumber(str(self.integer(major, argument)))
+        if major == 3:
+            return self.text(major, argument)
+        if major == 7:
+            return JsonLiteral({20: "false", 21: "true", 22: "null"}[argument])
+        if major == 4:
+            if depth >= CB3_MAX_DEPTH or argument > self.left():
+                self.fail()
+            return [self.value(depth + 1) for _ in range(argument)]
+        if major == 5:
+            if depth >= CB3_MAX_DEPTH or argument > self.left() // 2:
+                self.fail()
+            obj = JsonObject()
+            for _ in range(argument):
+                key = self.text(*self.head())
+                if obj.get(key) is not None or any(k == key for k, _ in obj.members):
+                    self.fail()
+                obj.members.append((key, self.value(depth + 1)))
+            return obj
+        self.fail()
+
+
+def cb3_decode(payload):
+    """Section 15.3, the verifier's side: claims from an authenticated payload."""
+    reader = CborReader(payload)
+    major, count = reader.head()
+    if major != 5 or count > reader.left() // 2:
+        reader.fail()
+    claims = Claims()
+    last = 0
+    names = dict(CB3_KEYS)
+    for _ in range(count):
+        major, argument = reader.head()
+        if major == 0:
+            if claims.custom or argument <= last or argument > 8:
+                reader.fail()
+            last = argument
+            name = names[argument]
+            vmajor, varg = reader.head()
+            if name in TIME_CLAIMS:
+                instant = reader.integer(vmajor, varg)
+                if instant < CB3_MIN_TIME or instant > CB3_MAX_TIME:
+                    reader.fail()
+                claims.registered[name] = format_rfc3339(instant)
+            elif name == "jti" and vmajor == 2:
+                raw = reader.take(varg)
+                if len(raw) != 16:
+                    reader.fail()
+                h = raw.hex()
+                claims.registered[name] = "%s-%s-%s-%s-%s" % (h[:8], h[8:12], h[12:16], h[16:20], h[20:])
+            elif name == "cnf":
+                if vmajor != 2:
+                    reader.fail()
+                raw = reader.take(varg)
+                if len(raw) == 33 and raw[0] == 1:
+                    claims.registered[name] = (b"kcb2.local." + b64_encode(raw[1:])).decode("ascii")
+                elif len(raw) == 1 + PUBLIC_KEY_BYTES and raw[0] == 2:
+                    claims.registered[name] = (b"kcb2.public." + b64_encode(raw[1:])).decode("ascii")
+                else:
+                    reader.fail()
+            else:
+                text = reader.text(vmajor, varg)
+                if name == "jti" and UUID_RE.fullmatch(text):
+                    reader.fail()
+                claims.registered[name] = text
+            continue
+        name = reader.text(major, argument)
+        if name == "" or name in REGISTERED or any(k == name for k, _ in claims.custom):
+            reader.fail()
+        claims.custom.append((name, reader.value(1)))
+    if reader.left():
+        reader.fail()
+    for name in IDENTIFIER_CLAIMS:
+        if name in claims.registered and not identifier_ok(claims.registered[name]):
+            reader.fail()
+    for name, _ in claims.custom:
+        if not identifier_ok(name):
+            reader.fail()
+    return claims
+
+
+def cb3_key_id(vector, key):
+    """The issuer's key id of a cb3 vector: explicit, none (null) or the kcb2.lid."""
+    if "key-id" in vector:
+        return vector["key-id"]
+    return kcb2_lid(key).decode("ascii")
+
+
+def check_cb3(report, doc, mldsa):
+    """Section 15 against cb3.json: reproduce, open, the profile, refusals, tamper."""
+    before = report.snapshot()
+    for vector in doc["local"]:
+        name = vector["name"]
+        key = import_local_key(unhex(vector["key"]))
+        claims = parse_claims(utf8(vector["claims"]))
+        payload = cb3_encode(claims)
+        report.check("%s payload" % name, payload == unhex(vector["payload"]), "got %s" % payload.hex())
+        footer = cb3_footer(cb3_key_id(vector, key))
+        report.check("%s footer" % name, footer == unhex(vector["footer"]), "got %s" % footer.hex())
+        implicit = utf8(vector["implicit-assertion"])
+        sealed = local_seal(key, unhex(vector["nonce"]), payload, footer, implicit, CB3_LOCAL_HEADER)
+        for field in ("ek", "n2", "ak", "ciphertext", "pae", "tag"):
+            report.check("%s %s" % (name, field), sealed[field] == unhex(vector[field]))
+        token = utf8(vector["token"])
+        report.check("%s token" % name, sealed["token"] == token, "got %s" % sealed["token"].decode())
+        opened = cb3_decode(local_open(token, key, footer, implicit, CB3_LOCAL_HEADER))
+        report.check("%s opens to its claims" % name, opened.to_json() == utf8(vector["claims"]))
+    key = import_local_key(unhex(doc["open-key"]))
+    for vector in doc["opens"]:
+        token = utf8(vector["token"])
+        verifier_id = vector.get("verifier-key-id", kcb2_lid(key).decode("ascii"))
+        opened = open_claims(token, "local", lambda footer, t=token: (local_open(t, key, footer, b"", CB3_LOCAL_HEADER), True),
+                             verifier_id, Rules(vector["rules"]), mldsa, cb3_decode, cb3_footer)
+        report.check("%s verdict" % vector["name"], opened.verdict == vector["expect"],
+                     "got %s, expected %s" % (opened.verdict, vector["expect"]))
+    for vector in doc["profile"]:
+        try:
+            got = cb3_decode(unhex(vector["payload"]))
+            verdict = "ok"
+        except Verdict as refused:
+            got, verdict = None, refused.name
+        report.check("%s verdict" % vector["name"], verdict == vector["expect"], "got %s" % verdict)
+        if got is not None:
+            report.check("%s claims" % vector["name"], got.to_json() == utf8(vector["claims"]))
+            report.check("%s re-encodes" % vector["name"], cb3_encode(got) == unhex(vector["payload"]))
+    for vector in doc["refused"]:
+        expect_verdict(report, "refused %s" % vector["claims"], lambda v=vector: cb3_encode(parse_claims(utf8(v["claims"]))),
+                       vector["expect"])
+    tamper = doc["tamper"]
+    footer = cb3_footer(kcb2_lid(key).decode("ascii"))
+    report.check("cb3 tamper base opens", cb3_decode(local_open(utf8(tamper["token"]), key, footer, b"", CB3_LOCAL_HEADER)) is not None)
+    for case in tamper["cases"]:
+        expect_verdict(report, "cb3 tamper %d" % case["position"],
+                       lambda c=case: local_open(utf8(c["token"]), key, footer, b"", CB3_LOCAL_HEADER), "invalid")
+    relabelled = doc["relabelled-as-cb2"]
+    expect_verdict(report, "cb3 token relabelled cb2.local",
+                   lambda: local_open(utf8(relabelled["token"]), import_local_key(unhex(relabelled["key"])),
+                                      utf8(relabelled["footer"]), b""), "invalid")
+    for vector in doc.get("public", []):
+        name = vector["name"]
+        pk = import_public_key(unhex(vector["public-key"]))
+        footer = cb3_footer(kcb2_pid(pk).decode("ascii"))
+        report.check("%s footer" % name, footer == unhex(vector["footer"]))
+        payload, ml_checked = public_verify(utf8(vector["token"]), pk, footer, utf8(vector["implicit-assertion"]),
+                                            mldsa, CB3_PUBLIC_HEADER)
+        report.check("%s payload" % name, payload == unhex(vector["payload"]))
+        report.check("%s claims" % name, cb3_decode(payload).to_json() == utf8(vector["claims"]))
+        report.check("%s re-encodes" % name, cb3_encode(parse_claims(utf8(vector["claims"]))) == payload)
+        if not ml_checked:
+            report.skip("%s ML-DSA-65 half" % name, "dilithium-py is not installed")
+    report.section("cb3.json", before)
+
+
 def load(directory, filename):
     """Read one vector file."""
     with open(os.path.join(directory, filename), "rb") as handle:
@@ -1577,6 +1896,7 @@ def main(argv):
     check_proofs(report, load(directory, "proofs.json"), mldsa)
     check_xwing(report, load(directory, os.path.join("xwing", "xwing.json")), mlkem)
     check_seal(report, load(directory, "seal.json"), mlkem)
+    check_cb3(report, load(directory, "cb3.json"), mldsa)
     for note in report.notes:
         print(note)
     print("total: %d passed, %d failed, %d skipped" % (report.passed, report.failed, report.skipped))

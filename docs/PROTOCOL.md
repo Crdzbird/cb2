@@ -866,6 +866,144 @@ invalid. ML-KEM decapsulation never fails on a malformed ciphertext, by
 its construction; it returns an implicit-rejection secret and the tag
 check refuses the result, which is what makes the single verdict hold.
 
+## 15. cb3: compact claims tokens (experimental)
+
+This section is experimental. It exists on the compact-tokens branch to
+measure the plan in docs/research/token-size/PLAN.md and may change
+before it is released. Following section 11, it defines new headers
+instead of changing cb2 tokens. Two purposes are defined, `cb3.local.`
+(10 bytes) and `cb3.public.` (11 bytes). Both are claims tokens only:
+their message is always the payload of 15.3.
+
+### 15.1 Constructions
+
+cb3.local is the construction of section 5 with h = `cb3.local.`
+wherever section 5 writes h: in the key split, in the PAE and as the
+token prefix. The nonce is 32 bytes and the tag 32 bytes, with every
+requirement of 5.1 to 5.3 unchanged. cb3.public is the construction of
+section 6 with h = `cb3.public.`: the PAE starts with that header, and
+the ML-DSA-65 half is signed under the 11-byte context `cb3.public.`.
+Keys, their sizes and the requirements of 6.1 to 6.3 are unchanged.
+
+The header enters the key derivation, the tag, the PAE and the ML-DSA
+context, so a cb3 token opens under no cb2 header and a cb2 token under
+no cb3 header, whatever is done to the prefix. A verifier MUST give
+invalid for either.
+
+### 15.2 Key digest and footer
+
+A key with an id (section 8) binds it through its key digest:
+
+```
+digest = BLAKE3("kcb3.kid." || id, 16)
+```
+
+the first 16 bytes of the unkeyed BLAKE3 hash of the 9 bytes `kcb3.kid.`
+followed by the id's UTF-8. The footer f of a cb3 token is exactly these
+16 bytes, so the footer text is 22 base64url characters. A key with no
+id produces no footer. The verifier rebuilds f from its own key's id and
+compares it as in 5.3 step 4. A token therefore opens only under a key
+with the same id, as in section 8. A reader MAY take the 16 bytes out of
+an unverified token to select a candidate key by comparing them with the
+digests of its keys; that value is good for selection only.
+
+### 15.3 Payload
+
+The payload is one CBOR (RFC 8949) data item in the following strict
+subset, which the issuer writes and the verifier enforces:
+
+- Every head uses the shortest form of its argument: an argument below
+  24 in the initial byte, below 2^8 with additional information 24,
+  below 2^16 with 25, below 2^32 with 26, otherwise 27. Additional
+  information 28 to 31 (reserved values and indefinite lengths) is never
+  used.
+- The major types used are 0 (unsigned integer), 1 (negative integer),
+  2 (byte string), 3 (text string), 4 (array), 5 (map) and, in major
+  type 7, only false (0xf4), true (0xf5) and null (0xf6). Tags (major
+  type 6), floating point, undefined and every other simple value are
+  never used.
+- Integers lie in int64: an unsigned integer is at most 2^63 - 1 and a
+  negative integer -1 - n has n at most 2^63 - 1.
+- Text strings are well-formed UTF-8 (9.2).
+- The whole payload is one map and nothing follows it.
+
+The payload map holds the registered claims under unsigned integer keys,
+in ascending order of key, each at most once, then the custom claims
+under text string keys:
+
+| key | claim | value |
+|---|---|---|
+| 1 | iss | text string |
+| 2 | sub | text string |
+| 3 | aud | text string |
+| 4 | exp | integer, Unix seconds |
+| 5 | nbf | integer, Unix seconds |
+| 6 | iat | integer, Unix seconds |
+| 7 | jti | byte string of 16 bytes, or text string |
+| 8 | cnf | byte string |
+
+A time lies between -62167219200 and 253402300799 inclusive, the
+instants 0000-01-01T00:00:00Z and 9999-12-31T23:59:59Z that the RFC 3339
+form of 9.3 can name. A jti that is a UUID in canonical form (36
+characters: lowercase hex digits with a hyphen after the 8th, 12th, 16th
+and 20th digit) is written as the 16 bytes it spells; any other jti is a
+text string. A 16-byte jti reads back as that canonical text. A text jti
+in canonical UUID form is therefore not in the profile. cnf is the key of
+13.1 as bytes: the byte 0x01 followed by the 32 bytes of a `kcb2.local`
+proof key, or the byte 0x02 followed by the 1984 bytes of a
+`kcb2.public` key. It reads back as the key string of section 7.
+
+A custom claim's name is a non-empty text string, not one of the names
+of 9.1, and appears once. Its value is a JSON value written in CBOR:
+null, true and false as the three simple values, a string as a text
+string, an array as an array, an object as a map whose keys are text
+strings, unique, in the object's member order, and a number as an
+integer. A number is only representable when it is an integer in int64
+written without fraction, exponent, plus sign or leading zeros (and not
+as `-0`); it reads back as its decimal text. Byte strings appear only
+under keys 7 and 8. Nesting is bounded exactly as in 9.2: the payload
+map is level 1 and a custom value nests at most 15 levels deep.
+
+The issuer writes the map head with the number of members, the
+registered claims present in key order, then the custom claims in
+insertion order. The payload is therefore a function of the claims.
+Nothing is compressed: as with the JSON of 9.1, its length reveals the
+length of each text value and the size class of each integer, and
+nothing about which characters a value holds. An issuer MUST refuse with `argument`, before anything
+is sealed or signed, claims whose identifiers break 9.4, a time out of
+range, a cnf that is not one of the two key strings, or a custom number
+that is not representable.
+
+A verifier MUST read the payload only after authentication, and MUST
+treat as `claims_malformed` any payload outside this profile: a head not
+in shortest form, a reserved or indefinite additional information, a
+tag, a float or other simple value, an integer outside int64, a text
+string that is not UTF-8, a payload that is not one map, bytes after it,
+an unsigned key of 0 or above 8, unsigned keys out of order or repeated,
+an unsigned key after a text key, a registered claim of the wrong type,
+a time out of range, a jti byte string of other than 16 bytes, a text
+jti in canonical UUID form, a cnf of other than the two forms, a custom
+name that is empty, registered or repeated, a byte string in a custom
+value, a map key in a custom value that is not a text string or is
+repeated, nesting deeper than 9.2 allows, and then 9.4 on the
+identifiers.
+
+### 15.4 Validation
+
+Sealing a cb3.local token or signing a cb3.public token writes the
+payload of 15.3 and the footer of 15.2 and applies 15.1. Opening one
+performs the steps of 9.6 with 15.1 in place of section 5 or 6 in step
+2, with 15.3 in place of 9.2 in step 3, and every other step and verdict
+unchanged, including the holder proof of 13.5, whose implicit assertion
+is the cb3 token's text. As in cb2, a `kcb2.local` cnf in a cb3.public
+payload is refused by the issuer with `argument` and by the verifier
+with `claims_malformed`.
+
+The parameters of cb2 are kept on purpose: the nonce, the tag and its
+key commitment, the signature pair and the verdicts. The size of a cb3
+token is smaller only because the claims and the key id are encoded
+more compactly.
+
 ## Appendix A. Test vector files
 
 The files under tests/vectors are JSON, UTF-8 encoded, written by the
@@ -1040,6 +1178,44 @@ Encapsulate produces from `eseed`), `ss` (hex, the shared secret) and
 `failures`: objects with `name`, `recipient-secret` (hex), `kcb2.seal`
 and `reason`; unsealing MUST yield invalid.
 
+### A.7 cb3.json
+
+The vectors of section 15. A byte-string field (payload, footer) is
+hex.
+
+`local`: objects with `name`, `key` (hex), `nonce` (hex), `claims` (the
+claims as the canonical JSON text of 9.1), `payload` (the CBOR of 15.3),
+`footer` (the 16-byte key digest, or empty), `implicit-assertion`,
+`token` and the intermediate values of A.1. `key-id`, when present, is
+the issuer's explicit key id, or null for a key with no id; without it
+the id is the key's kcb2.lid. An implementation MUST write `payload`
+from `claims`, `footer` from the id, and reproduce `token` byte for byte
+from those, `key`, `nonce` and `implicit-assertion`, and MUST open it to
+`claims`.
+
+`open-key` and `opens`: tokens opened under `open-key` with `rules` as in
+A.3, the verifier's key carrying `verifier-key-id` when present and its
+kcb2.lid otherwise. Each MUST yield `expect`. They include cb2.local
+tokens given to the cb3.local verifier.
+
+`profile`: objects with `name`, `payload` (hex) and `expect` (`ok` or
+`claims_malformed`). Reading `payload` as 15.3 says MUST yield `expect`;
+on `ok`, the claims MUST serialise to `claims` and encode back to
+`payload`.
+
+`refused`: objects with `claims` (JSON text that 9.2 accepts) and
+`expect` (`argument`). Writing those claims as a cb3 payload MUST be
+refused.
+
+`tamper`: a `key`, a `token` that opens under it with its default id, and
+`cases` as in A.1; every case MUST yield invalid.
+`relabelled-as-cb2`: a cb3.local token whose prefix was replaced by
+`cb2.local.`, with the cb2 `footer` of the key; opening it as cb2.local
+MUST yield invalid.
+
+`public`: objects with `name`, `public-key` (hex), `claims`, `payload`,
+`footer`, `implicit-assertion` and `token`, verified not reproduced.
+
 ## Appendix B. Worked examples
 
 ### B.1 cb2-E-10: the shortest cb2.local token
@@ -1132,7 +1308,7 @@ produces a different ML-DSA half that verifies equally.
 An implementation conforms when all of the following hold. A second
 implementation of this document exists for that purpose:
 `tools/check_vectors.py`, written in Python from this document alone,
-without reading the reference, runs items 1 to 7 and 10 to 12 against
+without reading the reference, runs items 1 to 7 and 10 to 13 against
 the vectors with the blake3 and pynacl packages, the ML-DSA-65 half
 with dilithium-py and X-Wing's ML-KEM-768 with kyber-py when they are
 installed. The repository's CI runs it on every push with all four
@@ -1178,3 +1354,7 @@ apart unnoticed.
     byte, and every target normalises as 13.2 says.
 12. X-Wing reproduces the draft's vectors, seal.json is reproduced byte
     for byte and unseals, and every failure in it is invalid.
+13. For the experimental cb3 headers of section 15: every vector in
+    cb3.json yields what A.7 records, every payload the reader accepts
+    encodes back to the same bytes, and no cb2 token opens as cb3 nor
+    the reverse.

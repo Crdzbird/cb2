@@ -2,7 +2,12 @@ claims.json 211 217.167 224
 cb2.local 462 470.194 479
 cb2.local.bound-local 546 554.194 563
 cb2.holder-local 406 406.000 406
+cb3.local 252 260.194 269
+cb3.local.bound-local 300 308.194 317
 cb2.public 4875 4883.194 4892
 cb2.local.bound-public 4018 4026.194 4035
 cb2.public.bound-public 8431 8439.194 8448
 cb2.holder-public 4819 4819.000 4819
+cb3.public 4665 4673.194 4682
+cb3.local.bound-public 2904 2912.194 2921
+cb3.public.bound-public 7317 7325.194 7334

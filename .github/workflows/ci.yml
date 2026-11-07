@@ -146,7 +146,7 @@ jobs:
             -DCB2_BUILD_TESTS=OFF -DCB2_BUILD_BENCH=OFF -DCB2_BUILD_EXAMPLES=OFF -DCB2_BUILD_PLAYGROUND=OFF \
             -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=/opt/homebrew/opt/lld/bin/ld64.lld
           cmake --build build-fuzz
-          for fz in fuzz_local fuzz_public fuzz_claims fuzz_seal fuzz_holder fuzz_sha3; do
+          for fz in fuzz_local fuzz_public fuzz_claims fuzz_compact fuzz_seal fuzz_holder fuzz_sha3; do
             test -x "build-fuzz/cb2_$fz"
             "build-fuzz/cb2_$fz" -max_total_time=60 -print_final_stats=1
           done

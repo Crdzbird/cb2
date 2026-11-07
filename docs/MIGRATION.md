@@ -87,4 +87,19 @@ Everything above, plus:
   until one implements cb2; docs/PROTOCOL.md and tools/check_vectors.py
   are what such an implementation is written from.
 - No in-band negotiation. A verifier accepts the headers it implements
-  and nothing else; a future change of primitive is cb3, not a flag.
+  and nothing else; a change of primitive or encoding is a new header,
+  as the experimental cb3 headers are, not a flag.
+
+## cb3 on the compact-tokens branch
+
+cb3.local and cb3.public (PROTOCOL.md section 15) carry the same claims
+as cb2.local and cb2.public in a smaller encoding: about 260 characters
+instead of 470 for a typical local token, and about 4,670 instead of
+4,880 for a public one. They are experimental and live on the
+compact-tokens branch only. The cryptography is unchanged, but the
+headers are different on purpose, so a cb2 verifier refuses every cb3
+token and a cb3 verifier every cb2 token; a service that moves to cb3
+must accept both headers for as long as cb2 tokens it issued are alive.
+Claims carry over unchanged with two exceptions the cb3 issuer refuses
+with argument: a custom claim holding a number that is not an integer
+in int64 (1.5, 1e3, -0), and a cnf that is not a kcb2 key string.

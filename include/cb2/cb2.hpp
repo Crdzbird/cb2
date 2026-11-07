@@ -23,6 +23,7 @@
 #include "text.hpp"
 #include "json.hpp"
 #include "claims.hpp"
+#include "compact.hpp"
 
 namespace cb2 {
 
