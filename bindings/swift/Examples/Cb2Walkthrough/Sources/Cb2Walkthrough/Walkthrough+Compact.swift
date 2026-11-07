@@ -23,6 +23,15 @@ extension Walkthrough {
         log.refuse(section, "Issue one with a fractional claim", expected: .argument) { () throws(Cb2Error) in
             _ = try Compact.seal(fraction, key: key)
         }
+        let table = try ClaimTable([issuer, audience, "billing"])
+        let tabled = try Compact.seal(claims, key: key, table: table)
+        log.accept(section, "Issue one under a claim table") { preview(tabled) }
+        log.accept(section, "Open it under the same table") { () throws(Cb2Error) in
+            summary(try Compact.open(tabled, key: key, table: table, rules: rules))
+        }
+        log.refuse(section, "Open it without the table", expected: .invalid) { () throws(Cb2Error) in
+            _ = try Compact.open(tabled, key: key, rules: rules)
+        }
         guard Library.hasPublic else {
             return
         }
