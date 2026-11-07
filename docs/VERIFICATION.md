@@ -4,6 +4,51 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, the Java and Kotlin bridges as Gradle libraries
+
+bindings/java is now a Gradle build (Kotlin DSL, wrapper for Gradle
+9.8.2 with its checksum) of two libraries, `cb2` (a Java module with the
+JNI glue and the native libraries packed per platform) and `cb2-kotlin`
+(Automatic-Module-Name, package com.cipherbird.cb2.kotlin), and two
+examples. `./gradlew clean build --rerun-tasks --no-build-cache` passed
+under JDK 21.0.1 and under JDK 24.0.2, with the classes compiled for
+release 17: 23 JUnit 5 cases with the glue loaded from the jar, the same
+23 with the bundled copy turned off and the glue found on
+java.library.path, and 12 Kotlin cases, none skipped. The Javadoc is
+built with doclint on and warnings as errors; Kotlin compiles in explicit
+API mode with warnings as errors.
+
+The JUnit cases keep every check of the two main-based programs they
+replace (keys, raw tokens, claims with every rule and both replay
+checks, holder proofs of both modes with every proof verdict, wrapping,
+sealing, error names, the closed key) and add a token over the size
+limit, a server nonce, the rules JSON for every member, JSON quoting,
+null arguments, one key used from eight threads while its key id is
+set, a key closed by its own replay callback while a call is in flight,
+and the platform names of the loader.
+
+The JNI glue lets no C++ exception reach the JVM: the argument copies
+turn std::bad_alloc into OutOfMemoryError and every entry point returns
+before the C ABI when an exception is pending; a result longer than a
+Java array can hold is refused. Key handles are shared between threads
+under a use count: a change of key id waits for calls in flight, close
+frees the native key once the last one returns, and a Cleaner frees a
+key that was never closed.
+
+The Java example, run as a module through `./gradlew
+:examples:token-service:run` and from its installed distribution, served
+over HTTP on 127.0.0.1 and printed 200 for a bound request with a fresh
+holder proof, then 401 proof_replayed, missing_proof, proof_mismatch,
+invalid (one character of the token changed) and proof_invalid (a stolen
+token with another key's proof), and 200 again with a new proof; its id
+token verified with the published cb2.public key. The Kotlin example
+sealed, opened and refused a cb2.local token (replayed,
+audience_mismatch, expired, invalid), signed and verified a cb2.public
+token and refused it under another key, checked a local-mode holder
+proof and refused it three ways, and unsealed a key sealed to a
+recipient. No extracted library was left in the temporary directory.
+CI now runs the Gradle build and both examples on macOS and Linux.
+
 ## 2026-11-07, the JavaScript bridge as an npm package
 
 `bindings/js` is the npm package `cb2`: an exports map with `types`

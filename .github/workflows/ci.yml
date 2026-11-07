@@ -84,6 +84,16 @@ jobs:
           "$RUNNER_TEMP/pybuild/bin/delocate-wheel" -w "$RUNNER_TEMP/wheelhouse" "$RUNNER_TEMP"/dist/cb2-*.whl
           CB2_NOPQ_LIBRARY="$GITHUB_WORKSPACE/build-nopq/bindings/c/libcb2_c.dylib" \
             bash bindings/python/scripts/check_wheel.sh "$RUNNER_TEMP"/wheelhouse/cb2-*.whl
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Java and Kotlin bridges (Gradle build, tests, both examples)
+        run: |
+          cd bindings/java
+          ./gradlew --no-daemon build
+          ./gradlew --no-daemon -q :examples:token-service:run :examples:token-tour:run
       - name: Fuzz targets (time-boxed)
         env:
           CC: /opt/homebrew/opt/llvm/bin/clang
@@ -184,6 +194,16 @@ jobs:
           "$RUNNER_TEMP/pybuild/bin/ruff" check .
           "$RUNNER_TEMP/pybuild/bin/ruff" format --check .
           "$RUNNER_TEMP/pybuild/bin/mypy"
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Java and Kotlin bridges (Gradle build, tests, both examples)
+        run: |
+          cd bindings/java
+          ./gradlew --no-daemon build
+          ./gradlew --no-daemon -q :examples:token-service:run :examples:token-tour:run
       # Secrets are marked undefined and memcheck must report nothing:
       # verdicts and outgoing token bytes are declassified in the library
       # (detail::declassify), and the one accepted lookup is listed with
