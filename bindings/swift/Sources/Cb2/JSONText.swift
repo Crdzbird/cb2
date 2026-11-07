@@ -73,7 +73,16 @@ enum JSONText {
         guard let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else {
             throw .claimsMalformed
         }
-        return try object.mapValues { (value: Any) throws(Cb2Error) -> ClaimValue in try claimValue(value) }
+        return try claimValues(object)
+    }
+
+    private static func claimValues(_ members: [String: Any]) throws(Cb2Error) -> [String: ClaimValue] {
+        var values: [String: ClaimValue] = [:]
+        values.reserveCapacity(members.count)
+        for (key, member) in members {
+            values[key] = try claimValue(member)
+        }
+        return values
     }
 
     private static func claimValue(_ value: Any) throws(Cb2Error) -> ClaimValue {
@@ -85,8 +94,7 @@ enum JSONText {
         case let items as [Any]:
             return .array(try items.map { (item: Any) throws(Cb2Error) -> ClaimValue in try claimValue(item) })
         case let members as [String: Any]:
-            return .object(
-                try members.mapValues { (member: Any) throws(Cb2Error) -> ClaimValue in try claimValue(member) })
+            return .object(try claimValues(members))
         case is NSNull:
             return .null
         default:
