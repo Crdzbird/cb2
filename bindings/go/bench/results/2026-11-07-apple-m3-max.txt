@@ -1,0 +1,164 @@
+date: 2026-11-07
+machine: Apple M3 Max, macOS 26.6.2 (25G83)
+go: go1.27.1 darwin/arm64
+cb2: 0.1.0, liboqs 0.16.0, Release build
+golang-jwt: v5.3.1
+go-paseto: v1.6.0
+command: go test -run '^$' -bench . -benchmem -benchtime 1s -count 10
+loadavg-at-start: 3.72 7.25 10.07
+goos: darwin
+goarch: arm64
+pkg: github.com/Crdzbird/cb2/bindings/go/bench
+cpu: Apple M3 Max
+BenchmarkIssue/cb2.local-14         	  168204	      7092 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  167959	      7081 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  167640	      7095 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  167054	      7095 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  169432	      7087 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  170960	      7085 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  164842	      7220 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  166780	      7266 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  164622	      7176 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.local-14         	  169010	      7068 ns/op	       403.0 token-bytes	     857 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14        	    7116	    172579 ns/op	      4816 token-bytes	    5311 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14        	    7012	    182435 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14        	    7354	    175217 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14        	    6688	    175106 ns/op	      4816 token-bytes	    5311 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14        	    6740	    174188 ns/op	      4816 token-bytes	    5311 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14        	    6546	    177282 ns/op	      4816 token-bytes	    5311 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14        	    7078	    174225 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14        	    7260	    173506 ns/op	      4816 token-bytes	    5311 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14        	    6748	    174367 ns/op	      4816 token-bytes	    5311 B/op	      21 allocs/op
+BenchmarkIssue/cb2.public-14        	    6834	    174153 ns/op	      4816 token-bytes	    5312 B/op	      21 allocs/op
+BenchmarkIssue/jwt.HS256-14         	  368950	      3248 ns/op	       259.0 token-bytes	    2723 B/op	      46 allocs/op
+BenchmarkIssue/jwt.HS256-14         	  379298	      3198 ns/op	       259.0 token-bytes	    2723 B/op	      46 allocs/op
+BenchmarkIssue/jwt.HS256-14         	  370894	      3272 ns/op	       259.0 token-bytes	    2723 B/op	      46 allocs/op
+BenchmarkIssue/jwt.HS256-14         	  365592	      3299 ns/op	       259.0 token-bytes	    2723 B/op	      46 allocs/op
+BenchmarkIssue/jwt.HS256-14         	  375152	      3286 ns/op	       259.0 token-bytes	    2723 B/op	      46 allocs/op
+BenchmarkIssue/jwt.HS256-14         	  364389	      3340 ns/op	       259.0 token-bytes	    2723 B/op	      46 allocs/op
+BenchmarkIssue/jwt.HS256-14         	  366780	      3279 ns/op	       259.0 token-bytes	    2723 B/op	      46 allocs/op
+BenchmarkIssue/jwt.HS256-14         	  373359	      3224 ns/op	       259.0 token-bytes	    2723 B/op	      46 allocs/op
+BenchmarkIssue/jwt.HS256-14         	  367750	      3270 ns/op	       259.0 token-bytes	    2723 B/op	      46 allocs/op
+BenchmarkIssue/jwt.HS256-14         	  364828	      3221 ns/op	       259.0 token-bytes	    2723 B/op	      46 allocs/op
+BenchmarkIssue/jwt.EdDSA-14         	   49201	     24342 ns/op	       302.0 token-bytes	    2459 B/op	      43 allocs/op
+BenchmarkIssue/jwt.EdDSA-14         	   49477	     24303 ns/op	       302.0 token-bytes	    2459 B/op	      43 allocs/op
+BenchmarkIssue/jwt.EdDSA-14         	   49251	     24379 ns/op	       302.0 token-bytes	    2459 B/op	      43 allocs/op
+BenchmarkIssue/jwt.EdDSA-14         	   49335	     24356 ns/op	       302.0 token-bytes	    2459 B/op	      43 allocs/op
+BenchmarkIssue/jwt.EdDSA-14         	   49040	     24594 ns/op	       302.0 token-bytes	    2459 B/op	      43 allocs/op
+BenchmarkIssue/jwt.EdDSA-14         	   49214	     24393 ns/op	       302.0 token-bytes	    2459 B/op	      43 allocs/op
+BenchmarkIssue/jwt.EdDSA-14         	   48670	     24528 ns/op	       302.0 token-bytes	    2459 B/op	      43 allocs/op
+BenchmarkIssue/jwt.EdDSA-14         	   49153	     24382 ns/op	       302.0 token-bytes	    2459 B/op	      43 allocs/op
+BenchmarkIssue/jwt.EdDSA-14         	   49183	     24282 ns/op	       302.0 token-bytes	    2459 B/op	      43 allocs/op
+BenchmarkIssue/jwt.EdDSA-14         	   49396	     24264 ns/op	       302.0 token-bytes	    2459 B/op	      43 allocs/op
+BenchmarkIssue/jwt.ES256-14         	   39302	     30553 ns/op	       302.0 token-bytes	    8820 B/op	     105 allocs/op
+BenchmarkIssue/jwt.ES256-14         	   38971	     30742 ns/op	       302.0 token-bytes	    8821 B/op	     105 allocs/op
+BenchmarkIssue/jwt.ES256-14         	   38818	     30623 ns/op	       302.0 token-bytes	    8820 B/op	     105 allocs/op
+BenchmarkIssue/jwt.ES256-14         	   37552	     31340 ns/op	       302.0 token-bytes	    8821 B/op	     105 allocs/op
+BenchmarkIssue/jwt.ES256-14         	   39244	     30616 ns/op	       302.0 token-bytes	    8820 B/op	     105 allocs/op
+BenchmarkIssue/jwt.ES256-14         	   39283	     30245 ns/op	       302.0 token-bytes	    8820 B/op	     105 allocs/op
+BenchmarkIssue/jwt.ES256-14         	   40210	     30293 ns/op	       302.0 token-bytes	    8820 B/op	     105 allocs/op
+BenchmarkIssue/jwt.ES256-14         	   39590	     30455 ns/op	       302.0 token-bytes	    8820 B/op	     105 allocs/op
+BenchmarkIssue/jwt.ES256-14         	   39115	     30681 ns/op	       302.0 token-bytes	    8821 B/op	     105 allocs/op
+BenchmarkIssue/jwt.ES256-14         	   39211	     30661 ns/op	       302.0 token-bytes	    8820 B/op	     105 allocs/op
+BenchmarkIssue/paseto.v4.local-14   	  258301	      4581 ns/op	       304.0 token-bytes	    4385 B/op	      45 allocs/op
+BenchmarkIssue/paseto.v4.local-14   	  269982	      4574 ns/op	       304.0 token-bytes	    4385 B/op	      45 allocs/op
+BenchmarkIssue/paseto.v4.local-14   	  244704	      4512 ns/op	       304.0 token-bytes	    4384 B/op	      45 allocs/op
+BenchmarkIssue/paseto.v4.local-14   	  271419	      4457 ns/op	       304.0 token-bytes	    4384 B/op	      45 allocs/op
+BenchmarkIssue/paseto.v4.local-14   	  270405	      4451 ns/op	       304.0 token-bytes	    4384 B/op	      45 allocs/op
+BenchmarkIssue/paseto.v4.local-14   	  270904	      4497 ns/op	       304.0 token-bytes	    4385 B/op	      45 allocs/op
+BenchmarkIssue/paseto.v4.local-14   	  271504	      4468 ns/op	       304.0 token-bytes	    4384 B/op	      45 allocs/op
+BenchmarkIssue/paseto.v4.local-14   	  269938	      4534 ns/op	       304.0 token-bytes	    4384 B/op	      45 allocs/op
+BenchmarkIssue/paseto.v4.local-14   	  270620	      4500 ns/op	       304.0 token-bytes	    4384 B/op	      45 allocs/op
+BenchmarkIssue/paseto.v4.local-14   	  258297	      4559 ns/op	       304.0 token-bytes	    4384 B/op	      45 allocs/op
+BenchmarkIssue/paseto.v4.public-14  	   51331	     23317 ns/op	       305.0 token-bytes	    2613 B/op	      32 allocs/op
+BenchmarkIssue/paseto.v4.public-14  	   51802	     23215 ns/op	       305.0 token-bytes	    2613 B/op	      32 allocs/op
+BenchmarkIssue/paseto.v4.public-14  	   51789	     23182 ns/op	       305.0 token-bytes	    2613 B/op	      32 allocs/op
+BenchmarkIssue/paseto.v4.public-14  	   51684	     23252 ns/op	       305.0 token-bytes	    2613 B/op	      32 allocs/op
+BenchmarkIssue/paseto.v4.public-14  	   51495	     23327 ns/op	       305.0 token-bytes	    2613 B/op	      32 allocs/op
+BenchmarkIssue/paseto.v4.public-14  	   51320	     23299 ns/op	       305.0 token-bytes	    2613 B/op	      32 allocs/op
+BenchmarkIssue/paseto.v4.public-14  	   51303	     23446 ns/op	       305.0 token-bytes	    2613 B/op	      32 allocs/op
+BenchmarkIssue/paseto.v4.public-14  	   51106	     23514 ns/op	       305.0 token-bytes	    2613 B/op	      32 allocs/op
+BenchmarkIssue/paseto.v4.public-14  	   50402	     23584 ns/op	       305.0 token-bytes	    2613 B/op	      32 allocs/op
+BenchmarkIssue/paseto.v4.public-14  	   51225	     23362 ns/op	       305.0 token-bytes	    2613 B/op	      32 allocs/op
+BenchmarkCheck/cb2.local-14         	  160576	      7465 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14         	  161778	      7536 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14         	  158076	      7517 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14         	  157575	      7557 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14         	  153243	      7531 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14         	  156853	      7566 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14         	  160207	      7610 ns/op	    1709 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14         	  158323	      7559 ns/op	    1709 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14         	  157504	      7584 ns/op	    1709 B/op	      42 allocs/op
+BenchmarkCheck/cb2.local-14         	  154129	      7655 ns/op	    1708 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14        	   10000	    119450 ns/op	    1711 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14        	    9997	    120232 ns/op	    1711 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14        	   10000	    120171 ns/op	    1712 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14        	   10000	    120477 ns/op	    1710 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14        	   10000	    120995 ns/op	    1711 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14        	    9310	    120151 ns/op	    1710 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14        	   10000	    119979 ns/op	    1711 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14        	   10000	    120328 ns/op	    1710 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14        	   10000	    120068 ns/op	    1710 B/op	      42 allocs/op
+BenchmarkCheck/cb2.public-14        	   10000	    120141 ns/op	    1710 B/op	      42 allocs/op
+BenchmarkCheck/jwt.HS256-14         	  312590	      3874 ns/op	    2490 B/op	      45 allocs/op
+BenchmarkCheck/jwt.HS256-14         	  296006	      3877 ns/op	    2491 B/op	      45 allocs/op
+BenchmarkCheck/jwt.HS256-14         	  306436	      3919 ns/op	    2491 B/op	      45 allocs/op
+BenchmarkCheck/jwt.HS256-14         	  303704	      3943 ns/op	    2491 B/op	      45 allocs/op
+BenchmarkCheck/jwt.HS256-14         	  309238	      3861 ns/op	    2491 B/op	      45 allocs/op
+BenchmarkCheck/jwt.HS256-14         	  313729	      3859 ns/op	    2491 B/op	      45 allocs/op
+BenchmarkCheck/jwt.HS256-14         	  305980	      3861 ns/op	    2490 B/op	      45 allocs/op
+BenchmarkCheck/jwt.HS256-14         	  310118	      3852 ns/op	    2490 B/op	      45 allocs/op
+BenchmarkCheck/jwt.HS256-14         	  313155	      3876 ns/op	    2491 B/op	      45 allocs/op
+BenchmarkCheck/jwt.HS256-14         	  315768	      3855 ns/op	    2491 B/op	      45 allocs/op
+BenchmarkCheck/jwt.EdDSA-14         	   23997	     50149 ns/op	    2029 B/op	      41 allocs/op
+BenchmarkCheck/jwt.EdDSA-14         	   23763	     50442 ns/op	    2029 B/op	      41 allocs/op
+BenchmarkCheck/jwt.EdDSA-14         	   23857	     50358 ns/op	    2028 B/op	      41 allocs/op
+BenchmarkCheck/jwt.EdDSA-14         	   23902	     50114 ns/op	    2028 B/op	      41 allocs/op
+BenchmarkCheck/jwt.EdDSA-14         	   24031	     49861 ns/op	    2027 B/op	      41 allocs/op
+BenchmarkCheck/jwt.EdDSA-14         	   23990	     50156 ns/op	    2027 B/op	      41 allocs/op
+BenchmarkCheck/jwt.EdDSA-14         	   23888	     50154 ns/op	    2029 B/op	      41 allocs/op
+BenchmarkCheck/jwt.EdDSA-14         	   24015	     50103 ns/op	    2028 B/op	      41 allocs/op
+BenchmarkCheck/jwt.EdDSA-14         	   23923	     50182 ns/op	    2028 B/op	      41 allocs/op
+BenchmarkCheck/jwt.EdDSA-14         	   23882	     50283 ns/op	    2027 B/op	      41 allocs/op
+BenchmarkCheck/jwt.ES256-14         	   18073	     66248 ns/op	    3361 B/op	      61 allocs/op
+BenchmarkCheck/jwt.ES256-14         	   18058	     66464 ns/op	    3358 B/op	      61 allocs/op
+BenchmarkCheck/jwt.ES256-14         	   18043	     66525 ns/op	    3360 B/op	      61 allocs/op
+BenchmarkCheck/jwt.ES256-14         	   18025	     66476 ns/op	    3358 B/op	      61 allocs/op
+BenchmarkCheck/jwt.ES256-14         	   18124	     66147 ns/op	    3358 B/op	      61 allocs/op
+BenchmarkCheck/jwt.ES256-14         	   18092	     66461 ns/op	    3357 B/op	      61 allocs/op
+BenchmarkCheck/jwt.ES256-14         	   18050	     66517 ns/op	    3359 B/op	      61 allocs/op
+BenchmarkCheck/jwt.ES256-14         	   18043	     66607 ns/op	    3360 B/op	      61 allocs/op
+BenchmarkCheck/jwt.ES256-14         	   18046	     66390 ns/op	    3358 B/op	      61 allocs/op
+BenchmarkCheck/jwt.ES256-14         	   18036	     66620 ns/op	    3357 B/op	      61 allocs/op
+BenchmarkCheck/paseto.v4.local-14   	  171176	      7060 ns/op	    4731 B/op	      82 allocs/op
+BenchmarkCheck/paseto.v4.local-14   	  164185	      7034 ns/op	    4731 B/op	      82 allocs/op
+BenchmarkCheck/paseto.v4.local-14   	  172070	      6956 ns/op	    4731 B/op	      82 allocs/op
+BenchmarkCheck/paseto.v4.local-14   	  171266	      7016 ns/op	    4730 B/op	      82 allocs/op
+BenchmarkCheck/paseto.v4.local-14   	  172876	      6959 ns/op	    4730 B/op	      82 allocs/op
+BenchmarkCheck/paseto.v4.local-14   	  172264	      6988 ns/op	    4731 B/op	      82 allocs/op
+BenchmarkCheck/paseto.v4.local-14   	  167936	      7132 ns/op	    4731 B/op	      82 allocs/op
+BenchmarkCheck/paseto.v4.local-14   	  166215	      7028 ns/op	    4731 B/op	      82 allocs/op
+BenchmarkCheck/paseto.v4.local-14   	  171627	      7112 ns/op	    4731 B/op	      82 allocs/op
+BenchmarkCheck/paseto.v4.local-14   	  172726	      7125 ns/op	    4731 B/op	      82 allocs/op
+BenchmarkCheck/paseto.v4.public-14  	   23122	     51908 ns/op	    3344 B/op	      72 allocs/op
+BenchmarkCheck/paseto.v4.public-14  	   23038	     52038 ns/op	    3345 B/op	      72 allocs/op
+BenchmarkCheck/paseto.v4.public-14  	   23076	     52014 ns/op	    3344 B/op	      72 allocs/op
+BenchmarkCheck/paseto.v4.public-14  	   23089	     52006 ns/op	    3345 B/op	      72 allocs/op
+BenchmarkCheck/paseto.v4.public-14  	   23048	     52150 ns/op	    3344 B/op	      72 allocs/op
+BenchmarkCheck/paseto.v4.public-14  	   23064	     51974 ns/op	    3344 B/op	      72 allocs/op
+BenchmarkCheck/paseto.v4.public-14  	   23217	     51776 ns/op	    3344 B/op	      72 allocs/op
+BenchmarkCheck/paseto.v4.public-14  	   23138	     51826 ns/op	    3345 B/op	      72 allocs/op
+BenchmarkCheck/paseto.v4.public-14  	   23049	     52003 ns/op	    3345 B/op	      72 allocs/op
+BenchmarkCheck/paseto.v4.public-14  	   23073	     51942 ns/op	    3344 B/op	      72 allocs/op
+BenchmarkCgoCall-14                 	46903015	        25.44 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCgoCall-14                 	47155831	        25.46 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCgoCall-14                 	46000509	        25.48 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCgoCall-14                 	46757799	        25.43 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCgoCall-14                 	47393286	        25.40 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCgoCall-14                 	47281556	        25.37 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCgoCall-14                 	47083671	        25.46 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCgoCall-14                 	47399293	        25.47 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCgoCall-14                 	46971097	        25.48 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCgoCall-14                 	46828582	        25.39 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/Crdzbird/cb2/bindings/go/bench	180.346s

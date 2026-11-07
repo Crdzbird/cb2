@@ -4,6 +4,44 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, Go binding README and benchmark against golang-jwt and go-paseto
+
+`bindings/go/README.md` is rewritten for a first-time user: what cb2
+is, install and linking, a quick start, the token kinds, an API
+overview, errors, key lifetime and concurrency, the example apps, the
+benchmark and development notes. The quick start was compiled and run
+as its own module with a `replace` directive; its printed output is the
+one shown.
+
+`bindings/go/bench` is a separate module (golang-jwt v5.3.1, go-paseto
+v1.6.0) so that the binding's go.mod gains no dependency. It issues and
+checks one claims payload (iss, sub, aud, exp, iat, jti, role) with
+cb2.local, cb2.public, JWT HS256, EdDSA and ES256, and PASETO v4.local
+and v4.public; a check verifies the tag or signature, issuer, audience,
+expiry and iat, then reads the custom claim. `TestFormats` confirms
+each format accepts its own token and refuses a tampered one. go vet
+and staticcheck v0.8.2 report nothing.
+
+A first run of `-benchtime 1s -count 10` overlapped other sessions'
+builds and benchmarks (load average 31) and showed up to 54 percent
+spread, so it was discarded. The second run started at a load average
+of 3.7 and every median is within plus or minus 2 percent (benchstat):
+
+| format | token bytes | issue | check |
+|---|---:|---:|---:|
+| cb2.local | 403 | 7.09 us | 7.56 us |
+| jwt HS256 | 259 | 3.27 us | 3.87 us |
+| paseto v4.local | 304 | 4.51 us | 7.03 us |
+| cb2.public | 4,816 | 174.3 us | 120.2 us |
+| jwt EdDSA | 302 | 24.4 us | 50.2 us |
+| jwt ES256 | 302 | 30.6 us | 66.5 us |
+| paseto v4.public | 305 | 23.3 us | 52.0 us |
+
+A bare cgo call measures 25 ns. The raw output with machine, versions
+and command is `bindings/go/bench/results/2026-11-07-apple-m3-max.txt`;
+B/op and allocs/op are in the README. CI runs the module's tests and
+each benchmark once (`-benchtime 1x`) on macOS and Linux.
+
 ## 2026-11-07, the JavaScript package README and its benchmark
 
 `bindings/js/README.md` is rewritten for someone new to cb2: what it is,

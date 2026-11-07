@@ -65,13 +65,15 @@ jobs:
         run: |
           (cd bindings/swift && CB2_SWIFT_SYSTEM_LIBRARY=1 swift test -Xlinker -L"$GITHUB_WORKSPACE/build/bindings/c" -Xlinker -rpath -Xlinker "$GITHUB_WORKSPACE/build/bindings/c")
           node --test bindings/js/test/test.mjs
-      - name: Go module (vet, staticcheck, race tests with the examples, the example service over HTTP, linking through pkg-config)
+      - name: Go module (vet, staticcheck, race tests with the examples, the example service over HTTP, linking through pkg-config, the benchmark once)
         working-directory: bindings/go
         run: |
           go vet ./...
           go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
           go test -race ./...
           bash examples/smoke.sh
+          go -C bench vet ./...
+          go -C bench test -bench . -benchtime 1x ./...
           prefix="$(mktemp -d)"
           cmake --install "$GITHUB_WORKSPACE/build" --prefix "$prefix" > /dev/null
           pcdir="$(dirname "$(find "$prefix" -name cb2_c.pc)")"
@@ -199,13 +201,15 @@ jobs:
       - name: Bridges with a toolchain on this runner (Node)
         run: |
           node --test bindings/js/test/test.mjs
-      - name: Go module (vet, staticcheck, race tests with the examples, the example service over HTTP, linking through pkg-config)
+      - name: Go module (vet, staticcheck, race tests with the examples, the example service over HTTP, linking through pkg-config, the benchmark once)
         working-directory: bindings/go
         run: |
           go vet ./...
           go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
           go test -race ./...
           bash examples/smoke.sh
+          go -C bench vet ./...
+          go -C bench test -bench . -benchtime 1x ./...
           prefix="$(mktemp -d)"
           cmake --install "$GITHUB_WORKSPACE/build" --prefix "$prefix" > /dev/null
           pcdir="$(dirname "$(find "$prefix" -name cb2_c.pc)")"
