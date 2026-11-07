@@ -7,8 +7,9 @@ on:
 
 # Two runners, the same matrix on both: a release build with the hybrid
 # cb2.public, tests, the self-checking example and the v4 cross-check, the
-# tests under ASan and UBSan, and a build without liboqs. macOS also runs
-# the six libFuzzer targets time-boxed; it mirrors the known-good local
+# tests under ASan and UBSan, and a build without liboqs. macOS also builds
+# the Swift XCFramework and the Swift examples, and runs the six libFuzzer
+# targets time-boxed; it mirrors the known-good local
 # build with Homebrew dependencies. Linux takes libsodium and libcrypto
 # from Ubuntu, builds BLAKE3 and liboqs from pinned sources, and runs the
 # constant-time probe under Valgrind (tests/ct/ct_probe.cpp). Two more
@@ -62,7 +63,7 @@ jobs:
           ./build-nopq/bindings/c/cb2_c_example
       - name: Bridges with a toolchain on this runner (Swift, Node)
         run: |
-          (cd bindings/swift && swift test -Xlinker -L"$GITHUB_WORKSPACE/build/bindings/c" -Xlinker -rpath -Xlinker "$GITHUB_WORKSPACE/build/bindings/c")
+          (cd bindings/swift && CB2_SWIFT_SYSTEM_LIBRARY=1 swift test -Xlinker -L"$GITHUB_WORKSPACE/build/bindings/c" -Xlinker -rpath -Xlinker "$GITHUB_WORKSPACE/build/bindings/c")
           node --test bindings/js/test/test.mjs
       - name: Go module (vet, staticcheck, race tests with the examples, the example service over HTTP, linking through pkg-config)
         working-directory: bindings/go
@@ -94,6 +95,26 @@ jobs:
           cd bindings/java
           ./gradlew --no-daemon build
           ./gradlew --no-daemon -q :examples:token-service:run :examples:token-tour:run
+      - name: Cache the Swift XCFramework dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: bindings/swift/.build-xcframework/prefix
+          key: swift-xcframework-deps-${{ hashFiles('bindings/swift/scripts/build-xcframework.sh') }}
+      - name: Swift package on the XCFramework, the examples for macOS and the iOS simulator, and the docs
+        working-directory: bindings/swift
+        run: |
+          swift --version
+          swift format lint -r --strict Package.swift Sources Tests \
+            Examples/Cb2Walkthrough/Package.swift Examples/Cb2Walkthrough/Sources Examples/Cb2App/Cb2App
+          bash scripts/build-xcframework.sh
+          swift test
+          (cd Examples/Cb2Walkthrough && swift run cb2-walkthrough)
+          xcodebuild docbuild -scheme Cb2 -destination 'generic/platform=macOS' -derivedDataPath .build/docs -quiet
+          cd Examples/Cb2App
+          xcodebuild -scheme Cb2App -destination 'generic/platform=macOS' -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO -quiet build
+          xcodebuild -scheme Cb2App -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO -quiet build
       - name: Fuzz targets (time-boxed)
         env:
           CC: /opt/homebrew/opt/llvm/bin/clang

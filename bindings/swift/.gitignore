@@ -1,3 +1,10 @@
 .build/
 .swiftpm/
 Package.resolved
+Cb2C.xcframework/
+.build-xcframework/
+Examples/*/.build/
+Examples/*/.swiftpm/
+Examples/*/Package.resolved
+xcuserdata/
+DerivedData/

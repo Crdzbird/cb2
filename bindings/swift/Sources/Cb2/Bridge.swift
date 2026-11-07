@@ -11,104 +11,117 @@ struct Buffer {
     }
 }
 
-/// The marshalling every call shares: verdict checks, handle creation,
-/// borrowed input buffers, and results copied out of C memory and freed.
+/// The marshalling every call shares: verdicts, handle creation, borrowed
+/// input buffers, and results copied out of C memory and freed. Closures
+/// passed to the C side never throw; a verdict travels back as a `Result`.
 enum Bridge {
-    static func check(_ code: Int32) throws {
-        if code != 0 {
+    static func check(_ code: Int32) throws(Cb2Error) {
+        guard code == 0 else {
             throw Cb2Error(code: code)
         }
     }
 
-    static func handle(_ make: (UnsafeMutablePointer<OpaquePointer?>) throws -> Int32) throws -> OpaquePointer {
+    static func result<T>(_ code: Int32, _ value: T) -> Result<T, Cb2Error> {
+        code == 0 ? .success(value) : .failure(Cb2Error(code: code))
+    }
+
+    static func handle(_ make: (UnsafeMutablePointer<OpaquePointer?>) -> Int32) throws(Cb2Error) -> OpaquePointer {
         var out: OpaquePointer? = nil
-        try check(try make(&out))
+        try check(make(&out))
         guard let out else {
-            throw Cb2Error(.internal)
+            throw .internal
         }
         return out
     }
 
-    static func text(_ p: UnsafeMutablePointer<CChar>?) -> String? {
-        guard let p else {
+    static func text(_ pointer: UnsafeMutablePointer<CChar>?) -> String? {
+        guard let pointer else {
             return nil
         }
-        defer { cb2_free(p) }
-        return String(cString: p)
+        defer { cb2_free(pointer) }
+        return String(cString: pointer)
     }
 
-    static func text(_ p: UnsafeMutablePointer<CChar>?, count: Int) -> String {
-        guard let p else {
+    static func text(_ pointer: UnsafeMutablePointer<CChar>?, count: Int) -> String {
+        guard let pointer else {
             return ""
         }
-        defer { cb2_free(p) }
-        return String(decoding: UnsafeRawBufferPointer(start: p, count: count), as: UTF8.self)
+        defer { cb2_free(pointer) }
+        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: count), as: UTF8.self)
     }
 
-    static func secret(_ p: UnsafeMutablePointer<CChar>?) -> String? {
-        guard let p else {
+    static func secret(_ pointer: UnsafeMutablePointer<CChar>?) -> String? {
+        guard let pointer else {
             return nil
         }
-        defer { cb2_free_secret(p) }
-        return String(cString: p)
+        defer { cb2_free_secret(pointer) }
+        return String(cString: pointer)
     }
 
-    static func required(_ s: String?) throws -> String {
-        guard let s else {
-            throw Cb2Error(.unavailable)
+    static func required(_ value: String?) throws(Cb2Error) -> String {
+        guard let value else {
+            throw .internal
         }
-        return s
+        return value
     }
 
-    static func bytes(_ p: UnsafeMutablePointer<UInt8>?, count: Int) -> Data {
-        guard let p else {
+    static func bytes(_ pointer: UnsafeMutablePointer<UInt8>?, count: Int) -> Data {
+        guard let pointer else {
             return Data()
         }
-        defer { cb2_free(p) }
-        return Data(bytes: p, count: count)
+        defer { cb2_free(pointer) }
+        return Data(bytes: pointer, count: count)
     }
 
-    static func withBytes<T>(_ data: Data?, _ body: (Buffer) throws -> T) rethrows -> T {
+    static func withBytes<T>(_ data: Data?, _ body: (Buffer) -> T) -> T {
         guard let data, !data.isEmpty else {
-            return try body(Buffer(base: nil, count: 0))
+            return body(Buffer(base: nil, count: 0))
         }
-        return try data.withUnsafeBytes { raw in
-            guard let base = raw.baseAddress else {
-                return try body(Buffer(base: nil, count: 0))
-            }
-            return try body(Buffer(base: base.assumingMemoryBound(to: UInt8.self), count: raw.count))
+        return data.withUnsafeBytes { raw in
+            body(Buffer(base: raw.bindMemory(to: UInt8.self).baseAddress, count: raw.count))
         }
     }
 
-    static func withText<T>(_ s: String?, _ body: (Buffer) throws -> T) rethrows -> T {
-        try withBytes(s.map { Data($0.utf8) }, body)
+    static func withText<T>(_ text: String?, _ body: (Buffer) -> T) -> T {
+        withBytes(text.map { Data($0.utf8) }, body)
     }
 
-    static func withBuffers<T>(_ items: [Data?], _ body: ([Buffer]) throws -> T) rethrows -> T {
-        try withBuffers(items[...], [], body)
+    static func withBuffers<T>(_ items: [Data?], _ body: ([Buffer]) -> T) -> T {
+        withBuffers(items[...], [], body)
     }
 
-    private static func withBuffers<T>(_ items: ArraySlice<Data?>, _ acc: [Buffer], _ body: ([Buffer]) throws -> T) rethrows -> T {
+    private static func withBuffers<T>(
+        _ items: ArraySlice<Data?>,
+        _ done: [Buffer],
+        _ body: ([Buffer]) -> T
+    ) -> T {
         guard let first = items.first else {
-            return try body(acc)
+            return body(done)
         }
-        return try withBytes(first) { buffer in
-            try withBuffers(items.dropFirst(), acc + [buffer], body)
+        return withBytes(first) { buffer in
+            withBuffers(items.dropFirst(), done + [buffer], body)
         }
     }
 
-    static func claimsJson(_ claims: [String: Any]) throws -> Data {
-        guard JSONSerialization.isValidJSONObject(claims) else {
-            throw Cb2Error(.argument)
-        }
-        return try JSONSerialization.data(withJSONObject: claims, options: [.sortedKeys])
+    static func texts(_ items: [String?]) -> [Data?] {
+        items.map { $0.map { Data($0.utf8) } }
     }
 
-    static func claims(from json: String) throws -> [String: Any] {
-        let value = try JSONSerialization.jsonObject(with: Data(json.utf8))
-        guard let object = value as? [String: Any] else {
-            throw Cb2Error(.claimsMalformed)
+    static func encode(_ claims: Claims) throws(Cb2Error) -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        do {
+            return try encoder.encode(claims)
+        } catch {
+            throw .argument
         }
-        return object
+    }
+
+    static func decode(_ json: String) throws(Cb2Error) -> Claims {
+        do {
+            return try JSONDecoder().decode(Claims.self, from: Data(json.utf8))
+        } catch {
+            throw .claimsMalformed
+        }
     }
 }

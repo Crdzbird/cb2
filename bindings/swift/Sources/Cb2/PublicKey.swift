@@ -1,54 +1,78 @@
 import CCb2
 import Foundation
 
-/// The verifying half of a signing pair, serialized as kcb2.public.
-/// Available only when hasPublic() is true.
-public final class PublicKey {
-    let handle: OpaquePointer
+/// The verifying half of a signing pair, serialized as `kcb2.public`.
+///
+/// Available only when ``Library/hasPublic`` is true. A key is immutable
+/// and `Sendable`.
+public final class PublicKey: Sendable {
+    let handle: KeyHandle
 
-    init(handle: OpaquePointer) {
+    init(_ pointer: OpaquePointer) {
+        handle = KeyHandle(pointer, release: { cb2_public_key_free($0) })
+    }
+
+    init(handle: KeyHandle) {
         self.handle = handle
     }
 
-    deinit {
-        cb2_public_key_free(handle)
-    }
-
-    public convenience init(bytes: Data) throws {
-        let handle = try Bridge.handle { out in
+    /// The key from its raw bytes.
+    public convenience init(bytes: Data) throws(Cb2Error) {
+        let pointer = try Bridge.handle { out in
             Bridge.withBytes(bytes) { cb2_public_key_from_bytes($0.base, $0.count, out) }
         }
-        self.init(handle: handle)
+        self.init(pointer)
     }
 
-    public convenience init(paserk: String) throws {
-        let handle = try Bridge.handle { out in
+    /// The key from its `kcb2.public` text.
+    public convenience init(paserk: String) throws(Cb2Error) {
+        let pointer = try Bridge.handle { out in
             Bridge.withText(paserk) { cb2_public_key_from_paserk($0.text, $0.count, out) }
         }
-        self.init(handle: handle)
+        self.init(pointer)
     }
 
-    /// The key as kcb2.public text.
-    public func toPaserk() throws -> String {
-        try Bridge.required(Bridge.text(cb2_public_key_to_paserk(handle)))
+    /// The key as `kcb2.public` text.
+    public func toPaserk() throws(Cb2Error) -> String {
+        try Bridge.required(handle.use { Bridge.text(cb2_public_key_to_paserk($0)) })
     }
 
-    /// The kcb2.pid identifier of the key.
+    /// The `kcb2.pid` identifier of the key.
     public var paserkId: String {
-        get throws { try Bridge.required(Bridge.text(cb2_public_key_paserk_id(handle))) }
+        get throws(Cb2Error) {
+            try Bridge.required(handle.use { Bridge.text(cb2_public_key_paserk_id($0)) })
+        }
     }
 
-    /// The key id expected in token footers, the paserk id unless set or cleared.
+    /// The key id expected in token footers: the PASERK id unless changed
+    /// with ``withKeyId(_:)`` or removed with ``withoutKeyId()``.
     public var keyId: String? {
-        Bridge.text(cb2_public_key_key_id(handle))
+        handle.use { Bridge.text(cb2_public_key_key_id($0)) }
     }
 
-    /// Sets the key id; an identifier the library refuses is an argument error.
-    public func setKeyId(_ id: String) throws {
-        try Bridge.check(Bridge.withText(id) { cb2_public_key_set_key_id(handle, $0.text, $0.count) })
+    /// The same key with another key id; an identifier the library refuses
+    /// is ``Cb2Error/argument``.
+    public func withKeyId(_ id: String) throws(Cb2Error) -> PublicKey {
+        let copy = try handle.copy(
+            export: { cb2_public_key_to_paserk($0) },
+            secret: false,
+            import: { cb2_public_key_from_paserk($0, $1, $2) },
+            adjust: { pointer in Bridge.withText(id) { cb2_public_key_set_key_id(pointer, $0.text, $0.count) } }
+        )
+        return PublicKey(handle: copy)
     }
 
-    public func clearKeyId() {
-        cb2_public_key_clear_key_id(handle)
+    /// The same key with no key id.
+    public func withoutKeyId() throws(Cb2Error) -> PublicKey {
+        let copy = try handle.copy(
+            export: { cb2_public_key_to_paserk($0) },
+            secret: false,
+            import: { cb2_public_key_from_paserk($0, $1, $2) },
+            adjust: { pointer in
+                cb2_public_key_clear_key_id(pointer)
+                return 0
+            }
+        )
+        return PublicKey(handle: copy)
     }
 }

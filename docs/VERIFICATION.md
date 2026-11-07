@@ -4,6 +4,39 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, the Swift bridge as a package with an XCFramework and examples
+
+`bindings/swift` is now a Swift 6 package (tools 6.0, complete
+concurrency checking) whose functions throw only `Cb2Error`, an enum
+with one case per verdict, through typed throws. Keys are immutable
+`Sendable` classes: a key id is set on a fresh copy of the C handle
+before it is published, so no handle is mutated after another thread
+can see it. Claims are `[String: ClaimValue]` instead of
+`[String: Any]`, and `Rules` and its `@Sendable` replay checks are
+`Sendable`. `scripts/build-xcframework.sh` builds libsodium 1.0.22,
+BLAKE3 1.5.4 and liboqs 0.15.0 from the hash-pinned tarballs of the web
+build, compiles `cb2_c.cpp` against them and produces `Cb2C.xcframework`
+with macOS (arm64, x86_64), iOS (arm64) and iOS simulator (arm64,
+x86_64) slices in 3 min 29 s from scratch and 15 s with the dependency
+cache; `Package.swift` uses it as a binary target when it is present and
+the system library otherwise.
+
+With Swift 6.4 and Xcode 27 on macOS 26: `swift build` and `swift test`
+pass 15 Swift Testing cases in 5 suites on the XCFramework, and the same
+15 on the system-library layout linked against the CMake build of
+`libcb2_c` (`CB2_SWIFT_SYSTEM_LIBRARY=1`); `swift format lint --strict`
+reports nothing; `xcodebuild docbuild` builds the DocC archive without a
+warning. The command-line example `cb2-walkthrough` answers 20 of 20
+steps as expected: cb2.local issued and opened, then refused as
+`replayed`, `audience_mismatch`, `expired` and twice `invalid`; a local
+holder proof refused alone as `missing_proof`, accepted, then refused as
+`proof_replayed` and `proof_mismatch`; cb2.public signed, verified and
+refused under another key; a public holder proof accepted; a key sealed
+with kcb2.seal and refused by another recipient. The SwiftUI example
+built for and ran on the iOS 27 simulator (iPhone 18 Pro) and on macOS,
+showing the same 20 of 20, a token accepted for the `api` audience and
+refused as `audience_mismatch` for `billing`; both builds are universal
+(arm64, x86_64).
 ## 2026-11-07, the Java and Kotlin bridges as Gradle libraries
 
 bindings/java is now a Gradle build (Kotlin DSL, wrapper for Gradle

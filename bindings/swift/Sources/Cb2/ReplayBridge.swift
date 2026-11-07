@@ -1,22 +1,25 @@
 import CCb2
 
-/// Carries the replay closures of a Rules value across the C boundary: the
+/// Carries the replay checks of a `Rules` value across the C boundary. The
 /// C callbacks are the two trampolines below and the user pointer is this
-/// object, unretained, kept alive for the duration of the call by run.
+/// object, unretained and kept alive by `run` for the duration of the call.
+/// The library calls back synchronously on the calling thread.
 final class ReplayBridge {
-    let replay: ((String) throws -> Bool)?
-    let proofReplay: ((String) throws -> Bool)?
+    let replay: Rules.ReplayCheck?
+    let proofReplay: Rules.ReplayCheck?
 
-    init(replay: ((String) throws -> Bool)?, proofReplay: ((String) throws -> Bool)?) {
-        self.replay = replay
-        self.proofReplay = proofReplay
+    init(_ rules: Rules) {
+        replay = rules.replay
+        proofReplay = rules.proofReplay
     }
 
-    func run<T>(_ body: (cb2_replay_fn?, cb2_replay_fn?, UnsafeMutableRawPointer?) throws -> T) rethrows -> T {
-        try withExtendedLifetime(self) {
-            let replayFn: cb2_replay_fn? = replay == nil ? nil : replayTrampoline
-            let proofFn: cb2_replay_fn? = proofReplay == nil ? nil : proofReplayTrampoline
-            return try body(replayFn, proofFn, Unmanaged.passUnretained(self).toOpaque())
+    func run<T>(_ body: (cb2_replay_fn?, cb2_replay_fn?, UnsafeMutableRawPointer) -> T) -> T {
+        withExtendedLifetime(self) {
+            body(
+                replay == nil ? nil : replayTrampoline,
+                proofReplay == nil ? nil : proofReplayTrampoline,
+                Unmanaged.passUnretained(self).toOpaque()
+            )
         }
     }
 
