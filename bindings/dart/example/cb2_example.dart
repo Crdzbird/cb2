@@ -5,9 +5,9 @@ import 'package:cb2/cb2.dart';
 const _issuer = 'https://issuer.example';
 
 /// Issues a cb2.local and a cb2.public token, opens and verifies them,
-/// does the same with the shorter compact cb3.local token, and shows the
-/// library refusing a replay, a tampered token and a token for another
-/// audience.
+/// does the same with the shorter compact cb3.local token, alone and under
+/// a claim table, and shows the library refusing a replay, a tampered
+/// token and a token for another audience.
 ///
 /// Run it from bindings/dart against a build of the C library:
 /// CB2_C_LIBRARY=../../build/bindings/c/libcb2_c.dylib dart run example/cb2_example.dart
@@ -34,6 +34,12 @@ void _local() {
   stdout.writeln('cb3.local token: ${_short(compact)}');
   final opened = CompactToken.open(key, compact, rules);
   stdout.writeln('opened compact: sub ${opened['sub']}, jti ${opened['jti']}');
+  final table = ClaimTable.fromEntries(const [_issuer, 'api']);
+  final tabled = CompactToken.seal(key, _claims('local-3'), table: table);
+  stdout.writeln('under a claim table: ${_short(tabled)}');
+  final indexed = CompactToken.open(key, tabled, rules, table: table);
+  stdout.writeln('opened tabled: iss ${indexed['iss']}, aud ${indexed['aud']}');
+  table.dispose();
   _refuse(
     'a tampered token',
     () => Token.open(key, _tamper(token), _fresh('api')),

@@ -27,6 +27,32 @@ FormatResult benchCompactLocal(BenchSettings settings) {
   return result;
 }
 
+/// cb3.local under a claim table of the issuer and the audience, which
+/// carries both as indexes.
+FormatResult benchCompactTableLocal(BenchSettings settings) {
+  final key = LocalKey.generate();
+  final table = ClaimTable.fromEntries(const [benchIssuer, benchAudience]);
+  final claims = textClaims();
+  final token = CompactToken.seal(key, claims, table: table);
+  _expectRole(CompactToken.open(key, token, _rules, table: table));
+  final result = FormatResult(
+    format: 'cb3.local, claim table',
+    library: 'cb2 ${version()} (native, FFI)',
+    issueMicros: timeSync(
+      settings,
+      () => CompactToken.seal(key, claims, table: table),
+    ),
+    checkMicros: timeSync(
+      settings,
+      () => CompactToken.open(key, token, _rules, table: table),
+    ),
+    bytes: token.length,
+  );
+  table.dispose();
+  key.dispose();
+  return result;
+}
+
 /// cb3.public, the compact form of cb2.public: sign, then verify with the
 /// claims checked against the rules.
 FormatResult benchCompactPublic(BenchSettings settings) {

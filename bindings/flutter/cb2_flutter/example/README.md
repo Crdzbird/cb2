@@ -7,6 +7,7 @@ isolate, and lists every step:
 - open it again, refused as `replayed`;
 - open a tampered copy, refused as `invalid`;
 - seal the same claims as a compact cb3.local token and open it;
+- open a compact token made under a claim table, with the same table;
 - sign a cb2.public token and verify it with the public key;
 - verify it for another audience, refused as `audience_mismatch`.
 

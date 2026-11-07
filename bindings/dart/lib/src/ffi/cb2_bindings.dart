@@ -4,6 +4,7 @@ import 'package:cb2/src/ffi/compact_calls.dart';
 import 'package:cb2/src/ffi/core_calls.dart';
 import 'package:cb2/src/ffi/key_calls.dart';
 import 'package:cb2/src/ffi/proof_calls.dart';
+import 'package:cb2/src/ffi/table_calls.dart';
 import 'package:cb2/src/ffi/token_calls.dart';
 
 /// Every entry point of cb2_c.h, looked up lazily from a [DynamicLibrary]
@@ -22,6 +23,7 @@ final class Cb2Bindings {
       recipientPublicKey = KeyCalls(library, 'recipient_public_key'),
       tokens = TokenCalls(library),
       compact = CompactCalls(library),
+      tables = TableCalls(library),
       proofs = ProofCalls(library);
 
   /// Version, features, error names and buffer release.
@@ -47,6 +49,9 @@ final class Cb2Bindings {
 
   /// Compact claims tokens and key digests.
   final CompactCalls compact;
+
+  /// Claim tables and the compact calls under one.
+  final TableCalls tables;
 
   /// Holder proofs, key wrapping and sealing.
   final ProofCalls proofs;

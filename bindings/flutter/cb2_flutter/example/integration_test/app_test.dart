@@ -28,6 +28,7 @@ void main() {
       'refused with replayed',
       'refused with invalid',
       'Open the compact token',
+      'Open a compact token under a claim table',
       'refused with audience_mismatch',
     ]) {
       await tester.scrollUntilVisible(find.text(shown), 120);

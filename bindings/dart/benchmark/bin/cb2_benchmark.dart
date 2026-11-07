@@ -24,6 +24,7 @@ Future<void> main(List<String> args) async {
   final results = <FormatResult>[
     benchCb2Local(settings),
     benchCompactLocal(settings),
+    benchCompactTableLocal(settings),
     benchJwtHs256(settings),
     await benchPasetoLocal(settings),
   ];

@@ -5,6 +5,11 @@
   platform is built from bindings/c/src/cb2_c.cpp, so it carries the new
   `cb2_compact_*` functions without a vendored copy to refresh.
 - A host test of a compact token round trip and its key digest.
+- Re-exports `ClaimTable` and the `table:` option of `CompactToken`, over
+  the `cb2_claim_table_*` and `cb2_compact_*_with_table` functions, which
+  the native library on every platform carries for the same reason.
+- A host test of a compact token under a claim table, and an example app
+  step that opens one.
 
 ## 0.2.0
 
