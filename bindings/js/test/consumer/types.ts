@@ -12,6 +12,7 @@ import {
     type Cb2Core,
     type Cb2ErrorName,
     type Claims,
+    type CompactTokens,
     type HolderRequest,
     type LoadOptions,
     type LocalKey,
@@ -42,6 +43,9 @@ export type Checks = [
     Assert<Equal<Assignable<{ replay: (jti: string) => boolean }, Rules>, true>>,
     Assert<Equal<Assignable<{ now: string }, Rules>, false>>,
     Assert<Equal<Cb2["Cb2Error"], typeof Cb2Error>>,
+    Assert<Equal<Cb2["Compact"], CompactTokens>>,
+    Assert<Equal<ReturnType<CompactTokens["peekKeyDigest"]>, Uint8Array | null>>,
+    Assert<Equal<Parameters<CompactTokens["open"]>, Parameters<Cb2["Token"]["open"]>>>,
 ];
 
 export async function everything(wasm: Uint8Array): Promise<string[]> {
@@ -76,6 +80,13 @@ export async function everything(wasm: Uint8Array): Promise<string[]> {
     const kid: string | null = cb2.Token.peekKeyId(token);
     out.push(String(back.sub), String(kid));
 
+    const compact: string = cb2.Compact.seal(key, claims, "implicit");
+    const compactBack: Claims = cb2.Compact.open(compact, key, rules, "implicit");
+    const peeked: Uint8Array | null = cb2.Compact.peekKeyDigest(compact);
+    const digest: Uint8Array = cb2.Compact.keyDigest(key.paserkId());
+    const digestBytes: number = cb2.Compact.keyDigestBytes;
+    out.push(String(compactBack.aud), String(peeked?.length), String(digest.length), String(digestBytes));
+
     const sk: SecretKey = cb2.SecretKey.generate();
     const pk: PublicKey = sk.publicKey();
     const pk2: PublicKey = cb2.PublicKey.fromPaserk(pk.toPaserk());
@@ -84,6 +95,9 @@ export async function everything(wasm: Uint8Array): Promise<string[]> {
     const rawSigned: string = cb2.Public.sign(sk, "bytes");
     const rawVerified: Uint8Array = cb2.Public.verify(pk, rawSigned);
     out.push(String(verified.aud), String(rawVerified.length), pk.paserkId(), String(sk.keyId));
+    const compactSigned: string = cb2.Compact.sign(sk, claims);
+    const compactVerified: Claims = cb2.Compact.verify(compactSigned, pk2, rules);
+    out.push(String(compactVerified.iss));
 
     const request: HolderRequest = { htm: "GET", htu: "https://api.example/v1/me", nonce: "n" };
     const proof: string = cb2.Holder.prove(sk, request, signed, "p-1");

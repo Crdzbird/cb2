@@ -99,12 +99,57 @@ depends on the claims). The core finds `cb2_core.wasm` next to
 |---|---|---|---|
 | `cb2.local` (`Token.seal`, `Token.open`) | the party that issues the token is the one that checks it, or shares a key with it: sessions, service to service calls inside one system. The claims are encrypted. | `LocalKey`, 32 bytes, shared | 250 to 450 characters |
 | `cb2.public` (`Token.sign`, `Token.verify`) | many parties must check tokens they cannot issue. The claims are signed, not encrypted. Ed25519 and ML-DSA-65 must both verify. | `SecretKey` signs, `PublicKey` verifies | about 4,800 characters |
+| compact `cb3.local`, `cb3.public` (`Compact`, experimental) | the same as the two above when the size of the token matters: the same keys, rules and verdicts, about half as long for `cb3.local`. See [Compact tokens](#compact-tokens-experimental). | the same as `cb2.local` and `cb2.public` | about 220 to 260 characters (local) |
 | holder proofs (`Holder.prove`, `Holder.proveLocal`) | a stolen token must be useless: the issuer puts a key in the token's `cnf` claim and the client proves it holds that key on every request | the proof key in `cnf`, or the client's `SecretKey` | about 360 (local) or 4,800 (public) characters |
 | `kcb2.local-wrap` (`KeyWrap`) | storing local keys encrypted under another local key | two `LocalKey`s | 144 characters |
 | `kcb2.seal` (`Seal`) | handing a local key to a recipient, safe against a future quantum computer (X-Wing) | the recipient's `RecipientKey` pair | about 1,600 characters |
 
 `Local` and `Public` are the same formats with any bytes as the message
 instead of claims, for callers who check the content themselves.
+
+## Compact tokens (experimental)
+
+`Compact` issues and checks the experimental `cb3.local` and
+`cb3.public` formats of docs/PROTOCOL.md section 15. They have the same
+cryptography as `cb2.local` and `cb2.public` and take the same claims
+object, the same rules (with the `replay` and `proofReplay` functions)
+and throw the same verdicts, but the claims travel as strict canonical
+CBOR instead of JSON, and the footer is a 16-byte digest of the key id
+instead of its text. A `cb3.local` token with the claims of the
+benchmark is 224 characters against 430 for `cb2.local`; `cb3.public`
+saves about 200 characters of its 4,800. The `cb3` name is a
+placeholder, so the API says "compact".
+
+```js
+const key = cb2.LocalKey.generate();
+const token = cb2.Compact.seal(key, { iss: "https://issuer.example", aud: "api", exp: "2099-01-01T00:00:00Z" });
+const claims = cb2.Compact.open(token, key, { issuer: "https://issuer.example", audience: "api" });
+
+const keys = [key];
+const digest = cb2.Compact.peekKeyDigest(token);
+const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+const chosen = keys.find((k) => digest !== null && same(cb2.Compact.keyDigest(k.keyId), digest));
+```
+
+- **Picking a key.** The footer carries no key id to read back, only its
+  digest: `Compact.peekKeyDigest(token)` returns the 16 bytes
+  (`Compact.keyDigestBytes`), unverified, or `null` when the token has
+  none, and `Compact.keyDigest(id)` computes the digest of a key id, such
+  as a key's `keyId`, so a verifier holding several keys can pick the one
+  whose digest matches. A key with its id cleared issues tokens without
+  a digest.
+- **What the issuer refuses.** `Compact.seal` and `Compact.sign` throw
+  `argument` for what the compact profile cannot carry: a custom number
+  that is not an integer in int64 written in canonical form (`1.5`, or
+  `1e300`, which `Token.seal` accepts), a time outside the years 0000 to
+  9999, and a `cnf` that is not a kcb2.local or kcb2.public key.
+- **The formats do not mix.** A `cb2` token never opens through
+  `Compact` and a compact token never opens through `Token`; both throw
+  `invalid`.
+- **Holder proofs** bind a compact access token exactly as they bind a
+  `cb2` one: `Holder.proveLocal(proofKey, request, accessToken, ...)`
+  over the `cb3.local` text, and the proof goes into the rules of
+  `Compact.open`.
 
 ## API overview
 
@@ -129,6 +174,15 @@ interface Cb2 {
         sign(key: SecretKey, claims: Claims, implicit?: Opt): string;
         verify(token: string, key: PublicKey, rules: Rules, implicit?: Opt): Claims;
         peekKeyId(token: string): string | null;
+    };
+    Compact: {
+        keyDigestBytes: number;
+        seal(key: LocalKey, claims: Claims, implicit?: Opt): string;
+        open(token: string, key: LocalKey, rules: Rules, implicit?: Opt): Claims;
+        sign(key: SecretKey, claims: Claims, implicit?: Opt): string;
+        verify(token: string, key: PublicKey, rules: Rules, implicit?: Opt): Claims;
+        peekKeyDigest(token: string): Uint8Array | null;
+        keyDigest(id: string): Uint8Array;
     };
     Local: {
         seal(key: LocalKey, msg: Bytes, footer?: Opt, implicit?: Opt): string;
@@ -349,6 +403,22 @@ What the tables say:
 - cb2 tokens name the key in a footer by default, which is 85 of the
   bytes above; after `clearKeyId()` the two cb2 tokens are 345 and 4,758
   bytes. The JWT and PASETO tokens here carry no key id.
+
+The benchmark also times the compact tokens (`Compact`), which the
+tables above predate. The rows below come from one later Node run on the
+same machine and day, under heavier load (load average 8 to 17), so they
+compare cb2 with compact within the run and not with the tables above:
+
+| key | token | issue (us) | verify (us) | token bytes |
+|---|---|--:|--:|--:|
+| shared | cb2.local (cb2, wasm) | 29.9 | 8.1 | 430 |
+| shared | cb3.local, compact (cb2, wasm) | 26.3 | 6.3 | 224 |
+| pair | cb2.public, Ed25519 + ML-DSA-65 (cb2, wasm) | 516 | 232 | 4843 |
+| pair | cb3.public, compact (cb2, wasm) | 503 | 218 | 4637 |
+
+The compact tokens cost no more time than the cb2 ones; `cb3.local` is
+about half the size of `cb2.local`, smaller than the HS256 JWT and the
+v4.local token of the same claims, and still carries a key digest.
 
 To run it: `cd bench && npm install && npm run bench` for Node (`npm run
 smoke` is the short run CI uses), and for the browser serve `bench/`

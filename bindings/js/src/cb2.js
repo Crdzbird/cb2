@@ -1,9 +1,9 @@
 /**
  * cb2 for JavaScript: the C ABI of cb2 compiled to WebAssembly, one build
  * for Node and browsers. load() instantiates the core and returns the API:
- * the key classes, Local, Public, Token, Holder, KeyWrap and Seal, plus
- * hasPublic(), hasSeal(), version() and errorName(code). The declarations
- * are in types/cb2.d.ts.
+ * the key classes, Local, Public, Token, Compact, Holder, KeyWrap and
+ * Seal, plus hasPublic(), hasSeal(), version() and errorName(code). The
+ * declarations are in types/cb2.d.ts.
  *
  * @module cb2
  */
