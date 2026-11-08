@@ -10,6 +10,13 @@
   the native library on every platform carries for the same reason.
 - A host test of a compact token under a claim table, and an example app
   step that opens one.
+- Android support for arm64-v8a, armeabi-v7a and x86_64 from API 24.
+  `tool/build_android_deps.sh` builds libsodium, BLAKE3 and liboqs with
+  the NDK from the same hash-pinned releases as the Apple build, and the
+  Gradle build points CMake at them through `CB2_DEPS_ROOT`. OpenSSL is
+  not used on Android, so `CB2_OPENSSL_CHACHA` defaults to off there.
+- The example app runs on Android, and a profile mode integration test
+  times every token format on the device with the Dart benchmark cases.
 
 ## 0.2.0
 
