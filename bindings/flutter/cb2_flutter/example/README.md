@@ -1,7 +1,7 @@
 # cb2_flutter example
 
 One page that runs the cb2 token demo in the native library, off the UI
-isolate, and lists every step:
+isolate, or in a browser in its WebAssembly build, and lists every step:
 
 - seal a cb2.local token and open it;
 - open it again, refused as `replayed`;
@@ -18,6 +18,12 @@ Build the XCFramework once from the plugin directory, then run the app:
     ../tool/build_xcframework.sh
     flutter run -d macos
     flutter run -d "iPhone 18 Pro"
+    flutter run -d chrome
+    flutter build web
+
+The web build needs no native library: package cb2 ships its
+WebAssembly engine as assets, and `main` awaits `Cb2Flutter.load()`
+before the app starts.
 
 ## Test
 

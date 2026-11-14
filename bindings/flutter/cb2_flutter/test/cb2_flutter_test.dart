@@ -1,3 +1,6 @@
+@TestOn('vm')
+library;
+
 import 'dart:io';
 
 import 'package:cb2_flutter/cb2_flutter.dart';
@@ -8,6 +11,11 @@ import 'package:flutter_test/flutter_test.dart';
 /// CB2_C_LIBRARY names a host build of it.
 void main() {
   final hostLibrary = Platform.environment['CB2_C_LIBRARY'];
+
+  test('load opens the library when CB2_C_LIBRARY names one', () async {
+    await Cb2Flutter.load();
+    expect(Cb2Library.isLoaded, isTrue);
+  }, skip: hostLibrary == null ? 'CB2_C_LIBRARY is not set' : false);
 
   test('ensureInitialized names the bundled library', () {
     Cb2Flutter.ensureInitialized();

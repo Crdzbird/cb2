@@ -1,9 +1,9 @@
 name: cb2_flutter
 description: >-
   Flutter plugin for cb2, the post-quantum successor to PASETO: the cb2 C
-  library built or bundled for every platform, with the Dart API of
-  package cb2.
-version: 0.3.0
+  library built or bundled for every platform, and in a browser its
+  WebAssembly build, with the Dart API of package cb2.
+version: 0.4.0
 repository: https://github.com/Crdzbird/cb2/tree/main/bindings/flutter/cb2_flutter
 issue_tracker: https://github.com/Crdzbird/cb2/issues
 publish_to: none
@@ -22,6 +22,8 @@ dependencies:
     path: ../../dart
   flutter:
     sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
 
 dev_dependencies:
   flutter_test:
@@ -39,5 +41,8 @@ flutter:
         ffiPlugin: true
       macos:
         ffiPlugin: true
+      web:
+        pluginClass: Cb2FlutterWeb
+        fileName: src/cb2_flutter_web.dart
       windows:
         ffiPlugin: true

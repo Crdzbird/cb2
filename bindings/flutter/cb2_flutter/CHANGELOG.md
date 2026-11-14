@@ -1,5 +1,17 @@
-## Unreleased
+## 0.4.0
 
+- A web platform: `Cb2FlutterWeb` is the plugin class Flutter registers
+  in a browser build (it registers nothing), and package cb2 0.3.0 runs
+  there over its WebAssembly engine, which Flutter serves from cb2's
+  assets at `assets/packages/cb2/js/`.
+- `Cb2Flutter.load()`: `ensureInitialized`, then `Cb2Library.load()`.
+  In a browser it must be awaited before the first cb2 call; natively
+  it opens the library early.
+- The example app runs in a browser: `main` awaits `Cb2Flutter.load()`,
+  the demo runs through `compute` instead of `Isolate.run`, and
+  `example/web` is the Flutter web shell. Built with `flutter build web`
+  and run in Chrome.
+- The host tests are marked for the VM.
 - Re-exports `CompactToken` from package cb2, the experimental compact
   claims tokens cb3.local and cb3.public. The native library on every
   platform is built from bindings/c/src/cb2_c.cpp, so it carries the new

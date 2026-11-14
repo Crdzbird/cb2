@@ -11,9 +11,9 @@ import is enough. The format is described in the
 [docs/SPEC.md](../../../docs/SPEC.md) and
 [docs/PROTOCOL.md](../../../docs/PROTOCOL.md).
 
-Status: version 0.3.0 of the plugin, over cb2 0.1.0. cb2 has not yet
-been reviewed by anyone but its author. iOS, macOS and Android are built
-and tested; Linux and Windows are not verified yet.
+Status: version 0.4.0 of the plugin, over cb2 0.1.0. cb2 has not yet
+been reviewed by anyone but its author. iOS, macOS, Android and the web
+are built and tested; Linux and Windows are not verified yet.
 
 ## Install
 
@@ -66,6 +66,21 @@ Future<String> issueAndCheck() => Isolate.run(() {
 cb2 call; it makes the loader use the library this plugin ships. Every
 cb2 call is synchronous and cb2.public signing takes a fraction of a
 millisecond, so run token work off the UI isolate as above.
+
+In a browser there is no second isolate and the library is a
+WebAssembly engine that loads asynchronously, so await `Cb2Flutter.load()`
+once before the first cb2 call, typically in `main`; until it completes
+every call throws a `Cb2Exception` named `unavailable`. `load` works on
+every platform (natively it opens the library early), so one `main`
+serves all of them:
+
+```dart
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Cb2Flutter.load();
+  runApp(const App());
+}
+```
 
 ## Token kinds
 
@@ -170,6 +185,26 @@ first native call.
 Gradle does and checks the exports, the needed libraries and the page
 alignment; CI runs it.
 
+### Web: built and tested
+
+The plugin declares a web platform (`Cb2FlutterWeb`, which registers
+nothing), and package cb2 runs in a browser over the WebAssembly build
+of the C ABI that `bindings/js` ships: the same C++, with cb2.public and
+kcb2.seal. Package cb2 declares that engine as assets, so Flutter
+serves it with the app at `assets/packages/cb2/js/src/cb2.js` (and the
+core at `assets/packages/cb2/js/dist/cb2_core.wasm`) and
+`Cb2Flutter.load()` finds it there with no setup. An app served under
+another path keeps working through `<base href>`, which the loader
+resolves against; to serve the engine elsewhere, set
+`Cb2Library.engineUrl` before `load`, or build with
+`--dart-define=CB2_WEB_ENGINE=<url of src/cb2.js>`. The engine fails
+closed: a missing or wrong module leaves every call refused as
+`unavailable`. Serve `.wasm` as `application/wasm` for a streaming
+compile. The example app was built with `flutter build web` and its
+demo run in Chrome; package cb2's browser suites run under dart2js and
+dart2wasm. See [In a browser](../../dart/README.md#in-a-browser) in the
+package cb2 README for what differs there.
+
 ### Linux and Windows: not verified yet
 
 `src/CMakeLists.txt` compiles `bindings/c/src/cb2_c.cpp` against the cb2
@@ -193,11 +228,13 @@ Build the dependencies as static libraries for a self-contained
 `example/` seals and opens a cb2.local token and a compact cb3.local
 token, alone and under a claim table, signs and verifies a cb2.public
 token, and shows the library refusing a replayed token, a tampered token
-and a token for another audience, off the UI isolate.
-It runs on iOS, macOS and Android and has an integration test:
+and a token for another audience, off the UI isolate, or on it in a
+browser. It runs on iOS, macOS, Android and the web and has an
+integration test:
 
     cd example
     flutter run -d macos
+    flutter run -d chrome
     flutter test integration_test/app_test.dart -d macos
 
 `integration_test/benchmark_test.dart` times every token format on a

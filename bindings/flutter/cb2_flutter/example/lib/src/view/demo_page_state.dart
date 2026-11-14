@@ -1,14 +1,14 @@
-import 'dart:isolate';
-
 import 'package:cb2_flutter_example/src/demo/demo_step.dart';
 import 'package:cb2_flutter_example/src/demo/step_outcome.dart';
 import 'package:cb2_flutter_example/src/demo/token_demo.dart';
 import 'package:cb2_flutter_example/src/view/demo_page.dart';
 import 'package:cb2_flutter_example/src/view/intro_card.dart';
 import 'package:cb2_flutter_example/src/view/step_tile.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-/// Runs the demo off the UI isolate and shows its steps.
+/// Runs the demo off the UI isolate, or on it in a browser, and shows its
+/// steps.
 final class DemoPageState extends State<DemoPage> {
   /// The key of the button that runs the demo.
   static const runKey = Key('run-demo');
@@ -30,7 +30,7 @@ final class DemoPageState extends State<DemoPage> {
 
   Future<List<DemoStep>> _demo() async {
     try {
-      return await Isolate.run(runTokenDemo);
+      return await compute((_) => runTokenDemo(), null);
     } on Object catch (e) {
       return [
         DemoStep(

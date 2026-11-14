@@ -8,6 +8,11 @@ import 'package:cb2/cb2.dart';
 /// library is preferred to one named by CB2_C_LIBRARY, which only serves
 /// host tests where nothing is bundled. Call [ensureInitialized] once per
 /// isolate before the first cb2 call; it is idempotent.
+///
+/// In a browser package cb2 runs over its WebAssembly engine, which
+/// Flutter serves from the assets of package cb2. Await [load] once
+/// before the first cb2 call there; until it completes every call is
+/// refused as unavailable.
 final class Cb2Flutter {
   const Cb2Flutter._();
 
@@ -19,5 +24,14 @@ final class Cb2Flutter {
   static void ensureInitialized() {
     Cb2Library.name = libraryName;
     Cb2Library.preferBundled = true;
+  }
+
+  /// Runs [ensureInitialized] and loads cb2 now: opens the native library,
+  /// or in a browser fetches and instantiates the WebAssembly engine at
+  /// `Cb2Library.engineUrl`. A failure throws here, and a later call
+  /// tries again.
+  static Future<void> load() {
+    ensureInitialized();
+    return Cb2Library.load();
   }
 }
