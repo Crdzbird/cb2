@@ -1,8 +1,8 @@
 #pragma once
 
 /**
- * cb3: compact claims tokens, the experimental header family of the
- * compact-tokens branch (PROTOCOL.md section 15).
+ * cb3: compact claims tokens, the experimental header family of
+ * PROTOCOL.md section 15.
  *
  * cb3.local and cb3.public are the cb2.local and cb2.public constructions
  * unchanged under new headers: the same 32-byte nonce, key derivation and

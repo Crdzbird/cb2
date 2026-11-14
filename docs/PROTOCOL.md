@@ -868,9 +868,8 @@ check refuses the result, which is what makes the single verdict hold.
 
 ## 15. cb3: compact claims tokens (experimental)
 
-This section is experimental. It exists on the compact-tokens branch to
-measure the plan in docs/research/token-size/PLAN.md and may change
-before it is released. Following section 11, it defines new headers
+This section is experimental. It was written to measure the plan in
+docs/research/token-size/PLAN.md and may change before it is released. Following section 11, it defines new headers
 instead of changing cb2 tokens. Two purposes are defined, `cb3.local.`
 (10 bytes) and `cb3.public.` (11 bytes). Both are claims tokens only:
 their message is always the payload of 15.3.

@@ -128,7 +128,7 @@ built and tested through both.
 The Android build compiles `bindings/c/src/cb2_c.cpp` into
 `libcb2_c.so` with the NDK, for each ABI, against static libsodium,
 BLAKE3 and liboqs, and links libc++ statically. The library exports the
-61 `cb2_*` functions of `cb2_c.h` and nothing else, needs only `libc`,
+74 `cb2_*` functions of `cb2_c.h` and nothing else, needs only `libc`,
 `libm` and `libdl`, links no OpenSSL, and aligns its segments to 16 KB
 pages. In a release APK it is about 590 KB on arm64-v8a, 420 KB on
 armeabi-v7a and 710 KB on x86_64, with cb2.public.

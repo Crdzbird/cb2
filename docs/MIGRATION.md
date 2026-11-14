@@ -90,13 +90,13 @@ Everything above, plus:
   and nothing else; a change of primitive or encoding is a new header,
   as the experimental cb3 headers are, not a flag.
 
-## cb3 on the compact-tokens branch
+## cb3, experimental
 
 cb3.local and cb3.public (PROTOCOL.md section 15) carry the same claims
 as cb2.local and cb2.public in a smaller encoding: about 260 characters
 instead of 470 for a typical local token, and about 4,670 instead of
-4,880 for a public one. They are experimental and live on the
-compact-tokens branch only. The cryptography is unchanged, but the
+4,880 for a public one. They are experimental and may change before
+they are released. The cryptography is unchanged, but the
 headers are different on purpose, so a cb2 verifier refuses every cb3
 token and a cb3 verifier every cb2 token; a service that moves to cb3
 must accept both headers for as long as cb2 tokens it issued are alive.
