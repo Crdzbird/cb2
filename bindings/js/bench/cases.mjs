@@ -44,6 +44,11 @@ async function cb2Cases(cb2, claims) {
     const rules = { issuer: ISSUER, audience: AUDIENCE };
     const sealed = cb2.Token.seal(local, claims);
     const signed = cb2.Token.sign(signer, claims);
+    const compactSealed = cb2.Compact.seal(local, claims);
+    const compactSigned = cb2.Compact.sign(signer, claims);
+    const table = cb2.ClaimTable.fromEntries([ISSUER, AUDIENCE]);
+    const tabledSealed = cb2.Compact.seal(local, claims, null, table);
+    const tabledSigned = cb2.Compact.sign(signer, claims, null, table);
     return [
         {
             group: "shared",
@@ -53,11 +58,39 @@ async function cb2Cases(cb2, claims) {
             token: sealed,
         },
         {
+            group: "shared",
+            name: "cb3.local, compact (cb2, wasm)",
+            issue: () => cb2.Compact.seal(local, claims),
+            verify: () => checkClaims(cb2.Compact.open(compactSealed, local, rules)),
+            token: compactSealed,
+        },
+        {
+            group: "shared",
+            name: "cb3.local, compact, claim table (cb2, wasm)",
+            issue: () => cb2.Compact.seal(local, claims, null, table),
+            verify: () => checkClaims(cb2.Compact.open(tabledSealed, local, rules, null, table)),
+            token: tabledSealed,
+        },
+        {
             group: "pair",
             name: "cb2.public, Ed25519 + ML-DSA-65 (cb2, wasm)",
             issue: () => cb2.Token.sign(signer, claims),
             verify: () => checkClaims(cb2.Token.verify(signed, verifier, rules)),
             token: signed,
+        },
+        {
+            group: "pair",
+            name: "cb3.public, compact (cb2, wasm)",
+            issue: () => cb2.Compact.sign(signer, claims),
+            verify: () => checkClaims(cb2.Compact.verify(compactSigned, verifier, rules)),
+            token: compactSigned,
+        },
+        {
+            group: "pair",
+            name: "cb3.public, compact, claim table (cb2, wasm)",
+            issue: () => cb2.Compact.sign(signer, claims, null, table),
+            verify: () => checkClaims(cb2.Compact.verify(tabledSigned, verifier, rules, null, table)),
+            token: tabledSigned,
         },
     ];
 }

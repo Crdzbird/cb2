@@ -1,4 +1,4 @@
-"""Raw and claims tokens, holder proofs, key wrapping and sealing."""
+"""Raw, claims and compact claims tokens, holder proofs, key wrapping and sealing."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from ctypes import c_size_t, c_void_p
 from typing import Any
 
 from ._lib import BytesLike, as_bytes, lib, optional_text, take_bytes, take_text
+from .claim_table import ClaimTable
 from .errors import check
 from .keys import LocalKey, PublicKey, RecipientKey, RecipientPublicKey, SecretKey, _Key
 from .rules import RulesLike, prepare
@@ -154,6 +155,87 @@ class Token:
         out = c_void_p()
         check(lib().cb2_peek_key_id(raw, len(raw), ctypes.byref(out)))
         return optional_text(out.value)
+
+
+def _digest(ptr: int | None) -> bytes | None:
+    if not ptr:
+        return None
+    return take_bytes(ptr, Compact.KEY_DIGEST_BYTES)
+
+
+def _tabled(plain: _Fn, tabled: _Fn, table: ClaimTable | None) -> _Fn:
+    if table is None:
+        return plain
+    handle = table.handle
+    return lambda key, *rest: tabled(key, handle, *rest)
+
+
+class Compact:
+    """Compact claims tokens, the experimental cb3.local and cb3.public formats.
+
+    The same claims, rules and verdicts as Token, with the claims carried
+    as strict CBOR and the key id as a KEY_DIGEST_BYTES digest, so the
+    token is shorter. Making one refuses with ARGUMENT a custom number
+    that is not a canonical int64 integer (1.5, 1e3, -0), a time outside
+    years 0000 to 9999 and a cnf that is not a kcb2.local or kcb2.public
+    key. A Token never opens here and a Compact token never opens as a
+    Token; both are INVALID.
+
+    Every call takes an optional ClaimTable as table=. A token made
+    under a table opens only under the same table; without one, an
+    implicit assertion that starts with "kcb3.table." is ARGUMENT.
+    """
+
+    KEY_DIGEST_BYTES = 16
+    """The size of the key digest in the footer."""
+
+    @staticmethod
+    def seal(
+        key: LocalKey, claims: Mapping[str, Any], implicit: bytes = b"", *, table: ClaimTable | None = None
+    ) -> str:
+        """Seals the claims under a local key; the digest of its key id goes into the footer."""
+        fn = _tabled(lib().cb2_compact_seal, lib().cb2_compact_seal_with_table, table)
+        return _claims_make(fn, key, claims, bytes(implicit))
+
+    @staticmethod
+    def sign(
+        secret: SecretKey, claims: Mapping[str, Any], implicit: bytes = b"", *, table: ClaimTable | None = None
+    ) -> str:
+        """Signs the claims with a secret key; the digest of its key id goes into the footer."""
+        fn = _tabled(lib().cb2_compact_sign, lib().cb2_compact_sign_with_table, table)
+        return _claims_make(fn, secret, claims, bytes(implicit))
+
+    @staticmethod
+    def open(
+        token: BytesLike, key: LocalKey, rules: RulesLike, implicit: bytes = b"", *, table: ClaimTable | None = None
+    ) -> Claims:
+        """Opens a sealed compact token under the rules (a Rules or a mapping)."""
+        fn = _tabled(lib().cb2_compact_open, lib().cb2_compact_open_with_table, table)
+        return _claims_read(fn, key, as_bytes(token, "token"), rules, bytes(implicit))
+
+    @staticmethod
+    def verify(
+        token: BytesLike, public: PublicKey, rules: RulesLike, implicit: bytes = b"", *, table: ClaimTable | None = None
+    ) -> Claims:
+        """Verifies a signed compact token under the rules (a Rules or a mapping)."""
+        fn = _tabled(lib().cb2_compact_verify, lib().cb2_compact_verify_with_table, table)
+        return _claims_read(fn, public, as_bytes(token, "token"), rules, bytes(implicit))
+
+    @staticmethod
+    def peek_key_digest(token: BytesLike) -> bytes | None:
+        """The key digest the footer carries, unverified; None when there is none."""
+        raw = as_bytes(token, "token")
+        out = c_void_p()
+        check(lib().cb2_compact_peek_key_digest(raw, len(raw), ctypes.byref(out)))
+        return _digest(out.value)
+
+    @staticmethod
+    def key_digest(key_id: BytesLike) -> bytes:
+        """The digest of a key id, to match against peek_key_digest when choosing a key."""
+        raw = as_bytes(key_id, "key_id")
+        out = c_void_p()
+        check(lib().cb2_compact_key_digest(raw, len(raw), ctypes.byref(out)))
+        return _digest(out.value) or b""
 
 
 def _prove(

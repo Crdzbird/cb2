@@ -73,6 +73,7 @@ millisecond, so run token work off the UI isolate as above.
 | --- | --- |
 | cb2.local | the service that issues the token also checks it, or shares a key with the one that does; the claims are encrypted |
 | cb2.public | others must check tokens without being able to issue them; Ed25519 and ML-DSA-65 both sign every token |
+| cb3.local, cb3.public (experimental) | the same as cb2.local and cb2.public with tokens about half the size; the format may still change |
 | holder proofs | a stolen token alone must not be enough: the client proves it holds the key the token names |
 | key wrapping and sealing | a local key has to be stored, or sent to another party |
 
@@ -80,8 +81,9 @@ millisecond, so run token work off the UI isolate as above.
 
 Everything in package `cb2` is available through
 `package:cb2_flutter/cb2_flutter.dart`: `LocalKey`, `SecretKey`,
-`PublicKey`, `Token`, `Rules`, `HolderRules`, `Holder`, `Local`,
-`Public`, `KeyWrap`, `Seal`, `Cb2Exception` and the rest; see the
+`PublicKey`, `Token`, `CompactToken`, `ClaimTable`, `Rules`,
+`HolderRules`, `Holder`,
+`Local`, `Public`, `KeyWrap`, `Seal`, `Cb2Exception` and the rest; see the
 [package cb2 README](../../dart/README.md) for each. The plugin adds one
 class, `Cb2Flutter`, whose `ensureInitialized()` points the loader at
 the bundled library.
@@ -188,14 +190,23 @@ Build the dependencies as static libraries for a self-contained
 
 ## Example app
 
-`example/` seals and opens a cb2.local token, signs and verifies a
-cb2.public token, and shows the library refusing a replayed token, a
-tampered token and a token for another audience, off the UI isolate.
-It runs on iOS and macOS and has an integration test:
+`example/` seals and opens a cb2.local token and a compact cb3.local
+token, alone and under a claim table, signs and verifies a cb2.public
+token, and shows the library refusing a replayed token, a tampered token
+and a token for another audience, off the UI isolate.
+It runs on iOS, macOS and Android and has an integration test:
 
     cd example
     flutter run -d macos
-    flutter test integration_test -d macos
+    flutter test integration_test/app_test.dart -d macos
+
+`integration_test/benchmark_test.dart` times every token format on a
+device with the cases of the Dart benchmark (`bindings/dart/benchmark`),
+in profile mode, and writes the table to
+`build/integration_response_data.json`:
+
+    flutter drive --profile --driver=test_driver/integration_test.dart \
+        --target=integration_test/benchmark_test.dart -d <device>
 
 ## Benchmarks
 
@@ -205,7 +216,33 @@ AOT-compiled Dart program on an Apple M3 Max and apply to Flutter apps
 too, since the plugin runs the same native library. In short, cb2.local
 issues and checks a token in about 9 microseconds; cb2.public in about
 150 to 190 microseconds, with tokens of about 4.8 KB because every token
-carries a post-quantum ML-DSA-65 signature next to Ed25519.
+carries a post-quantum ML-DSA-65 signature next to Ed25519. The
+experimental compact cb3.local token is about 7 microseconds and 209
+bytes against 389, and 176 bytes under a claim table of the issuer and
+the audience.
+
+On a phone the same benchmark runs through `integration_test/benchmark_test.dart`.
+On a Pixel 7 Pro (Tensor G2, Android 17), profile mode, the median of
+three runs, in microseconds:
+
+| format | issue | check | bytes |
+| --- | ---: | ---: | ---: |
+| cb2.local | 32.6 | 46.9 | 389 |
+| cb3.local | 30.4 | 31.1 | 209 |
+| cb3.local, claim table | 31.2 | 30.1 | 176 |
+| JWT HS256 (dart_jsonwebtoken) | 49.6 | 46.9 | 244 |
+| PASETO v4.local (paseto_dart) | 283 | 251 | 303 |
+| cb2.public | 567 | 356 | 4,802 |
+| cb3.public | 561 | 336 | 4,622 |
+| JWT EdDSA (dart_jsonwebtoken) | 2,649 | 2,504 | 287 |
+| JWT ES256 (dart_jsonwebtoken) | 6,105 | 8,869 | 287 |
+| PASETO v4.public (paseto_dart) | 3,278 | 2,290 | 304 |
+
+The phone is three to five times slower than the M3 Max for the local
+tokens and two to three times for the public ones. Checking a compact
+token costs a third less than a cb2.local one, because there is no JSON
+or RFC 3339 text to parse; issuing costs about the same, because most of
+it is the call across FFI with the claims as JSON.
 
 ## Development
 

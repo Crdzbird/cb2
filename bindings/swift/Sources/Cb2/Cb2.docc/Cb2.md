@@ -52,6 +52,8 @@ nonisolated: call it from whichever actor or task suits the app.
 ### Claims tokens
 
 - ``Token``
+- ``Compact``
+- ``ClaimTable``
 - ``Rules``
 - ``Claims``
 - ``ClaimValue``

@@ -166,6 +166,7 @@ It prints (exp is an hour from the run):
 | `cb2.local` | sessions and calls between your own services: one secret key shared by issuer and verifier, the claims encrypted so nobody else can read them | `LocalKey` |
 | `cb2.public` | tokens many parties verify but only you issue: signed with Ed25519 and ML-DSA-65 together, the claims readable | `SecretKey` to sign, `PublicKey` to verify |
 | `cb2.holder-local`, `cb2.holder-public` | a proof the client makes for each request, so a stolen access token is useless alone; the issuer names the client's key in the token's `cnf` claim | the `LocalKey` proof key from `cnf`, or the client's `SecretKey` |
+| `cb3.local`, `cb3.public` | experimental compact forms of the two above, about half the size of a cb2.local token; see [Compact tokens](#compact-tokens-experimental) | the same keys, through `Compact` |
 | `kcb2.local-wrap` | storing a local key encrypted under another local key | `LocalKey`, through `KeyWrap` |
 | `kcb2.seal` | sending a local key to a recipient, safe against a future quantum computer (X-Wing) | `RecipientKey`, `RecipientPublicKey`, through `Seal` |
 
@@ -182,6 +183,8 @@ All classes are in `com.cipherbird.cb2`:
 | class | what it does |
 |---|---|
 | `Token` | claims tokens: `seal` and `open` for cb2.local, `sign` and `verify` for cb2.public, `peekKeyId` to pick a key before checking |
+| `Compact` | compact claims tokens, cb3.local and cb3.public: `seal`, `open`, `sign`, `verify` as in `Token`, each also with a `ClaimTable`; `peekKeyDigest` and `keyDigest` to pick a key |
+| `ClaimTable` | a claim table for compact tokens: `of` a list of entries, `entries`, `digest`, `close` |
 | `Rules` | what a token is checked against: issuer, audience, subject, clock and skew, lifetime and size limits, the replay checks, the holder proof and the request it must match |
 | `ReplayCheck` | `boolean accept(String jti)`, called with each token id (or proof id); return false for one you have seen |
 | `Local`, `Public` | raw tokens of any bytes, with an optional footer and implicit assertion |
@@ -206,6 +209,9 @@ The Kotlin library, in `com.cipherbird.cb2.kotlin`, adds:
 | `claims("iss" to "...", "exp" to Instant.now())`, `Map.toClaimsJson()` | claims JSON from pairs or a map; `Instant` and `OffsetDateTime` become RFC 3339 |
 | `LocalKey.sealClaims`, `openClaims`, `seal`, `open`, `prove`, `wrapWith`, `sealTo` | extensions on the local key |
 | `SecretKey.signClaims`, `sign`, `prove`; `PublicKey.verifyClaims`, `verify` | extensions on the signing keys |
+| `LocalKey.sealCompact`, `openCompact`; `SecretKey.signCompact`; `PublicKey.verifyCompact` | compact claims tokens, in the style of `sealClaims` and the rest |
+| `claimTable("...", "...")`, `Iterable<String>.toClaimTable()`; `sealCompact(table, ...)`, `openCompact(table, ...)`, `signCompact(table, ...)`, `verifyCompact(table, ...)` | claim tables and the compact extensions under one |
+| `String.peekCompactKeyDigest()`, `LocalKey.compactKeyDigest` (and on `SecretKey`, `PublicKey`) | the digest a compact token carries, and the one a key's id gives |
 | `Rules.onReplay { }`, `onProofReplay { }`, `rememberingCheck()` | replay checks as lambdas, or backed by a concurrent set |
 | `verdictOf { }`, `cb2OrNull { }`, `Cb2Exception.verdict` | a refusal as its verdict name, or as null |
 
@@ -214,6 +220,72 @@ client calls `Holder.prove` (or `proveLocal`) for each request, and the
 server opens the token with `Rules.proof(proof)`,
 `Rules.request(method, url)` and a proof replay check. The
 token-service example below does all of it over HTTP.
+
+## Compact tokens (experimental)
+
+`Compact` issues and checks the compact formats `cb3.local` and
+`cb3.public` of [docs/PROTOCOL.md](../../docs/PROTOCOL.md) section 15.
+The cryptography is the one of cb2.local and cb2.public, and so are the
+claims JSON, the `Rules`, the replay checks, the holder proofs and the
+verdicts; what changes is the encoding. The claims travel as strict
+canonical CBOR and the footer carries a 16-byte digest of the key id
+(`Compact.KEY_DIGEST_BYTES`) instead of the id itself. For the claims of
+the benchmarks below a cb3.local token is 224 bytes against 430 for
+cb2.local, and a cb3.public token 4637 against 4843.
+
+    String token = Compact.seal(key, claims);
+    String opened = Compact.open(key, token, rules);
+
+A verifier that holds several keys compares `Compact.peekKeyDigest(token)`
+with `Compact.keyDigest(key.keyId())` of each one; a token sealed by a
+key without an id carries no digest and `peekKeyDigest` returns null.
+In Kotlin the same calls are `key.sealCompact(claims)`,
+`key.openCompact(token) { ... }`, `token.peekCompactKeyDigest()` and
+`key.compactKeyDigest`.
+
+The two families never cross: a cb2 token is `invalid` through `Compact`
+and a compact token is `invalid` through `Token`. The compact profile
+carries less than cb2, and the issuer refuses with `argument` what it
+cannot carry: a custom number that is not an integer in the signed
+64-bit range written in canonical form (`1.5`, `1e3` and `-0` are
+refused; cb2 accepts them), a time outside the years 0000 to 9999, and a
+`cnf` that is not a kcb2.local or kcb2.public key. A cb3.public token
+cannot carry a kcb2.local proof key in `cnf`, since its claims are
+readable. The format is experimental and its header name `cb3` may
+change; nothing here should be stored for long.
+
+### Claim tables
+
+An issuer and its verifiers may also agree on a claim table
+(docs/PROTOCOL.md section 15.5): an ordered list of 1 to 256 distinct,
+non-empty strings, typically the issuer's name and its audiences. Under
+a table an `iss` or `aud` equal to an entry travels as its index, which
+brings the cb3.local token of the benchmark claims from 224 bytes to
+191. The table is configuration, like a key: both sides build the same
+list, and it is never sent.
+
+    try (ClaimTable table = ClaimTable.of("https://issuer.example", "api", "billing")) {
+        String token = Compact.seal(key, table, claims);
+        String opened = Compact.open(key, table, token, rules);
+    }
+
+Every `Compact` call has an overload with the table after the key; a
+null table means none, and the overloads without one are unchanged. The
+table's digest (`ClaimTable.digest()`, 32 bytes, so two parties can
+compare their tables) is bound into the token: a token opens only under
+the same entries in the same order, and under another table, or none,
+it is `invalid`, as is a token made without a table and opened under
+one. The rules work as before, so `issuer_mismatch`,
+`audience_mismatch` and the rules that accept any issuer or audience
+keep their meaning. Without a table, an implicit assertion that starts
+with `kcb3.table.` is refused with `argument`. `ClaimTable.of` refuses
+with `argument` an empty list, more than 256 entries, a repeated or
+empty entry and an entry with control characters. A table is immutable
+and may be shared between threads; close it like a key. In Kotlin,
+`claimTable(...)` or `list.toClaimTable()` builds one, and
+`key.sealCompact(table, claims)`, `key.openCompact(table, token) { ... }`,
+`signer.signCompact(table, claims)` and `verifier.verifyCompact(table,
+token) { ... }` use it.
 
 ## Errors
 
@@ -306,7 +378,8 @@ thief's proof:
     GET /me with a new proof                 200  sub user-1, scope read
 
 `examples/token-tour` walks the Kotlin library: a cb2.local token sealed,
-opened and refused four ways, a cb2.public token signed and verified, a
+opened and refused four ways, the same claims as a compact cb3.local
+token with and without a claim table, a cb2.public token signed and verified, a
 local-mode holder proof checked and refused, and a key sealed to a
 recipient.
 

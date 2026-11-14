@@ -156,6 +156,7 @@ claims are RFC 3339 strings, not numbers.
 | `cb2.public` | tokens that many parties verify but only the issuer can make; the claims are signed (Ed25519 and ML-DSA-65, both must verify) and readable | `GenerateSecretKey`, `TokenSign`, `TokenVerify` |
 | `cb2.holder-local` | a per-request proof from the client, so that a stolen access token is useless alone; the proof key travels to the client with the token | `HolderProveLocal`, then `Rules.Proof` and `Rules.Request` |
 | `cb2.holder-public` | the same with the client's own key pair, when the client can keep a secret key | `HolderProve`, then `Rules.Proof` and `Rules.Request` |
+| compact (`cb3.local`, `cb3.public`) | experimental: the same tokens with the claims as CBOR and a 16-byte key digest as footer, about half the length of `cb2.local` | `CompactSeal`, `CompactOpen`, `CompactSign`, `CompactVerify` |
 | `kcb2.local-wrap` | storing or moving a local key encrypted under another local key | `Wrap`, `Unwrap` |
 | `kcb2.seal` | delivering a local key to a recipient, safe against a future quantum computer (X-Wing) | `GenerateRecipientKey`, `Seal`, `Unseal` |
 
@@ -164,6 +165,83 @@ signature, so prefer `cb2.local` wherever the verifier can hold the
 secret key. A library built without liboqs has no `cb2.public` and no
 `kcb2.seal`; `HasPublic` and `HasSeal` tell, and the calls return
 `ErrUnavailable`.
+
+## Compact claims tokens (experimental)
+
+The compact formats of [docs/PROTOCOL.md](../../docs/PROTOCOL.md)
+section 15 are experimental and may change before they are released;
+their header, `cb3`, is a placeholder, so the Go names say "compact".
+They use the cryptography of `cb2.local` and `cb2.public` unchanged, but
+carry the claims as strict canonical CBOR and bind the key id as a
+16-byte digest instead of its text. A typical local token is about 260
+characters against 470.
+
+`CompactSeal`, `CompactOpen`, `CompactSign` and `CompactVerify` take the
+same claims map, `Rules`, replay callbacks and implicit assertion as
+the `Token` functions and give the same verdicts. A cb2 token never
+opens as a compact one and a compact token never opens as a cb2 one;
+both give `ErrInvalid`. Holder proofs bind a compact access token as
+they bind a cb2 one, so `HolderProveLocal` and `Rules.Proof` work
+unchanged.
+
+```go
+token, err := cb2.CompactSeal(key, claims, nil)
+if err != nil {
+	log.Fatal(err)
+}
+got, err := cb2.CompactOpen(key, token, rules, nil)
+```
+
+What the compact profile cannot carry is refused with `ErrArgument` when
+the token is made, where `TokenSeal` would accept it: a custom number
+that is not an int64 integer written in canonical form (`1.5`, `1e3`,
+`-0`), a time outside the years 0000 to 9999, and a `cnf` that is not a
+`kcb2.local` or `kcb2.public` key (`CompactSign` also refuses a
+`kcb2.local` one). Go integers always qualify; a float64, such as a
+number decoded from JSON, qualifies only when it holds a whole number
+within int64 and is not negative zero.
+
+The footer carries no key id, only its `KeyDigest`. To pick a key,
+compare `PeekKeyDigest(token)` with `KeyDigestOf(id)` for the id of each
+key you hold (`KeyID` on the key); `KeyDigest` is an array, so `==`
+compares two. `PeekKeyDigest` reports false for a token made with a key
+without id, and for any cb2 token. As with `PeekKeyID`, nothing it
+returns is authenticated.
+
+### Claim tables
+
+An issuer and its verifiers may also agree on a claim table
+([docs/PROTOCOL.md](../../docs/PROTOCOL.md) section 15.5): an ordered
+list of 1 to 256 distinct, non-empty entries, typically the issuer's
+name and its audiences. Under a table an `iss` or `aud` equal to an
+entry travels as its index, which shortens the token by the length of
+those values. The table is configuration, like a key: it is never sent,
+but its digest is bound into the token, so a token opens only under the
+same table, and under another table or none it is `ErrInvalid`.
+
+```go
+table, err := cb2.NewClaimTable([]string{"https://issuer.example", "api", "billing"})
+if err != nil {
+	log.Fatal(err)
+}
+defer table.Close()
+token, err := cb2.CompactSealWithTable(key, table, claims, nil)
+if err != nil {
+	log.Fatal(err)
+}
+got, err := cb2.CompactOpenWithTable(key, table, token, rules, nil)
+```
+
+`CompactSealWithTable`, `CompactOpenWithTable`, `CompactSignWithTable`
+and `CompactVerifyWithTable` are the compact calls with a table after
+the key; a nil table makes each the same as its counterpart without
+one. The issuer, audience and `AllowAny` rules keep their meaning, since
+the claims come back as text. `Digest` gives the table's 32-byte digest
+so two parties can check that they hold the same table. A `ClaimTable`
+is immutable, safe for concurrent use, and released by `Close` or, as a
+safety net, a finalizer; a closed table gives `ErrClosed`. Without a
+table, an implicit assertion that starts with `kcb3.table.` is refused
+with `ErrArgument`, because that prefix names a table.
 
 ## API overview
 
@@ -175,6 +253,7 @@ version is tagged.
 |---|---|
 | claims tokens | `TokenSeal`, `TokenOpen` (cb2.local); `TokenSign`, `TokenVerify` (cb2.public); `PeekKeyID` to pick a key before checking |
 | rules | `Rules` (issuer, audience, subject, clock skew, lifetime, size limit, replay callback or seen list, holder proof fields), `HolderRequest`, and the `String`, `Int64`, `Bool` helpers for its optional fields |
+| compact claims tokens | `CompactSeal`, `CompactOpen`, `CompactSign`, `CompactVerify`; `PeekKeyDigest`, `KeyDigestOf`, `KeyDigest` and `KeyDigestBytes` to pick a key; `ClaimTable` (`NewClaimTable`, `Digest`, `Close`), `ClaimTableDigestBytes` and the `WithTable` forms of the four calls |
 | raw tokens | `LocalSeal`, `LocalOpen`, `PublicSign`, `PublicVerify` carry any bytes with a footer and an implicit assertion, without claims checks |
 | holder proofs | `HolderProveLocal`, `HolderProve`, `NormalizeTarget` |
 | keys | `LocalKey`, `SecretKey`, `PublicKey`, `RecipientKey`, `RecipientPublicKey`: generate, from bytes, from and to PASERK text, `PaserkID`, `KeyID`, `SetKeyID`, `ClearKeyID`, `Close` |
@@ -239,7 +318,8 @@ raised again after the library returns.
 
 The `Example` functions in `example_test.go` run under `go test` with
 their output checked: a claims round trip, expiry, replay, holder
-proofs, errors, closed keys, key ids, raw tokens and key wrapping. The
+proofs, errors, closed keys, key ids, raw tokens, key wrapping and the
+compact tokens with their key digest and a claim table. The
 cb2.public example is compiled only, since a library built without
 liboqs has no cb2.public.
 
@@ -334,6 +414,31 @@ What the numbers mean:
 - B/op and allocs/op count Go heap only. Memory the C library uses is
   not seen by the Go benchmark, so the cb2 rows understate their total
   memory use.
+
+The experimental compact formats have their own rows: `compact.local`
+and `compact.public`, and the same under a claim table of the issuer
+and the audience, `compact.local.table` and `compact.public.table`.
+They were measured in a separate run on the same machine, next to
+cb2.local and cb2.public, while other work raised the load average from
+16 to 32, so their times spread by up to 55 percent and compare only
+roughly. The token sizes and the Go heap figures do not depend on load.
+The raw output is in `bench/results/2026-11-07-apple-m3-max-compact.txt`.
+
+| format | token bytes | issue | issue B/op | issue allocs | check | check B/op | check allocs |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| cb2.local | 403 | 7.58 us | 857 | 21 | 7.80 us | 1,708 | 42 |
+| compact.local | 224 | 6.19 us | 664 | 21 | 6.85 us | 1,708 | 42 |
+| compact.local.table | 191 | 6.28 us | 632 | 21 | 7.03 us | 1,708 | 42 |
+| cb2.public | 4,816 | 182.9 us | 5,312 | 21 | 121.0 us | 1,711 | 42 |
+| compact.public | 4,637 | 182.9 us | 5,312 | 21 | 119.1 us | 1,712 | 42 |
+| compact.public.table | 4,604 | 180.4 us | 5,312 | 21 | 119.7 us | 1,712 | 42 |
+
+A compact local token is 56 percent of the size of a cb2.local one for
+these claims, and 47 percent under the table, shorter than the JWT
+HS256 token above; neither costs measurably more to issue or check
+within this run's noise. A compact public token saves the same 179
+bytes, 212 under the table, which matters little beside the 3,309 byte
+ML-DSA-65 signature.
 
 ## Development
 

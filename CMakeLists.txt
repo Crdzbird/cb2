@@ -85,6 +85,8 @@ if(CB2_BUILD_TESTS)
         tests/test_local.cpp
         tests/test_public.cpp
         tests/test_claims.cpp
+        tests/test_compact.cpp
+        tests/test_claim_table.cpp
         tests/test_keys.cpp
         tests/test_vectors.cpp
         tests/test_v4_crosscheck.cpp
@@ -103,6 +105,12 @@ if(CB2_BUILD_TESTS)
         CB2_VECTOR_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors"
         CB2_V4_VECTORS="${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/paseto-v4/v4.json")
     add_test(NAME cb2_tests COMMAND cb2_tests)
+
+    add_executable(cb2_size bench/bench_size.cpp)
+    target_link_libraries(cb2_size PRIVATE cb2::cb2)
+    target_compile_options(cb2_size PRIVATE ${CB2_WARNINGS} ${CB2_SANITIZE_FLAGS})
+    target_link_options(cb2_size PRIVATE ${CB2_SANITIZE_FLAGS})
+    add_test(NAME cb2_size_check COMMAND cb2_size --check "${CMAKE_CURRENT_SOURCE_DIR}/bench/size_expected.txt")
 
     add_executable(cb2_gen_vectors tests/gen_vectors.cpp)
     target_link_libraries(cb2_gen_vectors PRIVATE cb2::cb2)
@@ -159,7 +167,7 @@ if(CB2_FUZZ)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         message(FATAL_ERROR "CB2_FUZZ requires clang with the libFuzzer runtime")
     endif()
-    foreach(_fz fuzz_local fuzz_public fuzz_claims fuzz_seal fuzz_holder fuzz_sha3)
+    foreach(_fz fuzz_local fuzz_public fuzz_claims fuzz_compact fuzz_seal fuzz_holder fuzz_sha3)
         add_executable(cb2_${_fz} fuzz/${_fz}.cpp)
         target_link_libraries(cb2_${_fz} PRIVATE cb2::cb2)
         target_compile_options(cb2_${_fz} PRIVATE -g -O1 -fsanitize=fuzzer,address,undefined)

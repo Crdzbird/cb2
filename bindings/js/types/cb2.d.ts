@@ -286,6 +286,84 @@ export interface ClaimsTokens {
     peekKeyId(token: string): string | null;
 }
 
+/**
+ * Compact claims tokens, the experimental cb3.local and cb3.public
+ * formats of docs/PROTOCOL.md section 15: the same claims, rules, replay
+ * checks and verdicts as {@link ClaimsTokens}, the same cryptography, but
+ * the claims travel as strict CBOR and the footer is a 16-byte digest of
+ * the key id instead of its text, so a token is about half as long. The
+ * issuer throws argument for what the compact profile cannot carry: a
+ * custom number that is not an integer in int64 written in canonical form
+ * (1.5, 1e3, -0), a time outside years 0000 to 9999, and a cnf that is not
+ * a kcb2.local or kcb2.public key. A cb2 token never opens here and a
+ * compact token never opens through {@link ClaimsTokens} (invalid). Holder
+ * proofs bind a compact access token as they bind a cb2 one.
+ */
+export interface CompactTokens {
+    /** The bytes of a key digest, 16. */
+    readonly keyDigestBytes: number;
+    /**
+     * Seals claims under a local key; the digest of its key id goes into
+     * the footer. Under a table, an iss or aud equal to an entry travels
+     * as its index.
+     */
+    seal(key: LocalKey, claims: Claims, implicit?: OptionalBytes, table?: ClaimTable | null): string;
+    /** Signs claims under a signing pair, under a table when given, as seal does. */
+    sign(key: SecretKey, claims: Claims, implicit?: OptionalBytes, table?: ClaimTable | null): string;
+    /**
+     * Opens a sealed compact token under the rules; the claims, or a
+     * Cb2Error. A token opens only under the table it was made under, or
+     * with none when it was made with none; otherwise it is invalid.
+     */
+    open(token: string, key: LocalKey, rules: Rules, implicit?: OptionalBytes, table?: ClaimTable | null): Claims;
+    /** Verifies a signed compact token under the rules and the table, as open does. */
+    verify(token: string, key: PublicKey, rules: Rules, implicit?: OptionalBytes, table?: ClaimTable | null): Claims;
+    /** The key digest the footer carries, unverified, to pick a key; null when none. */
+    peekKeyDigest(token: string): Uint8Array | null;
+    /**
+     * The key digest of a key id, such as a key's keyId, to compare with
+     * {@link CompactTokens.peekKeyDigest}; throws argument for an id the
+     * library refuses. The empty id is valid.
+     */
+    keyDigest(id: string): Uint8Array;
+}
+
+/**
+ * A claim table for compact tokens (docs/PROTOCOL.md section 15.5): an
+ * ordered list of 1 to 256 distinct, non-empty strings, typically the
+ * issuer's name and its audiences, that the issuer and its verifiers
+ * configure alike and never send. Its digest is bound into the
+ * authenticated implicit assertion, so a token opens only under the same
+ * table. Without a table, an implicit assertion that starts with
+ * "kcb3.table." throws argument. A table is immutable.
+ */
+export interface ClaimTable {
+    readonly [kind]: "ClaimTable";
+    /** The raw handle into the wasm heap; throws once the table is freed. */
+    readonly ptr: number;
+    /** True once {@link ClaimTable.free} ran. */
+    readonly freed: boolean;
+    /** The 32-byte digest of the table, so two parties can compare their tables. */
+    digest(): Uint8Array;
+    /** Releases the handle; safe to call twice. */
+    free(): void;
+}
+
+/** The constructors of {@link ClaimTable}. */
+export interface ClaimTableConstructor {
+    /** Wraps a raw handle from the core; fromEntries is the usual way in. */
+    new (ptr: number): ClaimTable;
+    readonly prototype: ClaimTable;
+    /** The bytes of a table digest, 32. */
+    readonly digestBytes: number;
+    /**
+     * A table from its entries; throws argument for an empty list, more
+     * than 256 entries, an empty or repeated entry, or an entry the library
+     * refuses as an identifier.
+     */
+    fromEntries(entries: readonly string[]): ClaimTable;
+}
+
 /** Holder proofs: the client's proof that it holds the key in cnf. */
 export interface HolderProofs {
     /**
@@ -397,6 +475,19 @@ export interface Cb2Core {
     _cb2_token_open(key: number, token: number, tokenLen: number, rulesJson: number, rulesLen: number, implicit: number, implicitLen: number, replay: number, proofReplay: number, user: number, outClaims: number, outLen: number): number;
     _cb2_token_verify(key: number, token: number, tokenLen: number, rulesJson: number, rulesLen: number, implicit: number, implicitLen: number, replay: number, proofReplay: number, user: number, outClaims: number, outLen: number): number;
     _cb2_peek_key_id(token: number, tokenLen: number, outId: number): number;
+    _cb2_compact_seal(key: number, claimsJson: number, claimsLen: number, implicit: number, implicitLen: number, outToken: number, outLen: number): number;
+    _cb2_compact_sign(key: number, claimsJson: number, claimsLen: number, implicit: number, implicitLen: number, outToken: number, outLen: number): number;
+    _cb2_compact_open(key: number, token: number, tokenLen: number, rulesJson: number, rulesLen: number, implicit: number, implicitLen: number, replay: number, proofReplay: number, user: number, outClaims: number, outLen: number): number;
+    _cb2_compact_verify(key: number, token: number, tokenLen: number, rulesJson: number, rulesLen: number, implicit: number, implicitLen: number, replay: number, proofReplay: number, user: number, outClaims: number, outLen: number): number;
+    _cb2_compact_peek_key_digest(token: number, tokenLen: number, outDigest: number): number;
+    _cb2_compact_key_digest(id: number, len: number, outDigest: number): number;
+    _cb2_claim_table_from_json(entriesJson: number, len: number, out: number): number;
+    _cb2_claim_table_digest(table: number, outDigest: number): number;
+    _cb2_claim_table_free(table: number): void;
+    _cb2_compact_seal_with_table(key: number, table: number, claimsJson: number, claimsLen: number, implicit: number, implicitLen: number, outToken: number, outLen: number): number;
+    _cb2_compact_sign_with_table(key: number, table: number, claimsJson: number, claimsLen: number, implicit: number, implicitLen: number, outToken: number, outLen: number): number;
+    _cb2_compact_open_with_table(key: number, table: number, token: number, tokenLen: number, rulesJson: number, rulesLen: number, implicit: number, implicitLen: number, replay: number, proofReplay: number, user: number, outClaims: number, outLen: number): number;
+    _cb2_compact_verify_with_table(key: number, table: number, token: number, tokenLen: number, rulesJson: number, rulesLen: number, implicit: number, implicitLen: number, replay: number, proofReplay: number, user: number, outClaims: number, outLen: number): number;
     _cb2_holder_prove(client: number, htm: number, htmLen: number, htu: number, htuLen: number, nonce: number, nonceLen: number, accessToken: number, accessLen: number, jti: number, jtiLen: number, now: bigint, lifetime: bigint, outProof: number, outLen: number): number;
     _cb2_holder_prove_local(proofKey: number, htm: number, htmLen: number, htu: number, htuLen: number, nonce: number, nonceLen: number, accessToken: number, accessLen: number, jti: number, jtiLen: number, now: bigint, lifetime: bigint, outProof: number, outLen: number): number;
     _cb2_holder_normalize_target(uri: number, len: number, out: number): number;
@@ -418,12 +509,16 @@ export interface Cb2 {
     readonly RecipientKey: GeneratedKeyConstructor<RecipientKey>;
     /** kcb2.seal recipient public halves. */
     readonly RecipientPublicKey: KeyConstructor<RecipientPublicKey>;
+    /** Claim tables for compact tokens. */
+    readonly ClaimTable: ClaimTableConstructor;
     /** Raw cb2.local tokens. */
     readonly Local: LocalTokens;
     /** Raw cb2.public tokens. */
     readonly Public: PublicTokens;
     /** Claims tokens under rules. */
     readonly Token: ClaimsTokens;
+    /** Compact claims tokens under rules, cb3.local and cb3.public. */
+    readonly Compact: CompactTokens;
     /** Holder proofs. */
     readonly Holder: HolderProofs;
     /** kcb2.local-wrap. */

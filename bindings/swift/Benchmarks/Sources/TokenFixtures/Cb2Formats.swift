@@ -1,6 +1,6 @@
 import Cb2
 
-private func cb2Claims() -> Claims {
+func cb2Claims() -> Claims {
     [
         "iss": .string(SharedClaims.issuer), "sub": .string(SharedClaims.subject),
         "aud": .string(SharedClaims.audience), "exp": .string(SharedClaims.rfc3339(SharedClaims.expiresAt)),
@@ -9,7 +9,7 @@ private func cb2Claims() -> Claims {
     ]
 }
 
-private let cb2Rules = Rules(issuer: SharedClaims.issuer, audience: SharedClaims.audience)
+let cb2Rules = Rules(issuer: SharedClaims.issuer, audience: SharedClaims.audience)
 
 /// cb2.local: XChaCha20 and keyed BLAKE3 under a 32-byte key.
 struct Cb2Local: TokenFormat {

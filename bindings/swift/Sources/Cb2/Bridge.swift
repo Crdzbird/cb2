@@ -58,7 +58,7 @@ enum Bridge {
         return String(cString: pointer)
     }
 
-    static func required(_ value: String?) throws(Cb2Error) -> String {
+    static func required<T>(_ value: T?) throws(Cb2Error) -> T {
         guard let value else {
             throw .internal
         }

@@ -111,6 +111,106 @@ liboqs. `cb2.has_public()` and `cb2.has_seal()` say whether the loaded
 one has them; without them those calls raise `Cb2Error` with the name
 `unavailable`. `Holder.prove_local` is in every build.
 
+## Compact claims tokens (experimental)
+
+`Compact` makes the experimental compact formats of
+[section 15 of the protocol](https://github.com/Crdzbird/cb2/blob/main/docs/PROTOCOL.md),
+`cb3.local.` and `cb3.public.`. The cryptography is that of cb2.local
+and cb2.public (the same keys, the same 32-byte nonce and tag, the same
+Ed25519 and ML-DSA-65 pair), but the claims travel as strict canonical
+CBOR instead of JSON, and the footer is a 16-byte BLAKE3 digest of the
+key id instead of its text. A cb3.local token of typical claims is 40
+to 50 percent shorter than the cb2.local token of the same claims. The
+header name is a placeholder and the format may still change before it
+is released.
+
+`Compact` takes the same claims, the same `Rules` (replay callbacks
+included) and gives the same verdicts and claims back as `Token`:
+
+```python
+from cb2 import Compact, LocalKey, Rules, Token
+
+key = LocalKey.generate()
+claims = {
+    "iss": "https://issuer.example",
+    "aud": "api",
+    "sub": "user-1",
+    "exp": "2099-01-01T00:00:00+00:00",
+    "role": "admin",
+}
+token = Compact.seal(key, claims)
+print(token[:16], len(token), len(Token.seal(key, claims)))
+
+rules = Rules(issuer="https://issuer.example", audience="api")
+print(Compact.open(token, key, rules)["role"])
+print(Compact.peek_key_digest(token) == Compact.key_digest(key.paserk_id()))
+```
+
+prints (the token text differs on every run):
+
+    cb3.local.9mKC7Q 192 325
+    admin
+    True
+
+The differences from `Token`:
+
+- the two formats never cross: a cb2 token given to `Compact.open` or
+  `Compact.verify`, and a compact token given to `Token.open` or
+  `Token.verify`, are `invalid`;
+- a custom number must be an integer in int64, so `Compact.seal` and
+  `Compact.sign` refuse with `argument` what `Token` accepts: `1.5`,
+  `1000.0`, `-0.0` or `2**63`. Booleans, `None`, strings, lists and
+  objects carry over unchanged. Times must lie in years 0000 to 9999,
+  and `cnf` must be a `kcb2.local` or `kcb2.public` key;
+- the footer names the key by digest only. `Compact.peek_key_digest`
+  returns those 16 bytes unverified (`None` for a key without an id),
+  and `Compact.key_digest(key_id)` computes them for each key a
+  verifier holds, to pick the one that matches;
+- holder proofs bind a compact access token exactly as a cb2 one:
+  `Holder.prove_local` and `Holder.prove` take the compact token text
+  as `access_token`.
+
+### Claim tables
+
+An issuer and its verifiers may also share a `ClaimTable`: an ordered
+list of 1 to 256 distinct, non-empty identifier strings, typically the
+issuer's name and the audiences it serves. Under a table, an `iss` or
+`aud` equal to an entry travels as its index, so the token is shorter
+again; the claims come back as text and the rules check them as usual,
+so `issuer_mismatch`, `audience_mismatch` and the `allow_any_*` rules
+keep their meaning. The table is configuration, like a key: it is never
+sent, but its digest is bound into the token, which opens only under
+the same table in the same order. Under another table, or none, the
+verdict is `invalid`, and a token made without a table is `invalid`
+under one. Continuing the example above:
+
+```python
+from cb2 import ClaimTable
+
+table = ClaimTable(["https://issuer.example", "api", "billing"])
+print(table.digest().hex()[:16])
+short = Compact.seal(key, claims, table=table)
+print(len(short), len(token))
+print(Compact.open(short, key, rules, table=table)["iss"])
+```
+
+prints
+
+    767715f405471882
+    159 192
+    https://issuer.example
+
+`table=` is a keyword argument of `Compact.seal`, `Compact.sign`,
+`Compact.open` and `Compact.verify`, `None` by default.
+`ClaimTable(entries)` refuses with `argument` an empty list, more than
+256 entries, a repeated or empty entry, an entry that is not a string
+or not an identifier (control characters, zero-width spaces), and
+`table.digest()` returns its 32-byte digest (`ClaimTable.DIGEST_BYTES`)
+so two parties can compare their tables. A table is immutable and can
+be shared between threads. Without a table, an implicit assertion that
+starts with `kcb3.table.` is `argument`, since the format reserves that
+prefix for the table's digest.
+
 ## API overview
 
 Every class and function below is exported from `cb2`. A token or key
@@ -138,6 +238,11 @@ Claims tokens:
 | `Token.sign(secret: SecretKey, claims: Mapping[str, Any], implicit: bytes = b"")` | `str` |
 | `Token.verify(token: BytesLike, public: PublicKey, rules: RulesLike, implicit: bytes = b"")` | `Claims` |
 | `Token.peek_key_id(token: BytesLike)` | `str or None`, the key id in the footer, unverified, to pick a key |
+| `Compact.seal`, `Compact.open`, `Compact.sign`, `Compact.verify` | as the `Token` call of the same name, for the compact formats; each takes `table: ClaimTable or None = None` as a keyword |
+| `Compact.peek_key_digest(token: BytesLike)` | `bytes or None`, the 16-byte key digest in the footer, unverified |
+| `Compact.key_digest(key_id: BytesLike)` | `bytes`, the digest of a key id; `Compact.KEY_DIGEST_BYTES` is 16 |
+| `ClaimTable(entries: Iterable[str])` | `ClaimTable`; `.entries` is the tuple of entries |
+| `table.digest()` | `bytes`, the 32-byte digest of the table; `ClaimTable.DIGEST_BYTES` is 32 |
 
 Raw tokens, any bytes in and out with an optional footer, and no claim
 checks: `Local.seal(key, msg, footer=b"", implicit=b"") -> str`,
@@ -255,8 +360,9 @@ library.
 
 `examples/token_service.py` is a token service on the standard
 library's `http.server`. It issues cb2.local and cb2.public access
-tokens and serves `GET /me`, which opens or verifies the token and, for
-a token bound to a client key, checks the holder proof in the
+tokens, and compact cb3.local ones under a claim table of its issuer
+and audience, and serves `GET /me`, which opens or verifies the token
+and, for a token bound to a client key, checks the holder proof in the
 `CB2-Proof` header. Run without arguments it starts the service on a
 free port, drives it with a `urllib` client and prints each step:
 
@@ -265,6 +371,8 @@ free port, drives it with a `urllib` client and prints each step:
     ok   cb2.local token opens: 200 sub=alice
     ok   tampered cb2.local token is refused: 401 invalid
     ok   request without a token is refused: 401 missing_token
+    ok   compact token opens, 173 chars against 409: 200 sub=dave
+    ok   tampered compact token is refused: 401 invalid
     ok   cb2.public token verifies: 200 sub=bob
     ok   cb2.public token from another key is refused: 401 invalid
     ok   bound token without a proof is refused (public): 401 missing_proof
@@ -303,12 +411,26 @@ in every cell, and the table is the second of them:
 | token | create | validating decode | size |
 |---|---:|---:|---:|
 | cb2.local | 10.4 us | 12.7 us | 403 B |
+| cb3.local (compact) | 9.6 us | 11.9 us | 224 B |
+| cb3.local (compact, table) | 10.7 us | 12.2 us | 191 B |
 | JWT HS256 (PyJWT) | 12.2 us | 29.8 us | 259 B |
 | PASETO v4.local (pyseto) | 18.0 us | 26.9 us | 335 B |
 | cb2.public | 183.8 us | 131.3 us | 4816 B |
+| cb3.public (compact) | 191.3 us | 131.5 us | 4637 B |
+| cb3.public (compact, table) | 182.0 us | 126.3 us | 4604 B |
 | JWT EdDSA (PyJWT) | 41.8 us | 132.8 us | 302 B |
 | JWT ES256 (PyJWT) | 32.4 us | 88.3 us | 302 B |
 | PASETO v4.public (pyseto) | 42.0 us | 119.4 us | 336 B |
+
+The two compact rows without a table come from a later run on the
+same machine with the same versions, while other work was running on
+it; that run's cb2.local and cb2.public cells were within 7 percent of
+the ones above. The two rows with a claim table (`iss` and `aud` as
+entries) come from a third run under heavier load, whose cb2.local
+cells were up to 20 percent slower than the table's; compare their
+times with that run's compact rows without a table, which were 9.6 us
+and 12.2 us for cb3.local and 182.8 us and 129.7 us for cb3.public. The
+sizes do not depend on the run.
 
 What to read into it:
 
@@ -335,6 +457,13 @@ What to read into it:
   `Token.peek_key_id`; `key.clear_key_id()` leaves it out. None of the
   JWT or PASETO rows carries a key id. pyseto writes JSON with a space
   after each separator; cb2 and PyJWT write compact JSON.
+- The compact rows carry the same claims as CBOR with a 16-byte key
+  digest for a footer: cb3.local is 179 bytes shorter than cb2.local
+  and about as fast, since the cryptography is the same and the CBOR
+  is encoded and decoded in C++ from the same claims JSON. cb3.public
+  saves the same 179 bytes, which barely shows next to its signatures.
+  A claim table saves 33 more bytes here, the issuer's URL and the
+  audience written as two one-byte indexes, at no measurable cost.
 - These are one machine's numbers; run the script on yours. CI only
   runs it once with `--debug-single-value` to check that it works.
 

@@ -1,9 +1,10 @@
 """A token service on the standard library's http.server, and a client that drives it.
 
-The service issues cb2.local and cb2.public access tokens and serves one
-protected resource, GET /me, which opens or verifies the token under
-fixed rules and, for a token bound to a client key, checks the holder
-proof sent with the request.
+The service issues cb2.local and cb2.public access tokens, and compact
+cb3.local ones under a claim table of its issuer and audience, and
+serves one protected resource, GET /me, which opens or verifies the
+token under fixed rules and, for a token bound to a client key, checks
+the holder proof sent with the request.
 
     python token_service.py            run the demo: start the service, drive it, stop
     python token_service.py serve      keep the service running on 127.0.0.1:8080
@@ -12,6 +13,7 @@ Endpoints:
 
     POST /token/local    {"sub": ...}             a cb2.local access token
     POST /token/public   {"sub": ...}             a cb2.public access token
+    POST /token/compact  {"sub": ...}             a compact cb3.local access token, under the table
     POST /token/bound    {"sub": ..., "cnf": ...} a cb2.local token bound to the client's
                                                   kcb2.public key, or without cnf to a
                                                   kcb2.local proof key returned with it
@@ -37,7 +39,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import cb2
-from cb2 import Cb2Error, Holder, LocalKey, PublicKey, Rules, SecretKey, Token
+from cb2 import Cb2Error, ClaimTable, Compact, Holder, LocalKey, PublicKey, Rules, SecretKey, Token
 
 ISSUER = "https://issuer.example"
 AUDIENCE = "api"
@@ -65,6 +67,7 @@ class Issuer:
 
     def __init__(self) -> None:
         self.local_key = LocalKey.generate()
+        self.table = ClaimTable([ISSUER, AUDIENCE])
         self.secret_key = SecretKey.generate() if cb2.has_public() else None
         self.public_key = self.secret_key.public_key() if self.secret_key else None
         self.proofs = ReplayStore()
@@ -92,6 +95,8 @@ class Issuer:
             rules = Rules(
                 issuer=ISSUER, audience=AUDIENCE, proof=proof, request=request, proof_replay=self.proofs.first_time
             )
+        if token.startswith("cb3.local."):
+            return Compact.open(token, self.local_key, rules, table=self.table)
         if token.startswith("cb2.public.") and self.public_key is not None:
             return Token.verify(token, self.public_key, rules)
         return Token.open(token, self.local_key, rules)
@@ -119,6 +124,9 @@ def handler_for(issuer: Issuer) -> type[BaseHTTPRequestHandler]:
             route = urlsplit(self.path).path
             if route == "/token/local":
                 self.reply(200, {"token": Token.seal(issuer.local_key, issuer.claims(sub))})
+                return
+            if route == "/token/compact":
+                self.reply(200, {"token": Compact.seal(issuer.local_key, issuer.claims(sub), table=issuer.table)})
                 return
             if route == "/token/public":
                 if issuer.secret_key is None:
@@ -177,7 +185,7 @@ class Client:
             return e.code, refused
 
     def token(self, kind: str, body: dict[str, Any]) -> dict[str, Any]:
-        """Asks for an access token of kind (local, public or bound)."""
+        """Asks for an access token of kind (local, compact, public or bound)."""
         status, reply = self.call("POST", f"/token/{kind}", body)
         if status != 200:
             raise RuntimeError(f"/token/{kind} answered {status}: {reply}")
@@ -217,6 +225,9 @@ class Demo:
         self.expect("cb2.local token opens", *self.client.me(local), 200)
         self.expect("tampered cb2.local token is refused", *self.client.me(tampered(local)), 401, "invalid")
         self.expect("request without a token is refused", *self.client.call("GET", "/me"), 401, "missing_token")
+        compact = self.client.token("compact", {"sub": "dave"})["token"]
+        self.expect(f"compact token opens, {len(compact)} chars against {len(local)}", *self.client.me(compact), 200)
+        self.expect("tampered compact token is refused", *self.client.me(tampered(compact)), 401, "invalid")
         self.public_steps()
         self.holder_steps()
         return self.failures

@@ -18,6 +18,7 @@
 #include <vector>
 
 struct cb2_local_key { cb2::LocalKey key; };
+struct cb2_claim_table { cb2::ClaimTable table; };
 #ifdef CB2_HAS_PQ
 struct cb2_secret_key { cb2::SecretKey key; };
 struct cb2_public_key { cb2::PublicKey key; };
@@ -194,6 +195,41 @@ void install_callbacks(Rules& r, cb2_replay_fn replay, cb2_replay_fn proof_repla
 int finish_claims(cb2::Result<cb2::Claims> r, char** out_claims, std::size_t* out_len) {
     if (r.is_err()) return code_of(r.error());
     return give_text(r.value().to_json(), out_claims, out_len);
+}
+
+std::string_view implicit_of(const uint8_t* implicit, std::size_t len) {
+    return {reinterpret_cast<const char*>(implicit), implicit == nullptr ? 0 : len};
+}
+
+/// Parses claims JSON and issues a token from it with make(key, claims,
+/// implicit), for every claims token format.
+template <class Key, class F>
+int issue_claims(const Key* key, const char* claims_json, std::size_t claims_len, const uint8_t* implicit,
+                 std::size_t implicit_len, char** out_token, std::size_t* out_len, F&& make) {
+    return guarded([&] {
+        if (key == nullptr) return bad_argument;
+        auto c = cb2::Claims::from_json(sv(claims_json, claims_len));
+        if (c.is_err()) return bad_argument;
+        auto r = make(key->key, c.value(), implicit_of(implicit, implicit_len));
+        if (r.is_err()) return code_of(r.error());
+        return give_text(r.value(), out_token, out_len);
+    });
+}
+
+/// Reads the rules JSON, installs the callbacks and checks a token with
+/// check(token, key, rules, implicit), for every claims token format.
+template <class Key, class F>
+int check_claims(const Key* key, const char* token, std::size_t token_len, const char* rules_json, std::size_t rules_len,
+                 const uint8_t* implicit, std::size_t implicit_len, cb2_replay_fn replay, cb2_replay_fn proof_replay,
+                 void* user, char** out_claims, std::size_t* out_len, F&& check) {
+    return guarded([&] {
+        if (any_null(key, out_claims)) return bad_argument;
+        Rules r;
+        if (!read_rules(sv(rules_json, rules_len), r)) return bad_argument;
+        install_callbacks(r, replay, proof_replay, user);
+        return finish_claims(check(sv(token, token_len), key->key, r.rules, implicit_of(implicit, implicit_len)),
+                             out_claims, out_len);
+    });
 }
 
 }
@@ -486,31 +522,17 @@ int cb2_public_verify(const cb2_public_key* key, const char* token, size_t token
 
 /* Claims tokens */
 
+#define CB2_C_CALL(fn) [](const auto&... a) { return fn(a...); }
+
 int cb2_token_seal(const cb2_local_key* key, const char* claims_json, size_t claims_len, const uint8_t* implicit, size_t implicit_len,
                    char** out_token, size_t* out_len) {
-    return guarded([&] {
-        if (key == nullptr) return bad_argument;
-        auto c = cb2::Claims::from_json(sv(claims_json, claims_len));
-        if (c.is_err()) return bad_argument;
-        const std::string_view imp(reinterpret_cast<const char*>(implicit), implicit == nullptr ? 0 : implicit_len);
-        auto r = cb2::Token::seal(key->key, c.value(), imp);
-        if (r.is_err()) return code_of(r.error());
-        return give_text(r.value(), out_token, out_len);
-    });
+    return issue_claims(key, claims_json, claims_len, implicit, implicit_len, out_token, out_len, CB2_C_CALL(cb2::Token::seal));
 }
 
 int cb2_token_sign(const cb2_secret_key* key, const char* claims_json, size_t claims_len, const uint8_t* implicit, size_t implicit_len,
                    char** out_token, size_t* out_len) {
 #ifdef CB2_HAS_PQ
-    return guarded([&] {
-        if (key == nullptr) return bad_argument;
-        auto c = cb2::Claims::from_json(sv(claims_json, claims_len));
-        if (c.is_err()) return bad_argument;
-        const std::string_view imp(reinterpret_cast<const char*>(implicit), implicit == nullptr ? 0 : implicit_len);
-        auto r = cb2::Token::sign(key->key, c.value(), imp);
-        if (r.is_err()) return code_of(r.error());
-        return give_text(r.value(), out_token, out_len);
-    });
+    return issue_claims(key, claims_json, claims_len, implicit, implicit_len, out_token, out_len, CB2_C_CALL(cb2::Token::sign));
 #else
     (void)key; (void)claims_json; (void)claims_len; (void)implicit; (void)implicit_len; (void)out_token; (void)out_len;
     return CB2_UNAVAILABLE;
@@ -520,33 +542,82 @@ int cb2_token_sign(const cb2_secret_key* key, const char* claims_json, size_t cl
 int cb2_token_open(const cb2_local_key* key, const char* token, size_t token_len, const char* rules_json, size_t rules_len,
                    const uint8_t* implicit, size_t implicit_len, cb2_replay_fn replay, cb2_replay_fn proof_replay, void* user,
                    char** out_claims, size_t* out_len) {
-    return guarded([&] {
-        if (any_null(key, out_claims)) return bad_argument;
-        Rules r;
-        if (!read_rules(sv(rules_json, rules_len), r)) return bad_argument;
-        install_callbacks(r, replay, proof_replay, user);
-        const std::string_view imp(reinterpret_cast<const char*>(implicit), implicit == nullptr ? 0 : implicit_len);
-        return finish_claims(cb2::Token::open(sv(token, token_len), key->key, r.rules, imp), out_claims, out_len);
-    });
+    return check_claims(key, token, token_len, rules_json, rules_len, implicit, implicit_len, replay, proof_replay, user,
+                        out_claims, out_len, CB2_C_CALL(cb2::Token::open));
 }
 
 int cb2_token_verify(const cb2_public_key* key, const char* token, size_t token_len, const char* rules_json, size_t rules_len,
                      const uint8_t* implicit, size_t implicit_len, cb2_replay_fn replay, cb2_replay_fn proof_replay, void* user,
                      char** out_claims, size_t* out_len) {
 #ifdef CB2_HAS_PQ
-    return guarded([&] {
-        if (any_null(key, out_claims)) return bad_argument;
-        Rules r;
-        if (!read_rules(sv(rules_json, rules_len), r)) return bad_argument;
-        install_callbacks(r, replay, proof_replay, user);
-        const std::string_view imp(reinterpret_cast<const char*>(implicit), implicit == nullptr ? 0 : implicit_len);
-        return finish_claims(cb2::Token::verify(sv(token, token_len), key->key, r.rules, imp), out_claims, out_len);
-    });
+    return check_claims(key, token, token_len, rules_json, rules_len, implicit, implicit_len, replay, proof_replay, user,
+                        out_claims, out_len, CB2_C_CALL(cb2::Token::verify));
 #else
     (void)key; (void)token; (void)token_len; (void)rules_json; (void)rules_len; (void)implicit; (void)implicit_len;
     (void)replay; (void)proof_replay; (void)user; (void)out_claims; (void)out_len;
     return CB2_UNAVAILABLE;
 #endif
+}
+
+/* Compact claims tokens */
+
+int cb2_compact_seal(const cb2_local_key* key, const char* claims_json, size_t claims_len, const uint8_t* implicit,
+                     size_t implicit_len, char** out_token, size_t* out_len) {
+    return issue_claims(key, claims_json, claims_len, implicit, implicit_len, out_token, out_len,
+                        CB2_C_CALL(cb2::CompactToken::seal));
+}
+
+int cb2_compact_sign(const cb2_secret_key* key, const char* claims_json, size_t claims_len, const uint8_t* implicit,
+                     size_t implicit_len, char** out_token, size_t* out_len) {
+#ifdef CB2_HAS_PQ
+    return issue_claims(key, claims_json, claims_len, implicit, implicit_len, out_token, out_len,
+                        CB2_C_CALL(cb2::CompactToken::sign));
+#else
+    (void)key; (void)claims_json; (void)claims_len; (void)implicit; (void)implicit_len; (void)out_token; (void)out_len;
+    return CB2_UNAVAILABLE;
+#endif
+}
+
+int cb2_compact_open(const cb2_local_key* key, const char* token, size_t token_len, const char* rules_json,
+                     size_t rules_len, const uint8_t* implicit, size_t implicit_len, cb2_replay_fn replay,
+                     cb2_replay_fn proof_replay, void* user, char** out_claims, size_t* out_len) {
+    return check_claims(key, token, token_len, rules_json, rules_len, implicit, implicit_len, replay, proof_replay, user,
+                        out_claims, out_len, CB2_C_CALL(cb2::CompactToken::open));
+}
+
+int cb2_compact_verify(const cb2_public_key* key, const char* token, size_t token_len, const char* rules_json,
+                       size_t rules_len, const uint8_t* implicit, size_t implicit_len, cb2_replay_fn replay,
+                       cb2_replay_fn proof_replay, void* user, char** out_claims, size_t* out_len) {
+#ifdef CB2_HAS_PQ
+    return check_claims(key, token, token_len, rules_json, rules_len, implicit, implicit_len, replay, proof_replay, user,
+                        out_claims, out_len, CB2_C_CALL(cb2::CompactToken::verify));
+#else
+    (void)key; (void)token; (void)token_len; (void)rules_json; (void)rules_len; (void)implicit; (void)implicit_len;
+    (void)replay; (void)proof_replay; (void)user; (void)out_claims; (void)out_len;
+    return CB2_UNAVAILABLE;
+#endif
+}
+
+int cb2_compact_peek_key_digest(const char* token, size_t token_len, uint8_t** out_digest) {
+    return guarded([&] {
+        if (out_digest == nullptr) return bad_argument;
+        const auto d = cb2::CompactToken::peek_key_digest(sv(token, token_len));
+        if (!d) {
+            *out_digest = nullptr;
+            return static_cast<int>(CB2_OK);
+        }
+        std::size_t n = 0;
+        return give_bytes(d->value, out_digest, &n);
+    });
+}
+
+int cb2_compact_key_digest(const char* id, size_t len, uint8_t** out_digest) {
+    return guarded([&] {
+        if (out_digest == nullptr || !cb2::text::identifier_ok(sv(id, len))) return bad_argument;
+        const std::string d = cb2::CompactToken::footer_for(std::string(sv(id, len)));
+        std::size_t n = 0;
+        return give_bytes({reinterpret_cast<const uint8_t*>(d.data()), d.size()}, out_digest, &n);
+    });
 }
 
 int cb2_peek_key_id(const char* token, size_t token_len, char** out_id) {
@@ -557,6 +628,94 @@ int cb2_peek_key_id(const char* token, size_t token_len, char** out_id) {
         return static_cast<int>(CB2_OK);
     });
 }
+
+/* Claim tables */
+
+int cb2_claim_table_from_json(const char* entries_json, size_t len, cb2_claim_table** out) {
+    return guarded([&] {
+        if (out == nullptr) return bad_argument;
+        cb2::json::Value root;
+        if (!cb2::json::Reader::parse(sv(entries_json, len), root) || root.kind != cb2::json::Value::Kind::array)
+            return bad_argument;
+        std::vector<std::string> entries;
+        for (const auto& e : root.items) {
+            if (!e.is_string()) return bad_argument;
+            entries.push_back(e.text);
+        }
+        auto t = cb2::ClaimTable::make(std::move(entries));
+        if (t.is_err()) return code_of(t.error());
+        *out = new cb2_claim_table{std::move(t).value()};
+        return static_cast<int>(CB2_OK);
+    });
+}
+
+int cb2_claim_table_digest(const cb2_claim_table* table, uint8_t** out_digest) {
+    return guarded([&] {
+        if (table == nullptr) return bad_argument;
+        std::size_t n = 0;
+        return give_bytes(table->table.digest(), out_digest, &n);
+    });
+}
+
+void cb2_claim_table_free(cb2_claim_table* table) { delete table; }
+
+int cb2_compact_seal_with_table(const cb2_local_key* key, const cb2_claim_table* table, const char* claims_json,
+                                size_t claims_len, const uint8_t* implicit, size_t implicit_len, char** out_token,
+                                size_t* out_len) {
+    return issue_claims(key, claims_json, claims_len, implicit, implicit_len, out_token, out_len,
+                        [table](const auto& k, const auto& c, std::string_view i) {
+                            if (table == nullptr) return cb2::CompactToken::seal(k, c, i);
+                            return cb2::CompactToken::seal(k, c, table->table, i);
+                        });
+}
+
+int cb2_compact_sign_with_table(const cb2_secret_key* key, const cb2_claim_table* table, const char* claims_json,
+                                size_t claims_len, const uint8_t* implicit, size_t implicit_len, char** out_token,
+                                size_t* out_len) {
+#ifdef CB2_HAS_PQ
+    return issue_claims(key, claims_json, claims_len, implicit, implicit_len, out_token, out_len,
+                        [table](const auto& k, const auto& c, std::string_view i) {
+                            if (table == nullptr) return cb2::CompactToken::sign(k, c, i);
+                            return cb2::CompactToken::sign(k, c, table->table, i);
+                        });
+#else
+    (void)key; (void)table; (void)claims_json; (void)claims_len; (void)implicit; (void)implicit_len; (void)out_token;
+    (void)out_len;
+    return CB2_UNAVAILABLE;
+#endif
+}
+
+int cb2_compact_open_with_table(const cb2_local_key* key, const cb2_claim_table* table, const char* token,
+                                size_t token_len, const char* rules_json, size_t rules_len, const uint8_t* implicit,
+                                size_t implicit_len, cb2_replay_fn replay, cb2_replay_fn proof_replay, void* user,
+                                char** out_claims, size_t* out_len) {
+    return check_claims(key, token, token_len, rules_json, rules_len, implicit, implicit_len, replay, proof_replay, user,
+                        out_claims, out_len,
+                        [table](std::string_view t, const auto& k, const cb2::ValidationRules& r, std::string_view i) {
+                            if (table == nullptr) return cb2::CompactToken::open(t, k, r, i);
+                            return cb2::CompactToken::open(t, k, r, table->table, i);
+                        });
+}
+
+int cb2_compact_verify_with_table(const cb2_public_key* key, const cb2_claim_table* table, const char* token,
+                                  size_t token_len, const char* rules_json, size_t rules_len, const uint8_t* implicit,
+                                  size_t implicit_len, cb2_replay_fn replay, cb2_replay_fn proof_replay, void* user,
+                                  char** out_claims, size_t* out_len) {
+#ifdef CB2_HAS_PQ
+    return check_claims(key, token, token_len, rules_json, rules_len, implicit, implicit_len, replay, proof_replay, user,
+                        out_claims, out_len,
+                        [table](std::string_view t, const auto& k, const cb2::ValidationRules& r, std::string_view i) {
+                            if (table == nullptr) return cb2::CompactToken::verify(t, k, r, i);
+                            return cb2::CompactToken::verify(t, k, r, table->table, i);
+                        });
+#else
+    (void)key; (void)table; (void)token; (void)token_len; (void)rules_json; (void)rules_len; (void)implicit;
+    (void)implicit_len; (void)replay; (void)proof_replay; (void)user; (void)out_claims; (void)out_len;
+    return CB2_UNAVAILABLE;
+#endif
+}
+
+#undef CB2_C_CALL
 
 /* Holder proofs */
 

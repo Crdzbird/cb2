@@ -4,6 +4,149 @@ What was built, run and measured, and when, newest first. The README
 summarises it; this file keeps the detail. Everything ran on one Apple
 silicon Mac (M3 Max) unless an entry says otherwise.
 
+## 2026-11-07, Phase 2 of the compact-tokens branch: the claim table in the C ABI
+
+bindings/c exposes the claim table: the cb2_claim_table handle built by
+cb2_claim_table_from_json from a JSON array of strings, its 32-byte
+digest through cb2_claim_table_digest, and cb2_compact_seal_with_table,
+cb2_compact_open_with_table, cb2_compact_sign_with_table and
+cb2_compact_verify_with_table, where a NULL table means none. The
+existing functions are unchanged.
+
+Tests: test_claim_table in bindings/c/test/test_c.c checks seven refused
+inputs, the digest against the one tests/vectors/cb3.json records, a
+token at least 30 characters shorter that opens to the same claims JSON
+as one without a table, invalid without the table, with a reordered one
+and for a tableless token under the table, issuer_mismatch,
+audience_mismatch and allow_any under the table, the reserved implicit
+assertion refused without a table and accepted with one, NULL as no
+table, and cb3.public under a table. cb2_c_test passed in the release,
+ASan/UBSan and no-liboqs builds, CTest 11 of 11, and cb2_c.cpp compiles
+without warnings under GCC 16 with -Wall -Wextra -Wpedantic -Wshadow
+-Wconversion, with and without liboqs.
+
+## 2026-11-07, Phase 2 of the compact-tokens branch: the claim table
+
+include/cb2/claim_table.hpp adds ClaimTable, and CompactToken gains
+seal, open, sign and verify overloads that take one (PROTOCOL.md 15.5).
+An iss or aud found in the table travels as its index; the table's
+32-byte BLAKE3 digest is bound into the authenticated implicit assertion
+and never sent; a call without a table refuses an implicit assertion
+that starts with `kcb3.table.`. Tokens without a table are byte for byte
+those of Phase 1: every Phase 1 vector still reproduces.
+
+Tests: tests/test_claim_table.cpp (8 cases) covers the table rules
+(1 to 256 distinct identifiers), the digest over every entry and their
+order, the index encoding and every refusal of the reader, a token that
+opens only under the same table (refused without one, reordered, longer
+or with another implicit assertion), issuer_mismatch, audience_mismatch,
+expired and allow_any under a table, the reserved implicit assertion,
+and cb3.public under a table. The `table` member of tests/vectors/cb3.json
+(4 digests, 3 reproduced tokens with their authenticated implicit
+assertion and intermediates, 10 opens, 12 payloads, 5 refused tables, 1
+public token) is checked by the C++ suite and by tools/check_vectors.py,
+which implements 15.5 from the document: 81 new checks, and the whole
+checker 1,130 passed, 0 failed, 0 skipped. Release and ASan/UBSan: 126
+of 126 cases; without liboqs: 98 of 98; CTest 11 of 11. The new and
+changed files compile without warnings under GCC 16 with -Wall -Wextra
+-Wpedantic -Wshadow -Wconversion. fuzz_compact, which now also requires
+every payload accepted under a table to encode back to the same bytes
+and its token to be invalid without the table, ran 7,617,832 inputs in
+301 seconds with no failure (coverage 2065, 734 corpus entries).
+cb2_size has three new rows and its check passes in the release, ASan,
+no-liboqs and full builds: cb3.local under the table is 215 to 219
+characters (mean 217.458), cb3.public 4,628 to 4,632 and the bound
+cb3.public 7,280 to 7,284.
+
+## 2026-11-07, Phase 1 of the compact-tokens branch: cb3 in the C ABI
+
+bindings/c exposes the compact tokens: cb2_compact_seal, cb2_compact_open,
+cb2_compact_sign and cb2_compact_verify take the claims JSON and rules
+JSON of the cb2_token group, and cb2_compact_peek_key_digest and
+cb2_compact_key_digest give the 16-byte key digest. The four cb2_token
+functions now share the same two helpers, with unchanged behaviour.
+
+Tests: test_compact in bindings/c/test/test_c.c checks that a cb3.local
+token is shorter than the cb2.local token of the same claims and opens
+to the same claims JSON, that neither format opens as the other, the
+verdicts rules_incomplete, audience_mismatch, expired, replayed and
+invalid on a wrong implicit assertion, the peeked digest against the
+computed one, a key without an id, the refusal of a fraction the cb2
+issuer accepts, NULL handles, a cb3.local token bound to a local proof
+key with its holder proof, and cb3.public sign, verify and refusals.
+cb2_c_test passed in the release, ASan/UBSan and no-liboqs builds, the
+release CTest 11 of 11, and cb2_c.cpp compiles without warnings under
+GCC 16 with -Wall -Wextra -Wpedantic -Wshadow -Wconversion, with and
+without liboqs.
+
+## 2026-11-07, Phase 1 of the compact-tokens branch: cb3.local and cb3.public
+
+The experimental cb3 headers (PROTOCOL.md section 15) are in the C++
+library: include/cb2/cbor.hpp, the strict CBOR subset, and
+include/cb2/compact.hpp, CompactClaims and CompactToken. They reuse the
+cb2.local and cb2.public constructions under the headers `cb3.local.`
+and `cb3.public.`, with the claims in CBOR and a 16-byte BLAKE3 key
+digest as the footer.
+
+Tests: tests/test_compact.cpp (14 cases) covers the round trip, the
+canonical UUID jti, every refusal of the issuer, 36 payloads outside the
+profile, nesting to the cb2 limit, every verdict of cb2 on cb3.local,
+the exact token length with the 32-byte nonce and tag, cross-header
+refusal both ways and after relabelling the prefix, the key digest
+binding, a tamper sweep of every character, a cb3.local token bound to
+a local proof key, and cb3.public with a client key in cnf and its
+holder proof. tests/vectors/cb3.json (5 reproduced local tokens with
+their intermediates, 9 opens, 43 profile payloads, 5 refusals, a
+284-position tamper sweep, 2 public tokens) is checked by the C++ suite
+and by tools/check_vectors.py, which got its own CBOR reader and writer
+written from section 15: 411 cb3 checks, and the whole checker 1,049
+passed, 0 failed, 0 skipped. Release and ASan/UBSan: 117 of 117 cases;
+without liboqs: 90 of 90; the full release build with the C ABI,
+examples and playground: CTest 11 of 11 and cb2_c_test passed. The new
+files compile without warnings under GCC 16 with -Wall -Wextra
+-Wpedantic -Wshadow -Wconversion. fuzz_compact, which requires every
+accepted payload to encode back to the same bytes, ran 11,002,031
+inputs in 301 seconds from a seed corpus of the 50 vector payloads,
+with no failure (coverage 1951, 690 corpus entries).
+
+Sizes on the Phase 0 corpus, mean characters, cb2 then cb3: local 470.2
+and 260.2; local bound to a local proof key 554.2 and 308.2; public
+4,883.2 and 4,673.2; local bound to a client key pair 4,026.2 and
+2,912.2; public bound to a client key pair 8,439.2 and 7,325.2, which
+now fits an 8 KB header field. Timings on the same run: cb3.local seal
+3.65 us and open 2.56 (cb2.local 5.40 and 3.64); cb3.public sign 179.18
+and verify 117.96 (cb2.public 178.15 and 119.32).
+
+The C ABI and the language bindings do not expose cb3 yet.
+
+## 2026-11-07, Phase 0 of the compact-tokens branch: the size harness
+
+cb2_size (bench/bench_size.cpp, built with the tests) measures token
+sizes on a corpus of 1,000 claim sets drawn from a fixed seed, the
+corpus of docs/research/token-size/PLAN.md. Every length depends only
+on the claims, so the table is exact and the same on every run; three
+runs with fresh keys each matched bench/size_expected.txt with 0
+differences. `cb2_size --check` was shown to fail (exit 1) on a changed
+mean and on a row missing from the expected file. It passed in the
+release build, under ASan and UBSan, and without liboqs (the four
+local rows only), and as the CTest test cb2_size_check.
+
+Sizes in characters (bytes for the claims), minimum, mean and maximum:
+claims JSON 211, 217.167, 224; cb2.local 462, 470.194, 479; a cb2.local
+bound to a local proof key 546, 554.194, 563, with its cb2.holder-local
+proof 406; cb2.public 4875, 4883.194, 4892; a cb2.local bound to a
+client key pair 4018, 4026.194, 4035; a cb2.public bound to a client
+key pair 8431, 8439.194, 8448, with its cb2.holder-public proof 4819.
+Every bound cb2.public token is over the 8,192-byte header field
+default of nginx, and cb2.public and both public-key rows are over the
+4,096-byte cookie limit. This reproduces the 470 and 4,883 the plan
+starts from, which is the exit criterion of Phase 0.
+
+Timings on the same corpus, median of five passes: cb2.local seal 5.39
+us and open 3.90; cb2.public sign 183.59 and verify 126.86; a bound
+cb2.public request check (token and proof) 323.19. They are printed
+for reference and not checked.
+
 ## 2026-11-07, the Java and Kotlin README and JVM benchmarks
 
 bindings/java/README.md is rewritten for a first-time user, and

@@ -6,6 +6,8 @@
 library;
 
 export 'package:cb2/src/cb2_exception.dart';
+export 'package:cb2/src/claim_table.dart';
+export 'package:cb2/src/compact_token.dart';
 export 'package:cb2/src/holder.dart';
 export 'package:cb2/src/holder_rules.dart';
 export 'package:cb2/src/key_wrap.dart';

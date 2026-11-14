@@ -11,7 +11,9 @@ import {
     type Cb2,
     type Cb2Core,
     type Cb2ErrorName,
+    type ClaimTable,
     type Claims,
+    type CompactTokens,
     type HolderRequest,
     type LoadOptions,
     type LocalKey,
@@ -42,6 +44,13 @@ export type Checks = [
     Assert<Equal<Assignable<{ replay: (jti: string) => boolean }, Rules>, true>>,
     Assert<Equal<Assignable<{ now: string }, Rules>, false>>,
     Assert<Equal<Cb2["Cb2Error"], typeof Cb2Error>>,
+    Assert<Equal<Cb2["Compact"], CompactTokens>>,
+    Assert<Equal<ReturnType<CompactTokens["peekKeyDigest"]>, Uint8Array | null>>,
+    Assert<Equal<Assignable<ClaimTable, LocalKey>, false>>,
+    Assert<Equal<Assignable<LocalKey, ClaimTable>, false>>,
+    Assert<Equal<Assignable<string[], Parameters<Cb2["ClaimTable"]["fromEntries"]>[0]>, true>>,
+    Assert<Equal<Assignable<Parameters<Cb2["Token"]["open"]>, Parameters<CompactTokens["open"]>>, true>>,
+    Assert<Equal<Parameters<CompactTokens["open"]>[4], ClaimTable | null | undefined>>,
 ];
 
 export async function everything(wasm: Uint8Array): Promise<string[]> {
@@ -76,6 +85,21 @@ export async function everything(wasm: Uint8Array): Promise<string[]> {
     const kid: string | null = cb2.Token.peekKeyId(token);
     out.push(String(back.sub), String(kid));
 
+    const compact: string = cb2.Compact.seal(key, claims, "implicit");
+    const compactBack: Claims = cb2.Compact.open(compact, key, rules, "implicit");
+    const peeked: Uint8Array | null = cb2.Compact.peekKeyDigest(compact);
+    const digest: Uint8Array = cb2.Compact.keyDigest(key.paserkId());
+    const digestBytes: number = cb2.Compact.keyDigestBytes;
+    out.push(String(compactBack.aud), String(peeked?.length), String(digest.length), String(digestBytes));
+
+    const table: ClaimTable = cb2.ClaimTable.fromEntries(["https://issuer.example", "api"]);
+    const tableDigest: Uint8Array = table.digest();
+    const tabled: string = cb2.Compact.seal(key, claims, null, table);
+    const tabledBack: Claims = cb2.Compact.open(tabled, key, rules, undefined, table);
+    const tableFreed: boolean = table.freed;
+    out.push(String(tableDigest.length), String(tabledBack.iss), String(tableFreed), String(cb2.ClaimTable.digestBytes));
+    table.free();
+
     const sk: SecretKey = cb2.SecretKey.generate();
     const pk: PublicKey = sk.publicKey();
     const pk2: PublicKey = cb2.PublicKey.fromPaserk(pk.toPaserk());
@@ -84,6 +108,9 @@ export async function everything(wasm: Uint8Array): Promise<string[]> {
     const rawSigned: string = cb2.Public.sign(sk, "bytes");
     const rawVerified: Uint8Array = cb2.Public.verify(pk, rawSigned);
     out.push(String(verified.aud), String(rawVerified.length), pk.paserkId(), String(sk.keyId));
+    const compactSigned: string = cb2.Compact.sign(sk, claims);
+    const compactVerified: Claims = cb2.Compact.verify(compactSigned, pk2, rules);
+    out.push(String(compactVerified.iss));
 
     const request: HolderRequest = { htm: "GET", htu: "https://api.example/v1/me", nonce: "n" };
     const proof: string = cb2.Holder.prove(sk, request, signed, "p-1");

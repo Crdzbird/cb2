@@ -1,3 +1,18 @@
+## Unreleased
+
+- Re-exports `CompactToken` from package cb2, the experimental compact
+  claims tokens cb3.local and cb3.public. The native library on every
+  platform is built from bindings/c/src/cb2_c.cpp, so it carries the new
+  `cb2_compact_*` functions without a vendored copy to refresh.
+- A host test of a compact token round trip and its key digest.
+- Re-exports `ClaimTable` and the `table:` option of `CompactToken`, over
+  the `cb2_claim_table_*` and `cb2_compact_*_with_table` functions, which
+  the native library on every platform carries for the same reason.
+- A host test of a compact token under a claim table, and an example app
+  step that opens one.
+- The example app runs on Android, and a profile mode integration test
+  times every token format on the device with the Dart benchmark cases.
+
 ## 0.3.0
 
 - Android links no OpenSSL by default: `CB2_OPENSSL_CHACHA` is off on

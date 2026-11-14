@@ -99,12 +99,94 @@ depends on the claims). The core finds `cb2_core.wasm` next to
 |---|---|---|---|
 | `cb2.local` (`Token.seal`, `Token.open`) | the party that issues the token is the one that checks it, or shares a key with it: sessions, service to service calls inside one system. The claims are encrypted. | `LocalKey`, 32 bytes, shared | 250 to 450 characters |
 | `cb2.public` (`Token.sign`, `Token.verify`) | many parties must check tokens they cannot issue. The claims are signed, not encrypted. Ed25519 and ML-DSA-65 must both verify. | `SecretKey` signs, `PublicKey` verifies | about 4,800 characters |
+| compact `cb3.local`, `cb3.public` (`Compact`, experimental) | the same as the two above when the size of the token matters: the same keys, rules and verdicts, about half as long for `cb3.local`. See [Compact tokens](#compact-tokens-experimental). | the same as `cb2.local` and `cb2.public` | about 220 to 260 characters (local) |
 | holder proofs (`Holder.prove`, `Holder.proveLocal`) | a stolen token must be useless: the issuer puts a key in the token's `cnf` claim and the client proves it holds that key on every request | the proof key in `cnf`, or the client's `SecretKey` | about 360 (local) or 4,800 (public) characters |
 | `kcb2.local-wrap` (`KeyWrap`) | storing local keys encrypted under another local key | two `LocalKey`s | 144 characters |
 | `kcb2.seal` (`Seal`) | handing a local key to a recipient, safe against a future quantum computer (X-Wing) | the recipient's `RecipientKey` pair | about 1,600 characters |
 
 `Local` and `Public` are the same formats with any bytes as the message
 instead of claims, for callers who check the content themselves.
+
+## Compact tokens (experimental)
+
+`Compact` issues and checks the experimental `cb3.local` and
+`cb3.public` formats of docs/PROTOCOL.md section 15. They have the same
+cryptography as `cb2.local` and `cb2.public` and take the same claims
+object, the same rules (with the `replay` and `proofReplay` functions)
+and throw the same verdicts, but the claims travel as strict canonical
+CBOR instead of JSON, and the footer is a 16-byte digest of the key id
+instead of its text. A `cb3.local` token with the claims of the
+benchmark is 224 characters against 430 for `cb2.local`; `cb3.public`
+saves about 200 characters of its 4,800. The `cb3` name is a
+placeholder, so the API says "compact".
+
+```js
+const key = cb2.LocalKey.generate();
+const token = cb2.Compact.seal(key, { iss: "https://issuer.example", aud: "api", exp: "2099-01-01T00:00:00Z" });
+const claims = cb2.Compact.open(token, key, { issuer: "https://issuer.example", audience: "api" });
+
+const keys = [key];
+const digest = cb2.Compact.peekKeyDigest(token);
+const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+const chosen = keys.find((k) => digest !== null && same(cb2.Compact.keyDigest(k.keyId), digest));
+```
+
+- **Picking a key.** The footer carries no key id to read back, only its
+  digest: `Compact.peekKeyDigest(token)` returns the 16 bytes
+  (`Compact.keyDigestBytes`), unverified, or `null` when the token has
+  none, and `Compact.keyDigest(id)` computes the digest of a key id, such
+  as a key's `keyId`, so a verifier holding several keys can pick the one
+  whose digest matches. A key with its id cleared issues tokens without
+  a digest.
+- **What the issuer refuses.** `Compact.seal` and `Compact.sign` throw
+  `argument` for what the compact profile cannot carry: a custom number
+  that is not an integer in int64 written in canonical form (`1.5`, or
+  `1e300`, which `Token.seal` accepts), a time outside the years 0000 to
+  9999, and a `cnf` that is not a kcb2.local or kcb2.public key.
+- **The formats do not mix.** A `cb2` token never opens through
+  `Compact` and a compact token never opens through `Token`; both throw
+  `invalid`.
+- **Holder proofs** bind a compact access token exactly as they bind a
+  `cb2` one: `Holder.proveLocal(proofKey, request, accessToken, ...)`
+  over the `cb3.local` text, and the proof goes into the rules of
+  `Compact.open`.
+
+### Claim tables
+
+An issuer and its verifiers may agree on a claim table (docs/PROTOCOL.md
+section 15.5): an ordered list of 1 to 256 distinct, non-empty strings,
+typically the issuer's name and its audiences. Under a table an `iss` or
+`aud` equal to an entry travels as its index, which saves the length of
+the text; with the benchmark's claims, `cb3.local` goes from 224 to 191
+characters. The table is configuration, like a key: both sides hold the
+same list and it is never sent. Its digest is bound into the
+authenticated implicit assertion, so a token opens only under the table
+it was made under; under another table (the same entries in another
+order count as another table) or none, it throws `invalid`, and so does
+a token made without a table opened under one.
+
+```js
+const table = cb2.ClaimTable.fromEntries(["https://issuer.example", "api", "billing"]);
+const token = cb2.Compact.seal(key, claims, null, table);
+const back = cb2.Compact.open(token, key, { issuer: "https://issuer.example", audience: "api" }, null, table);
+table.free();
+```
+
+- The table is the last, optional argument of `Compact.seal`, `sign`,
+  `open` and `verify`, after the implicit assertion; `null` or leaving
+  it out means no table, so calls without one are unchanged.
+- `ClaimTable.fromEntries(entries)` throws `argument` for anything but
+  an array of 1 to 256 distinct, non-empty strings the library accepts
+  as identifiers. `table.digest()` returns its 32 bytes
+  (`ClaimTable.digestBytes`), so two parties can check they hold the
+  same table without sending it.
+- A table is a handle into the wasm heap, like a key: call `free()` when
+  it is no longer needed; using a freed table throws.
+- The rules keep their meaning: `issuer_mismatch`, `audience_mismatch`,
+  `allow_any_issuer` and `allow_any_audience` see the text, not the
+  index.
+- Without a table, an implicit assertion that starts with `kcb3.table.`
+  throws `argument`; under a table it is accepted.
 
 ## API overview
 
@@ -123,12 +205,22 @@ interface Cb2 {
     PublicKey: { fromBytes(bytes: Uint8Array): PublicKey; fromPaserk(text: string): PublicKey };
     RecipientKey: { generate(): RecipientKey; fromBytes(bytes: Uint8Array): RecipientKey; fromPaserk(text: string): RecipientKey };
     RecipientPublicKey: { fromBytes(bytes: Uint8Array): RecipientPublicKey; fromPaserk(text: string): RecipientPublicKey };
+    ClaimTable: { fromEntries(entries: readonly string[]): ClaimTable; digestBytes: number };
     Token: {
         seal(key: LocalKey, claims: Claims, implicit?: Opt): string;
         open(token: string, key: LocalKey, rules: Rules, implicit?: Opt): Claims;
         sign(key: SecretKey, claims: Claims, implicit?: Opt): string;
         verify(token: string, key: PublicKey, rules: Rules, implicit?: Opt): Claims;
         peekKeyId(token: string): string | null;
+    };
+    Compact: {
+        keyDigestBytes: number;
+        seal(key: LocalKey, claims: Claims, implicit?: Opt, table?: ClaimTable | null): string;
+        open(token: string, key: LocalKey, rules: Rules, implicit?: Opt, table?: ClaimTable | null): Claims;
+        sign(key: SecretKey, claims: Claims, implicit?: Opt, table?: ClaimTable | null): string;
+        verify(token: string, key: PublicKey, rules: Rules, implicit?: Opt, table?: ClaimTable | null): Claims;
+        peekKeyDigest(token: string): Uint8Array | null;
+        keyDigest(id: string): Uint8Array;
     };
     Local: {
         seal(key: LocalKey, msg: Bytes, footer?: Opt, implicit?: Opt): string;
@@ -203,9 +295,9 @@ all of them to 401 and logs the name.
 
 ## Memory
 
-Keys are handles into the wasm heap and are not collected by the garbage
-collector: call `free()` when a key is no longer needed (using a freed
-key throws). Everything else is copied out and released inside the
+Keys and claim tables are handles into the wasm heap and are not
+collected by the garbage collector: call `free()` when one is no longer
+needed (using it after that throws). Everything else is copied out and released inside the
 call, and key material in transit (the bytes and PASERK text given to
 the secret constructors, the PASERK text of a secret) is wiped before it
 is released.
@@ -349,6 +441,29 @@ What the tables say:
 - cb2 tokens name the key in a footer by default, which is 85 of the
   bytes above; after `clearKeyId()` the two cb2 tokens are 345 and 4,758
   bytes. The JWT and PASETO tokens here carry no key id.
+
+The benchmark also times the compact tokens (`Compact`), without and
+with a claim table of the issuer and the audience, which the tables
+above predate. The rows below come from one later Node run on the same
+machine and day, under much heavier load (load average 8 to 24), so they
+compare cb2 with compact within the run and not with the tables above:
+
+| key | token | issue (us) | verify (us) | token bytes |
+|---|---|--:|--:|--:|
+| shared | cb2.local (cb2, wasm) | 26.3 | 7.3 | 430 |
+| shared | cb3.local, compact (cb2, wasm) | 24.6 | 6.2 | 224 |
+| shared | cb3.local, compact, claim table (cb2, wasm) | 25.0 | 7.2 | 191 |
+| pair | cb2.public, Ed25519 + ML-DSA-65 (cb2, wasm) | 507 | 261 | 4843 |
+| pair | cb3.public, compact (cb2, wasm) | 629 | 220 | 4637 |
+| pair | cb3.public, compact, claim table (cb2, wasm) | 533 | 220 | 4604 |
+
+The byte counts are exact; the times are not. The compact tokens do the
+same cryptography as the cb2 ones, and the differences between their
+times are within the noise of this run: the cb3.public issue time was
+436 us in a short run just before it. `cb3.local` is about half the size
+of `cb2.local` and smaller than the HS256 JWT and the v4.local token of
+the same claims while still carrying a key digest, and the claim table
+takes another 33 bytes off.
 
 To run it: `cd bench && npm install && npm run bench` for Node (`npm run
 smoke` is the short run CI uses), and for the browser serve `bench/`

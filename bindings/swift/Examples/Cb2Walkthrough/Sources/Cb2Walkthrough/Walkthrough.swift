@@ -1,8 +1,9 @@
 import Cb2
 import Foundation
 
-/// Issues, opens and verifies cb2.local and cb2.public tokens, shows the
-/// refusals a verifier gives, and checks holder proofs of both modes.
+/// Issues, opens and verifies cb2.local and cb2.public tokens and their
+/// compact forms, shows the refusals a verifier gives, and checks holder
+/// proofs of both modes.
 ///
 /// Every call is synchronous; ``run()`` takes a few milliseconds, most of
 /// it ML-DSA-65 signing, so an app calls it off the main actor.
@@ -23,6 +24,7 @@ public struct Walkthrough: Sendable {
         do throws(Cb2Error) {
             try local(&log)
             try holderLocal(&log)
+            try compact(&log)
             if Library.hasPublic {
                 try publicTokens(&log)
             }

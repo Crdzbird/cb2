@@ -59,6 +59,9 @@
 
 namespace cb2 {
 
+class CompactClaims;
+class CompactToken;
+
 /// Unix time in seconds.
 using Seconds = int64_t;
 
@@ -317,6 +320,8 @@ private:
     }
 
     std::vector<std::pair<std::string, json::Value>> custom_;
+
+    friend class CompactClaims;
 };
 
 /// What a verifier requires of a token. exp is required unless
@@ -801,12 +806,21 @@ private:
                                                std::string_view token, bool public_purpose) {
         auto claims = Claims::from_json(payload);
         if (claims.is_err()) return claims;
-        const auto verdict = rules.check(claims.value());
-        if (verdict.is_err()) return Result<Claims>::err(verdict.error());
-        const auto holder = holder_step(claims.value(), rules, token, public_purpose);
-        if (holder.is_err()) return Result<Claims>::err(holder.error());
-        return claims;
+        return finish_parsed(std::move(claims.value()), rules, token, public_purpose);
     }
+
+    /// Steps four and five of validation on claims already parsed from an
+    /// authenticated payload; shared with the cb3 headers (compact.hpp).
+    [[nodiscard]] static Result<Claims> finish_parsed(Claims claims, const ValidationRules& rules,
+                                                      std::string_view token, bool public_purpose) {
+        const auto verdict = rules.check(claims);
+        if (verdict.is_err()) return Result<Claims>::err(verdict.error());
+        const auto holder = holder_step(claims, rules, token, public_purpose);
+        if (holder.is_err()) return Result<Claims>::err(holder.error());
+        return Result<Claims>::ok(std::move(claims));
+    }
+
+    friend class CompactToken;
 
     /// Step five of validation: the sender constraint. Nothing when the
     /// rules ignore it; a bearer token when cnf is absent and not required;
