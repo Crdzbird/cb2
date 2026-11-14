@@ -6,7 +6,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'cb2_flutter'
-  s.version          = '0.2.0'
+  s.version          = '0.3.0'
   s.summary          = 'The cb2 token library for Flutter.'
   s.description      = <<-DESC
 The C ABI of cb2, the post-quantum token library, packaged for Flutter.

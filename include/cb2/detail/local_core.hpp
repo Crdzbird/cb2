@@ -25,7 +25,9 @@
  * same keystream byte for byte, which the test suite checks across the
  * threshold, from an implementation that uses the CPU's vector unit where
  * libsodium's does not. Short messages stay on libsodium, whose call has
- * no setup cost.
+ * no setup cost. When the linked OpenSSL has no ChaCha20 (a build
+ * configured with no-chacha, or a provider set without it), every message
+ * stays on libsodium.
  */
 
 #include "base64url.hpp"
@@ -85,16 +87,18 @@ inline constexpr std::size_t OPENSSL_CHACHA_MIN_BYTES = 512;
 }
 
 #ifdef CB2_OPENSSL_CHACHA
-/// The same keystream through OpenSSL: HChaCha20 of the key and the
-/// first 16 nonce bytes (libsodium's crypto_core_hchacha20), then ChaCha20
-/// under that subkey with the IETF nonce layout, four zero bytes and the
-/// last 8 nonce bytes, counter 0. Identical to the 64-bit counter form for
-/// every length this library accepts. in and out are equal or disjoint.
-[[nodiscard]] inline bool xchacha20_xor_openssl(uint8_t* out, const uint8_t* in, std::size_t n,
-                                                const uint8_t* n2, const uint8_t* ek) noexcept {
-    static EVP_CIPHER* const cipher = EVP_CIPHER_fetch(nullptr, "ChaCha20", nullptr);
+/// The same keystream through OpenSSL's cipher: HChaCha20 of the key and
+/// the first 16 nonce bytes (libsodium's crypto_core_hchacha20), then
+/// ChaCha20 under that subkey with the IETF nonce layout, four zero bytes
+/// and the last 8 nonce bytes, counter 0. Identical to the 64-bit counter
+/// form for every length this library accepts. in and out are equal or
+/// disjoint. A null cipher, an OpenSSL without ChaCha20, falls back to
+/// libsodium, which yields the same bytes.
+[[nodiscard]] inline bool xchacha20_xor_evp(const EVP_CIPHER* cipher, uint8_t* out, const uint8_t* in,
+                                            std::size_t n, const uint8_t* n2, const uint8_t* ek) noexcept {
+    if (cipher == nullptr) return xchacha20_xor_sodium(out, in, n, n2, ek);
     if (n == 0) return true;
-    if (cipher == nullptr || n > static_cast<std::size_t>(INT32_MAX)) return false;
+    if (n > static_cast<std::size_t>(INT32_MAX)) return false;
     SecureArray<32> sub;
     if (crypto_core_hchacha20(sub.v, n2, ek, nullptr) != 0) return false;
     uint8_t iv[16] = {};
@@ -106,6 +110,14 @@ inline constexpr std::size_t OPENSSL_CHACHA_MIN_BYTES = 512;
                     static_cast<std::size_t>(len) == n;
     EVP_CIPHER_CTX_free(ctx);
     return ok;
+}
+
+/// xchacha20_xor_evp with the ChaCha20 of OpenSSL's default library
+/// context, fetched once.
+[[nodiscard]] inline bool xchacha20_xor_openssl(uint8_t* out, const uint8_t* in, std::size_t n,
+                                                const uint8_t* n2, const uint8_t* ek) noexcept {
+    static EVP_CIPHER* const cipher = EVP_CIPHER_fetch(nullptr, "ChaCha20", nullptr);
+    return xchacha20_xor_evp(cipher, out, in, n, n2, ek);
 }
 #endif
 

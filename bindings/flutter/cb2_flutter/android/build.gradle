@@ -1,5 +1,5 @@
 group = "dev.cb2.cb2_flutter"
-version = "0.1.0"
+version = "0.3.0"
 
 buildscript {
     repositories {
@@ -21,6 +21,11 @@ rootProject.allprojects {
 
 apply plugin: "com.android.library"
 
+// The ABIs the native library is built for, comma separated; each needs a
+// prefix under CB2_DEPS_ROOT. The default is every ABI Flutter builds for.
+def cb2Abis = (System.getenv("CB2_ANDROID_ABIS") ?: "arm64-v8a,armeabi-v7a,x86_64")
+    .split(",").collect { it.trim() }.findAll { !it.isEmpty() }
+
 android {
     namespace = "dev.cb2.cb2_flutter"
     compileSdk = 36
@@ -39,12 +44,17 @@ android {
 
     defaultConfig {
         minSdk = 24
+        ndk {
+            abiFilters.addAll(cb2Abis)
+        }
         externalNativeBuild {
             cmake {
                 arguments(
                     "-DCB2_DEPS_ROOT=" + (System.getenv("CB2_DEPS_ROOT") ?: ""),
+                    "-DCB2_DEPS_LIBS=" + (System.getenv("CB2_DEPS_LIBS") ?: ""),
                     "-DCB2_PQ=" + (System.getenv("CB2_PQ") ?: "ON"),
-                    "-DANDROID_STL=c++_shared"
+                    "-DCB2_OPENSSL_CHACHA=" + (System.getenv("CB2_OPENSSL_CHACHA") ?: "OFF"),
+                    "-DANDROID_STL=c++_static"
                 )
                 cppFlags("-std=c++20")
             }

@@ -54,7 +54,8 @@ the change is justified in section 9.
   layout (four zero bytes and the last 8 nonce bytes): the same bytes,
   from an implementation that uses the CPU's vector unit, checked across
   the threshold by the test suite and by every vector whose payload
-  crosses it.
+  crosses it. When the linked OpenSSL has no ChaCha20, every message
+  stays on libsodium.
 - `Ed25519-sign`, `Ed25519-verify` are libsodium's `crypto_sign_detached`
   and `crypto_sign_verify_detached`.
 - `ML-DSA-65-sign`, `ML-DSA-65-verify` are liboqs's `OQS_SIG_sign` and

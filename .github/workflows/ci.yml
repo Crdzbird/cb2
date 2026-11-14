@@ -275,8 +275,8 @@ jobs:
   # The Dart package and the Flutter plugin: format, strict analysis, the
   # hundred-line limit on every Dart file, the package tests and its CLI
   # example against the C ABI built here, then the iOS and macOS framework
-  # from pinned sources, the example app built for both and its
-  # integration test run on macOS.
+  # and the Android library for every ABI from pinned sources, the example
+  # app built for iOS and macOS and its integration test run on macOS.
   dart:
     runs-on: macos-15
     env:
@@ -332,6 +332,17 @@ jobs:
           key: apple-deps-${{ hashFiles('bindings/flutter/cb2_flutter/tool/build_xcframework.sh') }}
       - name: Build cb2_c.xcframework
         run: bash bindings/flutter/cb2_flutter/tool/build_xcframework.sh
+      - name: Cache the Android dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            bindings/flutter/cb2_flutter/build/android-deps
+            bindings/flutter/cb2_flutter/build/android-work/src
+          key: android-deps-${{ hashFiles('bindings/flutter/cb2_flutter/tool/build_android_deps.sh') }}
+      - name: Android library for every ABI (exports, needed libraries, 16 KB pages)
+        run: |
+          bash bindings/flutter/cb2_flutter/tool/build_android_deps.sh
+          bash bindings/flutter/cb2_flutter/tool/check_android_library.sh
       - name: Example app
         working-directory: bindings/flutter/cb2_flutter/example
         run: |

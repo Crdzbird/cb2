@@ -3,7 +3,8 @@
 # libsodium, BLAKE3 and liboqs (ML-DSA-65 and ML-KEM-768, no OpenSSL) from
 # the hash-pinned release tarballs the web and Linux builds use, linked
 # statically with bindings/c/src/cb2_c.cpp into one dynamic framework,
-# cb2_c.framework, that exports the cb2_* functions and nothing else.
+# cb2_c.framework, that exports the cb2_* functions of cb2_c.h and nothing
+# else; the build stops when a slice exports anything else.
 # Slices: iOS device (arm64), iOS simulator (arm64, x86_64) and macOS
 # (arm64, x86_64). The result is copied to ios/cb2_flutter/Frameworks and
 # macos/cb2_flutter/Frameworks, where the podspecs and the Swift packages
@@ -24,7 +25,10 @@ BLAKE3_SHA256="ddd24f26a31d23373e63d9be2e723263ac46c8b6d49902ab08024b573fd2a416"
 LIBOQS_VERSION="0.15.0"
 LIBOQS_SHA256="3983f7cd1247f37fb76a040e6fd684894d44a84cecdcfbdb90559b3216684b5c"
 JOBS="$(sysctl -n hw.ncpu)"
+EXPORTS="$OUT/cb2_c.exports"
 mkdir -p "$CACHE/src" "$OUT"
+sed -nE 's/^CB2_API[^(]*[^a-z0-9_](cb2_[a-z0-9_]+)\(.*/_\1/p' "$ROOT/bindings/c/include/cb2_c.h" \
+    | sort -u > "$EXPORTS"
 
 fetch() {
     local url="$1" sha="$2" name="$3"
@@ -102,13 +106,25 @@ build_slice() {
     local install_name="@rpath/cb2_c.framework/cb2_c"
     [[ "$sdk" == "macosx" ]] && install_name="@rpath/cb2_c.framework/Versions/A/cb2_c"
     mkdir -p "$obj"
-    xcrun --sdk "$sdk" clang++ $flags -std=c++20 -fvisibility=hidden -DCB2_HAS_PQ=1 -DCB2_C_BUILDING \
+    xcrun --sdk "$sdk" clang++ $flags -std=c++20 -DNDEBUG -fvisibility=hidden -fvisibility-inlines-hidden \
+        -ffunction-sections -fdata-sections -DCB2_HAS_PQ=1 -DCB2_C_BUILDING \
         -I"$ROOT/bindings/c/include" -I"$ROOT/include" -I"$prefix/include" \
         -c "$ROOT/bindings/c/src/cb2_c.cpp" -o "$obj/cb2_c.o"
     xcrun --sdk "$sdk" clang++ $flags -dynamiclib -install_name "$install_name" \
         -compatibility_version 0.1.0 -current_version "$VERSION" -Wl,-dead_strip \
-        -Wl,-exported_symbol,'_cb2_*' -o "$obj/cb2_c" "$obj/cb2_c.o" \
+        -Wl,-exported_symbols_list,"$EXPORTS" -o "$obj/cb2_c" "$obj/cb2_c.o" \
         "$prefix/lib/libsodium.a" "$prefix/lib/libblake3.a" "$prefix/lib/liboqs.a"
+    xcrun strip -x "$obj/cb2_c"
+    check_exports "$obj/cb2_c"
+}
+
+check_exports() {
+    local lib="$1"
+    if ! diff <(xcrun nm -gU "$lib" | awk '{ print $3 }' | sort -u) "$EXPORTS" > /dev/null; then
+        echo "$lib exports other symbols than the cb2_* functions of cb2_c.h:" >&2
+        diff <(xcrun nm -gU "$lib" | awk '{ print $3 }' | sort -u) "$EXPORTS" >&2 || true
+        exit 1
+    fi
 }
 
 info_plist() {

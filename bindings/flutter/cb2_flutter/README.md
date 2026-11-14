@@ -11,17 +11,19 @@ import is enough. The format is described in the
 [docs/SPEC.md](../../../docs/SPEC.md) and
 [docs/PROTOCOL.md](../../../docs/PROTOCOL.md).
 
-Status: version 0.2.0 of the plugin, over cb2 0.1.0. cb2 has not yet
-been reviewed by anyone but its author. iOS and macOS are built and
-tested; Android, Linux and Windows are not verified yet.
+Status: version 0.3.0 of the plugin, over cb2 0.1.0. cb2 has not yet
+been reviewed by anyone but its author. iOS, macOS and Android are built
+and tested; Linux and Windows are not verified yet.
 
 ## Install
 
-The plugin is not on pub.dev, and its iOS and macOS framework is built
-locally rather than committed, so use it from a clone of the repository:
+The plugin is not on pub.dev, and its native libraries are built
+locally rather than committed, so use it from a clone of the repository
+and build them for the platforms the app targets:
 
     git clone https://github.com/Crdzbird/cb2
     cb2/bindings/flutter/cb2_flutter/tool/build_xcframework.sh
+    cb2/bindings/flutter/cb2_flutter/tool/build_android_deps.sh
 
 ```yaml
 dependencies:
@@ -29,8 +31,9 @@ dependencies:
     path: /path/to/cb2/bindings/flutter/cb2_flutter
 ```
 
-The script needs Xcode, cmake, ninja and make, and takes a few minutes
-the first time.
+The first script, for iOS and macOS, needs Xcode; the second, for
+Android, needs the Android NDK. Both need cmake, ninja and make, and
+take a few minutes the first time.
 
 ## Quick start
 
@@ -95,37 +98,90 @@ collected or at once by `dispose()`.
 ### iOS and macOS: built and tested
 
 The plugin bundles `cb2_c.framework`, a dynamic framework that exports
-the `cb2_*` functions and nothing else, from
+the `cb2_*` functions of `cb2_c.h` and nothing else, from
 `ios/cb2_flutter/Frameworks/cb2_c.xcframework` (and the same under
 `macos/`). `tool/build_xcframework.sh` fetches hash-pinned libsodium,
 BLAKE3 and liboqs (ML-DSA-65 and ML-KEM-768 only, without OpenSSL),
 compiles them and `cb2_c.cpp` for the iOS device (arm64), the iOS
 simulator (arm64, x86_64) and macOS (arm64, x86_64), and assembles the
-XCFramework; dependencies are cached under `build/apple-deps`. The
-minimum targets are iOS 15.0 and macOS 11.0, the oldest the Xcode C++
-library supports.
+XCFramework; dependencies are cached under `build/apple-deps`. Each
+slice is linked with the list of exported names read from `cb2_c.h`,
+dead-stripped and stripped of local symbols, and the script stops if a
+slice exports anything else. The minimum targets are iOS 15.0 and macOS
+11.0, the oldest the Xcode C++ library supports.
+
+Because the framework is dynamic, a release build keeps the library
+whole: nothing in the app refers to the `cb2_*` symbols, and Dart opens
+`cb2_c.framework/cb2_c` by name at run time. No OpenSSL is linked on
+iOS or macOS, so cb2.local runs every message through libsodium's
+XChaCha20.
 
 Both Swift Package Manager (`ios/cb2_flutter/Package.swift`, the default
 in current Flutter) and CocoaPods (`ios/cb2_flutter.podspec`, for apps
 that turn Swift Package Manager off) are supported; the example app was
 built and tested through both.
 
-### Android, Linux and Windows: not verified yet
+### Android: built and tested
+
+The Android build compiles `bindings/c/src/cb2_c.cpp` into
+`libcb2_c.so` with the NDK, for each ABI, against static libsodium,
+BLAKE3 and liboqs, and links libc++ statically. The library exports the
+61 `cb2_*` functions of `cb2_c.h` and nothing else, needs only `libc`,
+`libm` and `libdl`, links no OpenSSL, and aligns its segments to 16 KB
+pages. Stripped as an APK carries it, it is about 430 KB on arm64-v8a,
+330 KB on armeabi-v7a and 550 KB on x86_64 with cb2.public.
+
+1. Build the dependencies once, from the plugin directory:
+
+       tool/build_android_deps.sh
+
+   It fetches the same hash-pinned libsodium, BLAKE3 and liboqs as the
+   Apple script and builds them for API 24 with the NDK named by
+   `ANDROID_NDK_HOME`, or the newest one under `$ANDROID_HOME/ndk`, into
+   `build/android-deps/<abi>`. That directory is where the Android
+   build looks when `CB2_DEPS_ROOT` is not set.
+
+2. Build the app as usual, `flutter run` or `flutter build apk`.
+
+The Gradle build reads these environment variables, so set them in
+the environment of the `flutter` command and of the dependency script
+alike:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CB2_ANDROID_ABIS` | `arm64-v8a,armeabi-v7a,x86_64` | the ABIs the library is built for, comma separated |
+| `CB2_PQ` | `ON` | `OFF` builds cb2.local and holder proofs only, without liboqs |
+| `CB2_DEPS_ROOT` | `build/android-deps` of the plugin | a directory with one prefix (`include/`, `lib/`) per ABI |
+| `CB2_DEPS_LIBS` | `sodium;blake3`, plus `oqs` with `CB2_PQ` | the libraries to link, when they differ |
+| `CB2_OPENSSL_CHACHA` | `OFF` | `ON` sends cb2.local messages of 512 bytes or more through OpenSSL's ChaCha20, and links `crypto` from the prefix |
+
+The build stops, naming the missing directory, when `CB2_DEPS_ROOT` has
+no prefix for one of the ABIs. When another native plugin of the app
+ships fewer ABIs, limit both sides to the same list, for example
+`CB2_ANDROID_ABIS=arm64-v8a,x86_64` here, `ndk { abiFilters += listOf(
+"arm64-v8a", "x86_64") }` in the app's `android/app/build.gradle.kts`,
+and `flutter build apk --target-platform android-arm64,android-x64`;
+otherwise a phone of the missing ABI installs the app and fails on its
+first native call.
+
+`tool/check_android_library.sh` builds the library for each ABI the way
+Gradle does and checks the exports, the needed libraries and the page
+alignment; CI runs it.
+
+### Linux and Windows: not verified yet
 
 `src/CMakeLists.txt` compiles `bindings/c/src/cb2_c.cpp` against the cb2
 headers into `libcb2_c.so` (`cb2_c.dll` on Windows), but these builds
 have not been run. The dependencies are not vendored; tell the build
 where they are:
 
-- `CB2_DEPS_ROOT`: a prefix with `include/` and `lib/` for the target. On
-  Android, a directory with one prefix per ABI (`arm64-v8a`, `x86_64`,
-  ...). The Android build reads the environment variable and passes it
-  to CMake; on Linux and Windows CMake reads the environment variable
-  itself. Without it, Linux falls back to pkg-config.
+- `CB2_DEPS_ROOT`: a prefix with `include/` and `lib/` for the target,
+  read by CMake from the environment. Without it, Linux falls back to
+  pkg-config.
 - `CB2_DEPS_LIBS`: the library names to link when they differ from
-  `sodium;blake3;crypto` plus `oqs`.
-- `CB2_PQ`: `OFF` builds cb2.local only, without liboqs (environment
-  variable on Android, CMake option elsewhere).
+  `sodium;blake3` plus `crypto` and `oqs`.
+- `CB2_PQ`: `OFF` builds cb2.local only, without liboqs.
+- `CB2_OPENSSL_CHACHA`: on by default here; `OFF` drops libcrypto.
 
 Build the dependencies as static libraries for a self-contained
 `libcb2_c`; shared ones must also be bundled with the app.

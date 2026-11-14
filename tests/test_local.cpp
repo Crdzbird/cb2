@@ -234,4 +234,20 @@ TEST_CASE("local/the OpenSSL ChaCha20 path yields libsodium's keystream at every
     }
     CHECK(cb2::detail::OPENSSL_CHACHA_MIN_BYTES == 512);
 }
+
+TEST_CASE("local/an OpenSSL without ChaCha20 falls back to libsodium's keystream") {
+    for (std::size_t n : {std::size_t{0}, std::size_t{1}, std::size_t{511}, std::size_t{512}, std::size_t{513}, std::size_t{4096}}) {
+        uint8_t key[32], nonce[24];
+        randombytes_buf(key, 32);
+        randombytes_buf(nonce, 24);
+        std::vector<uint8_t> msg(n), a(n), b(n);
+        if (n != 0) randombytes_buf(msg.data(), n);
+        REQUIRE(cb2::detail::xchacha20_xor_sodium(a.data(), msg.data(), n, nonce, key));
+        REQUIRE(cb2::detail::xchacha20_xor_evp(nullptr, b.data(), msg.data(), n, nonce, key));
+        CHECK(a == b);
+        std::vector<uint8_t> inplace = msg;
+        REQUIRE(cb2::detail::xchacha20_xor_evp(nullptr, inplace.data(), inplace.data(), n, nonce, key));
+        CHECK(inplace == a);
+    }
+}
 #endif
