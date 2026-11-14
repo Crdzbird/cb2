@@ -1,27 +1,15 @@
-/// Dart bindings for cb2, the post-quantum token library, over its C ABI.
+/// Dart bindings for cb2, the post-quantum token library.
 ///
-/// Point the loader at the shared library with the environment variable
+/// Outside a browser the API runs over the C ABI through dart:ffi. Point
+/// the loader at the shared library with the environment variable
 /// CB2_C_LIBRARY, or let it find libcb2_c on the library path, or set
 /// `Cb2Library.name` before the first call.
+///
+/// In a browser the same API runs over the WebAssembly build of the C ABI
+/// that the JavaScript binding ships. Await `Cb2Library.load()` once
+/// before the first call; until it completes every call throws a
+/// `Cb2Exception` named unavailable.
 library;
 
-export 'package:cb2/src/cb2_exception.dart';
-export 'package:cb2/src/claim_table.dart';
-export 'package:cb2/src/compact_token.dart';
-export 'package:cb2/src/holder.dart';
-export 'package:cb2/src/holder_rules.dart';
-export 'package:cb2/src/key_wrap.dart';
-export 'package:cb2/src/library.dart';
-export 'package:cb2/src/library_info.dart';
-export 'package:cb2/src/local.dart';
-export 'package:cb2/src/local_key.dart';
-export 'package:cb2/src/proof_request.dart';
-export 'package:cb2/src/public.dart';
-export 'package:cb2/src/public_key.dart';
-export 'package:cb2/src/recipient_key.dart';
-export 'package:cb2/src/recipient_public_key.dart';
-export 'package:cb2/src/replay_check.dart';
-export 'package:cb2/src/rules.dart';
-export 'package:cb2/src/seal.dart';
-export 'package:cb2/src/secret_key.dart';
-export 'package:cb2/src/token.dart';
+export 'package:cb2/src/cb2_native.dart'
+    if (dart.library.js_interop) 'package:cb2/src/cb2_web.dart';

@@ -9,10 +9,11 @@ itself is described in the [root README](../../README.md),
 [docs/SPEC.md](../../docs/SPEC.md) and
 [docs/PROTOCOL.md](../../docs/PROTOCOL.md).
 
-Status: version 0.2.0 of the package, over cb2 0.1.0. cb2 has not yet
+Status: version 0.3.0 of the package, over cb2 0.1.0. cb2 has not yet
 been reviewed by anyone but its author. Flutter apps use
 [`cb2_flutter`](../flutter/cb2_flutter), which ships the native library
-and re-exports this API.
+and re-exports this API. In a browser the same import runs over the
+WebAssembly build of the library; see [In a browser](#in-a-browser).
 
 ## Install
 
@@ -146,6 +147,83 @@ download release binaries this repository does not publish. Once such
 binaries exist, a hook can fetch the one for the target, with the loader
 above kept as the fallback for local builds.
 
+## In a browser
+
+`package:cb2/cb2.dart` is a conditional export. Outside a browser it is
+the dart:ffi API above; compiled with dart2js or dart2wasm it is the same
+API over the WebAssembly build of the C ABI that the
+[JavaScript binding](../js) ships, so every call runs the same C++ and
+gives the same tokens and verdicts. The browser suites run every check
+of the native suite unchanged, the holder proof vectors of
+`tests/vectors/proofs.json`, and proofs that cross between the browser
+and the native library in both directions.
+
+The engine lives in this package under `js/`: `js/src/*.js` is the
+binding and `js/dist/cb2_core.js` with `cb2_core.wasm` its core, byte
+for byte the files of `bindings/js` (`tool/sync_web_engine.sh` copies
+them, and `--check` fails CI when they drift). A browser cannot load
+WebAssembly synchronously, so load it once before the first call:
+
+```dart
+import 'package:cb2/cb2.dart';
+
+Future<void> main() async {
+  await Cb2Library.load();
+  final proofKey = LocalKey.fromPaserk(proofKeyText);
+  final proof = Holder.proveLocal(
+    proofKey,
+    htm: 'POST',
+    htu: Holder.normalizeTarget('https://api.example/ojo.v1.Auth/Refresh'),
+    accessToken: accessToken,
+    jti: jti,
+    now: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+  );
+  proofKey.dispose();
+}
+```
+
+`Cb2Library.load` imports the module at `Cb2Library.engineUrl`, resolved
+against the document's base URI. It defaults to
+`assets/packages/cb2/js/src/cb2.js`, where Flutter serves the assets
+this package declares, so a Flutter web app needs nothing more. Another
+app serves `js/` itself and points the loader at it, before the load or
+at build time:
+
+```dart
+Cb2Library.engineUrl = 'cb2/js/src/cb2.js';
+```
+
+    dart compile js -DCB2_WEB_ENGINE=cb2/js/src/cb2.js ...
+
+The engine fails closed. Until `load` completes, every call throws a
+`Cb2Exception` named `unavailable` (code 6, `Cb2Exception.unavailable`),
+and so does a module that is not the binding. A module or core that
+cannot be fetched or instantiated rejects `load` with the browser's
+error, nothing is loaded, and the next `load` tries again;
+`Cb2Library.isLoaded` says whether calls are served. Serve
+`cb2_core.wasm` as `application/wasm` so the browser compiles it while
+it streams; with another type the core still loads, from a full
+download.
+
+What differs in a browser:
+
+- Keys and claim tables are objects of the JavaScript binding in the
+  engine's heap: `handle` is a `JSObject`, and `adopt` takes one. A
+  `Finalizer` frees them when collected; `dispose` frees one at once.
+- `Cb2Library.name`, `preferBundled` and `candidates()` exist so code
+  that names the native library compiles, but there is no native
+  library; `candidates()` lists the engine URL. Outside a browser,
+  `engineUrl` and `bundledEngine` exist for the same reason, and `load`
+  opens the native library early so a missing one fails there.
+- Claims cross the JavaScript binding as JSON, so an integer claim is
+  exact up to 2^53; registered times are text, and Unix seconds stay
+  well inside that.
+- The build carries cb2.public and kcb2.seal: `hasPublic()` and
+  `hasSeal()` are true.
+
+Nothing else is native only: every type and call of the API overview
+works in a browser.
+
 ## Example
 
 `example/cb2_example.dart` issues, opens and verifies a cb2.local and a
@@ -241,6 +319,15 @@ Run it yourself:
     dart format --set-exit-if-changed .
     dart analyze --fatal-infos
     CB2_C_LIBRARY=/path/to/libcb2_c.dylib dart test
+    CB2_C_LIBRARY=/path/to/libcb2_c.dylib dart test -p chrome
+    CB2_C_LIBRARY=/path/to/libcb2_c.dylib dart test -p chrome -c dart2wasm
+    bash tool/sync_web_engine.sh --check
+
+The browser suites under `test/web` need Chrome and `CB2_C_LIBRARY` too:
+the cross checks spawn a VM isolate (`spawnHybridUri`) that answers the
+browser with the native library. After `bindings/js/build.sh` or a
+change under `bindings/js/src`, run `tool/sync_web_engine.sh` to refresh
+the copy under `js/`.
 
 The package follows `very_good_analysis` with strict casts, inference
 and raw types. Every Dart file holds one class and stays under a hundred
@@ -249,5 +336,7 @@ exported; `KeyCalls` serves all five key kinds, since their entry points
 share one naming scheme. Keys are created by static methods
 (`LocalKey.generate`, `LocalKey.fromPaserk`, ...) rather than
 constructors, since a key is a native handle and cannot be a const
-value. CI runs all of the above, the example, and a short smoke run of
+value. The browser implementation sits under `lib/src/web`, one class
+per file like the native one, and `lib/cb2.dart` picks one of the two
+barrels, `lib/src/cb2_native.dart` or `lib/src/cb2_web.dart`. CI runs all of the above, the example, and a short smoke run of
 the benchmark.

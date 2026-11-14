@@ -1,5 +1,5 @@
-import 'package:cb2/src/ffi/loaded.dart';
-import 'package:ffi/ffi.dart';
+import 'package:cb2/src/error_name.dart'
+    if (dart.library.js_interop) 'package:cb2/src/web/error_name.dart';
 
 /// A verdict or failure reported by the cb2 library.
 ///
@@ -17,11 +17,12 @@ final class Cb2Exception implements Exception {
   /// The stable name of the verdict.
   final String name;
 
+  /// The code of unavailable: the library cannot serve the call, as when
+  /// a build lacks cb2.public, or the browser engine is not loaded.
+  static const int unavailable = 6;
+
   /// The name the library gives [code].
-  static String nameOf(int code) {
-    final text = bindings.core.errorName(code);
-    return text.cast<Utf8>().toDartString();
-  }
+  static String nameOf(int code) => errorNameOf(code);
 
   /// Throws a [Cb2Exception] when [code] is not success.
   static void check(int code) {

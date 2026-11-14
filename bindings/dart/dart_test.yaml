@@ -1,0 +1,3 @@
+# The browser suites in test/web load the engine copy under js/, which
+# the test runner serves from the package root.
+timeout: 2x

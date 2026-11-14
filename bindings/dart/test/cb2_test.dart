@@ -1,3 +1,6 @@
+@TestOn('vm')
+library;
+
 import 'package:test/test.dart';
 
 import 'checks/claim_table_checks.dart' as claim_table;

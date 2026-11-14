@@ -1,5 +1,30 @@
-## Unreleased
+## 0.3.0
 
+- Runs in a browser. `package:cb2/cb2.dart` is a conditional export:
+  dart:ffi outside a browser, and under dart2js or dart2wasm the same
+  API over the WebAssembly build of the C ABI that bindings/js ships
+  (`lib/src/web`). Every type and call works there: keys, `Token`,
+  `CompactToken`, `ClaimTable`, `Local`, `Public`, `Holder` (`prove`,
+  `proveLocal`, `normalizeTarget`), `KeyWrap`, `Seal`, `version`,
+  `hasPublic` and `hasSeal`, with the same results and `Cb2Exception`
+  verdicts. Keys there hold a `JSObject`, freed by `dispose` or a
+  `Finalizer`.
+- The engine ships as assets under `js/` (bindings/js `src/*.js` and
+  `dist/cb2_core.js`, `dist/cb2_core.wasm`, byte for byte), which
+  Flutter serves at `assets/packages/cb2/js/`.
+  `tool/sync_web_engine.sh` copies them and `--check` compares.
+- `Cb2Library.load()`: in a browser it imports the engine at
+  `Cb2Library.engineUrl` (default `Cb2Library.bundledEngine`, or the
+  `CB2_WEB_ENGINE` define) once, and until it completes every call
+  throws `Cb2Exception` unavailable; a failed load is retried on the
+  next call. Outside a browser it opens the native library early.
+  `Cb2Library.isLoaded` on both.
+- `Cb2Exception.unavailable`, the code 6 of unavailable.
+- Browser tests (`dart test -p chrome`, dart2js and dart2wasm): every
+  native check group unchanged, the holder proof vectors of
+  `tests/vectors/proofs.json`, the load lifecycle, and holder proofs
+  that cross between the browser and the native library in both
+  directions, through a VM isolate over `CB2_C_LIBRARY`.
 - `CompactToken`: the experimental compact claims tokens cb3.local and
   cb3.public of docs/PROTOCOL.md section 15, over `cb2_compact_seal`,
   `cb2_compact_open`, `cb2_compact_sign` and `cb2_compact_verify`. They
