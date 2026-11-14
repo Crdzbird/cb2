@@ -487,6 +487,11 @@ compares the `_cb2_*` functions declared on `Cb2Core` with `cb2_c.h`
 and with the exports of the wasm, and the members of the runtime API
 with the ones declared.
 
+Package `cb2` for Dart runs in a browser over a copy of `src/*.js` and
+the two dist files, under `bindings/dart/js`. After changing either,
+run `bash bindings/dart/tool/sync_web_engine.sh`; CI fails while the
+copy differs.
+
 ### Building the core
 
 The wasm32 dependencies (libsodium, BLAKE3, liboqs) come from

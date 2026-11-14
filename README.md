@@ -553,8 +553,8 @@ tests mirroring the C test.
 | Java | `bindings/java/cb2` | a Gradle library and Java module, `com.cipherbird.cb2`: JNI glue over the C ABI, the native libraries packed in the jar and loaded from it or from java.library.path | 23 JUnit 5 cases, run against both loading paths; an HTTP token service example; JMH benchmarks against JJWT, Nimbus and paseto4j |
 | Kotlin | `bindings/java/cb2-kotlin` | a Gradle library over the Java one: a rules DSL, a claims builder and extensions, `com.cipherbird.cb2.kotlin` | 12 JUnit 5 cases; a command line tour example |
 | Swift | `bindings/swift` | a Swift 6 package with typed throws and `Sendable` keys; the C ABI as an XCFramework for macOS and iOS apps (`scripts/build-xcframework.sh`) or a system library for development; a command-line and a SwiftUI example; a benchmark against jwt-kit and swift-paseto | 16 Swift Testing cases on both layouts, the examples built for macOS and the iOS simulator |
-| Dart | `bindings/dart` | package `cb2`: dart:ffi, callbacks through NativeCallable, a CLI example, and an AOT benchmark against dart_jsonwebtoken and paseto_dart | 14 `dart test` cases, the example and a benchmark smoke run, in CI |
-| Flutter | `bindings/flutter/cb2_flutter` | an FFI plugin over package `cb2`; a dynamic `cb2_c.xcframework` built from pinned sources for iOS and macOS (Swift Package Manager and CocoaPods), CMake for Android, Linux and Windows; an example app | host tests, the example on the iOS simulator and macOS with its integration test, in CI; Android, Linux and Windows builds are not verified here |
+| Dart | `bindings/dart` | package `cb2`: dart:ffi, callbacks through NativeCallable, a CLI example, and an AOT benchmark against dart_jsonwebtoken and paseto_dart; in a browser the same API over the WebAssembly build of `bindings/js`, behind a conditional export | 32 `dart test` cases on the VM, and 41 in Chrome under dart2js and dart2wasm (the native checks, the holder proof vectors, and proofs crossing between the browser and the native library), the example and a benchmark smoke run, in CI |
+| Flutter | `bindings/flutter/cb2_flutter` | an FFI plugin over package `cb2`; a dynamic `cb2_c.xcframework` built from pinned sources for iOS and macOS (Swift Package Manager and CocoaPods), CMake for Android, Linux and Windows; a web platform over the WebAssembly engine package `cb2` ships as assets; an example app | host tests, the example on the iOS simulator and macOS with its integration test, and built for the web, in CI; Android, Linux and Windows builds are not verified here |
 
 CI runs the Swift, Python, Node and Go tests on macOS and the Python,
 Node and Go tests on Linux after building the C ABI, and on both the
@@ -562,8 +562,9 @@ Gradle build of the Java and Kotlin libraries with their tests and
 examples. On macOS it also builds the Swift XCFramework, runs the Swift
 tests and the command-line example on it, and builds the SwiftUI
 example for macOS and the iOS simulator. A macOS job for Dart and
-Flutter runs the package tests and example, the plugin tests, and the
-Flutter example app built for the iOS simulator and run under its
+Flutter runs the package tests and example, the package tests again in
+Chrome under dart2js and dart2wasm, the plugin tests, and the Flutter
+example app built for the iOS simulator and the web and run under its
 integration test on macOS. A separate job checks the JavaScript package
 on Node 22.12 and 24 as npm would ship it.
 

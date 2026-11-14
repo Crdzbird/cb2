@@ -282,9 +282,12 @@ jobs:
 
   # The Dart package and the Flutter plugin: format, strict analysis, the
   # hundred-line limit on every Dart file, the package tests and its CLI
-  # example against the C ABI built here, then the iOS and macOS framework
-  # and the Android library for every ABI from pinned sources, the example
-  # app built for iOS and macOS and its integration test run on macOS.
+  # example against the C ABI built here, the package tests again in
+  # Chrome over the WebAssembly engine (dart2js and dart2wasm, with the
+  # copy of bindings/js checked), then the iOS and macOS framework and
+  # the Android library for every ABI from pinned sources, the example
+  # app built for iOS, macOS and the web and its integration test run on
+  # macOS.
   dart:
     runs-on: macos-15
     env:
@@ -319,6 +322,12 @@ jobs:
           dart analyze --fatal-infos
           dart test
           dart run example/cb2_example.dart
+      - name: Package cb2 in a browser
+        working-directory: bindings/dart
+        run: |
+          bash tool/sync_web_engine.sh --check
+          dart test -p chrome
+          dart test -p chrome -c dart2wasm
       - name: Benchmark smoke run
         working-directory: bindings/dart/benchmark
         run: |
@@ -359,6 +368,7 @@ jobs:
           flutter test
           flutter build ios --simulator --debug
           flutter build macos --debug
+          flutter build web
           flutter test integration_test/app_test.dart -d macos
 
   # The second implementation. tools/check_vectors.py was written from
