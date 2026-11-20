@@ -1,9 +1,9 @@
 #pragma once
 
 /**
- * The reference implementations from cryptolib (PASETO v4.local and
+ * The reference implementations from cipherbird (PASETO v4.local and
  * cb1.local) behind a plain function table, compiled in their own
- * translation unit because cryptolib's hash.hpp includes blake3.h inside
+ * translation unit because cipherbird's hash.hpp includes blake3.h inside
  * namespace crypto::hash and cannot share a translation unit with
  * cb2's global include of the same header.
  */

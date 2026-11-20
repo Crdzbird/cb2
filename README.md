@@ -226,7 +226,7 @@ Build options, all CMake booleans:
 | `CB2_BUILD_EXAMPLES` | ON | the runnable examples under `examples/` |
 | `CB2_BUILD_PLAYGROUND` | ON | the interactive playground |
 | `CB2_BUILD_BINDINGS` | ON | the C interface the language bridges use |
-| `CB2_BUILD_BENCH` | ON | the benchmark; `CB2_CRYPTOLIB_INCLUDE` (default `../cryptolib/include`) adds CipherBird's own rows when present |
+| `CB2_BUILD_BENCH` | ON | the benchmark; `CB2_CIPHERBIRD_INCLUDE` (default `../cryptolib/include`) adds CipherBird's own rows when present |
 | `CB2_FUZZ` | OFF | the libFuzzer targets (LLVM clang only) |
 | `CB2_SANITIZE` | OFF | AddressSanitizer and UBSan on tests and benchmark |
 | `CB2_CT_PROBE` | OFF | the constant-time probe, to run under Valgrind |
@@ -589,7 +589,7 @@ examples/international_text.cpp    the text policy against a legacy check, eight
 playground/                        cb2_playground and the two scripted, self-checking demo sessions
 web/                               the browser playground: page, C shim, Emscripten build, the built module, node smoke test
 fuzz/                              fuzz_local, fuzz_public, fuzz_claims, fuzz_seal, fuzz_holder, fuzz_sha3 (cb2's SHA3 against OpenSSL)
-bench/                             bench_main.cpp; reference.hpp, PASETO v1 to v4, JWS and JWE from their specifications, checked by tests/test_reference.cpp against the official vectors; bench_ref.cpp, CipherBird's v4.local and cb1.local when cryptolib is present
+bench/                             bench_main.cpp; reference.hpp, PASETO v1 to v4, JWS and JWE from their specifications, checked by tests/test_reference.cpp against the official vectors; bench_ref.cpp, CipherBird's v4.local and cb1.local when cipherbird is present
 docs/PROTOCOL.md                   the normative format for implementers, the vector file format, worked examples
 tools/check_vectors.py             an independent Python implementation that checks tests/vectors against docs/PROTOCOL.md alone
 bindings/c                         the C ABI (cb2_c.h, cb2_c.cpp) and its test; what every bridge below uses
@@ -622,7 +622,7 @@ vectors of every version (local tokens reproduced byte for byte,
 signatures verified, every failure vector refused) and against the RFC
 7515 HS256 example before any number was taken. They are plain
 implementations that allocate as they go, not tuned ones; the two
-cryptolib rows are CipherBird's tuned v4.local and cb1.local and show
+cipherbird rows are CipherBird's tuned v4.local and cb1.local and show
 what tuning is worth on the same construction. The JWS rows do no header
 parsing at all: the verifier knows its algorithm, as a safe JWT verifier
 must, which favours JWT, not cb2.
@@ -644,8 +644,8 @@ must, which favours JWT, not cb2.
 | JWS ES256 (ECDSA P-256) | 210 | 21.5 us | 22.5 us | 97.8 us | 58.1 us | 59.8 us | 135.5 us |
 | JWS RS256 (RSA-2048) | 466 | 593.2 us | 595.6 us | 710.6 us | 17.3 us | 18.6 us | 98.8 us |
 | JWS HS256 (HMAC-SHA256) | 167 | 1191 ns | 2348 ns | 81.8 us | 1145 ns | 2324 ns | 81.4 us |
-| cryptolib v4.local | 245 | 2015 ns | 5849 ns | 259.6 us | 2020 ns | 6034 ns | 265.9 us |
-| cryptolib cb1.local | 246 | 1299 ns | 5365 ns | 213.2 us | 1272 ns | 5435 ns | 227.7 us |
+| cipherbird v4.local | 245 | 2015 ns | 5849 ns | 259.6 us | 2020 ns | 6034 ns | 265.9 us |
+| cipherbird cb1.local | 246 | 1299 ns | 5365 ns | 213.2 us | 1272 ns | 5435 ns | 227.7 us |
 
 64 KiB throughput, seal / open, in MB/s:
 
@@ -666,8 +666,8 @@ must, which favours JWT, not cb2.
 | JWS ES256 | 639 | 461 |
 | JWS RS256 | 88 | 632 |
 | JWS HS256 | 764 | 768 |
-| cryptolib v4.local | 241 | 235 |
-| cryptolib cb1.local | 293 | 274 |
+| cipherbird v4.local | 241 | 235 |
+| cipherbird cb1.local | 293 | 274 |
 
 Reading, local tokens. At the sizes tokens actually have, cb2.local
 sits with the fastest of the family: opening a 64 B token costs 1.3 us,

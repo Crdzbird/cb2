@@ -602,7 +602,7 @@ and generator executables only, never for the library interface.
    reserved by the PASETO developers for a future official version, and
    continuing CipherBird's own cb1 identifier removes the collision.
 2. Resolved on 2026-11-04: cb2 supersedes cb1. cb2 lives in its own
-   repository with its own release cadence; cb1 stays in cryptolib only
+   repository with its own release cadence; cb1 stays in cipherbird only
    as a benchmark reference and gets no further work, and its removal
    there is a change for that repository. docs/MIGRATION.md says what a
    cb1 or PASETO v4 deployment changes to move.
@@ -612,7 +612,7 @@ and generator executables only, never for the library interface.
    `sig_with_ctx_support` for ML-DSA-65 (0.12 and later).
 4. Resolved on 2026-11-04: kcb2.seal exists (PROTOCOL.md section 14),
    on X-Wing (ML-KEM-768 and X25519, draft-connolly-cfrg-xwing-kem)
-   rather than on cryptolib's hybrid KEM, so that the recipient key pair
+   rather than on cipherbird's hybrid KEM, so that the recipient key pair
    and the combiner are a published construction with its own analysis
    and test vectors, used unchanged. The sealed body is the cb2.local
    construction under the shared secret with its own header and the

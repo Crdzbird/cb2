@@ -1,7 +1,7 @@
 #include "bench_ref.hpp"
 
-#include <cryptolib/paseto.hpp>
-#include <cryptolib/cb1_token.hpp>
+#include <cipherbird/paseto.hpp>
+#include <cipherbird/cb1_token.hpp>
 
 #include <span>
 
@@ -28,7 +28,7 @@ Impl make(const char* name) {
 
 }
 
-Impl v4_local() { return make<crypto::paseto::V4Local>("cryptolib v4.local"); }
-Impl cb1_local() { return make<crypto::cb1::Local>("cryptolib cb1.local"); }
+Impl v4_local() { return make<crypto::paseto::V4Local>("cipherbird v4.local"); }
+Impl cb1_local() { return make<crypto::cb1::Local>("cipherbird cb1.local"); }
 
 }

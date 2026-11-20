@@ -7,7 +7,7 @@
  * the allocating functions of every implementation. The references are
  * bench/reference.hpp, checked against the official PASETO vectors and
  * the RFC 7515 example by tests/test_reference.cpp. CipherBird's own
- * v4.local and cb1.local rows appear when cryptolib is found.
+ * v4.local and cb1.local rows appear when cipherbird is found.
  *
  * A second table measures one sender-constrained request: the client
  * makes a holder proof for GET https://api.example/v1/me and the server
@@ -26,7 +26,7 @@
 
 #include "reference.hpp"
 
-#ifdef CB2_BENCH_CRYPTOLIB
+#ifdef CB2_BENCH_CIPHERBIRD
 #include "bench_ref.hpp"
 #endif
 
@@ -210,7 +210,7 @@ std::vector<Scheme> schemes(const Keys& keys, const cb2::LocalKey& local) {
     v.push_back({"JWS HS256 (HMAC-SHA256)", false, false,
                  [k32](Span m, Span) { return ref::jws("{\"alg\":\"HS256\",\"typ\":\"JWT\"}", m, [k32](Span in, Bytes& sig) { return ref::hs256_sign(k32, in, sig); }); },
                  [k32](std::string_view t, Span, Bytes& out) { return ref::jws_verify(t, [k32](Span in, Span sig) { return ref::hs256_verify(k32, in, sig); }, out); }});
-#ifdef CB2_BENCH_CRYPTOLIB
+#ifdef CB2_BENCH_CIPHERBIRD
     for (const bench_ref::Impl& impl : {bench_ref::v4_local(), bench_ref::cb1_local()}) {
         v.push_back({impl.name, true, true,
                      [impl, k32](Span m, Span f) {
